@@ -180,9 +180,12 @@ Does not match (release-please's fixed format):
 
 3. **Merge by rebasing only.** Settings → General → Pull Requests: tick only **Allow rebase
    merging**, and **Automatically delete head branches**. Each commit of a pull request then lands
-   on `main` as it is, and release-please writes one changelog line per `feat:` or `fix:` commit,
-   so tidy a pull request's commits before merging it. The ruleset still lists all three merge
-   methods; the repository setting is the one that limits them. The same with the CLI:
+   on `main` with its own message (GitHub gives it a new SHA), and release-please writes one
+   changelog line per `feat:` or `fix:` commit, so tidy a pull request's commits before merging it.
+   A rebase merge may drop an empty commit, so put a `Release-As` footer on a commit that changes
+   files, not on an empty one (see [Version numbers](#version-numbers)). The ruleset still lists
+   all three merge methods; the repository setting is the one that limits them. The same with the
+   CLI:
 
    ```sh
    gh api -X PATCH repos/scarletkc/colab-playground -F allow_rebase_merge=true \
