@@ -189,21 +189,23 @@ published release then becomes impossible.
 
 ## CI on the release pull request
 
-GitHub starts no workflow for events caused by `GITHUB_TOKEN` (except `workflow_dispatch` and
-`repository_dispatch`). The release pull request is opened and updated with that token, so by
-default neither CI nor the Package dry run runs on it. `main` requires the CI jobs, so the release
-pull request cannot be merged until they have run on it:
+The release pull request is opened and updated with `GITHUB_TOKEN`, as `github-actions[bot]`. For
+the pull request events that token causes, GitHub creates the CI and Package runs but holds them
+until someone with write access approves them: they show as **Action required**. The repository's
+setting for approving workflows from outside contributors does not change this. `main` requires
+the CI jobs, so the release pull request cannot be merged until they have run on it:
 
-- **Simplest:** just before merging, **Close pull request**, then **Reopen pull request**. The reopen
-  is your event, so CI and the Package dry run (the pull request changes
-  `.release-please-manifest.json`) run on the exact release commit. If release-please updates the
-  pull request afterwards, that update again runs nothing.
+- **Simplest:** just before merging, open one of the waiting runs (from the pull request's checks or
+  the Actions tab) and click **Approve and run**. CI and the Package dry run (the pull request
+  changes `.release-please-manifest.json`) then run on the exact release commit. Each later update
+  of the pull request by release-please waits for approval again. Closing and reopening the pull
+  request works too: the reopen is your event, so its runs start without approval.
 - **Every time, automatically:** create a fine-grained personal access token limited to this
   repository with **Contents**, **Pull requests** and **Issues** set to read and write, and save it
   as the Actions secret `RELEASE_PLEASE_TOKEN`. release-please then acts as you, so every update of
-  the release pull request (each time its changelog grows) runs CI and the Package dry run, three
-  release builds each time. The job's `permissions` do not limit this token. When it
-  expires the Release job fails: renew it, or delete the secret and the workflow uses
+  the release pull request (each time its changelog grows) runs CI and the Package dry run without
+  approval, three release builds each time. The job's `permissions` do not limit this token. When
+  it expires the Release job fails: renew it, or delete the secret and the workflow uses
   `GITHUB_TOKEN` again.
 - **Without the checks:** a repository admin can tick **Merge without waiting for requirements to be
   met** on the pull request. The release commit then reaches `main` unchecked; CI still runs on

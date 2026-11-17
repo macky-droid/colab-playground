@@ -31,8 +31,9 @@ jobs:
       - uses: googleapis/release-please-action@v5
         id: release
         with:
-          # Optional secret: with a token other than GITHUB_TOKEN, CI also runs on the release
-          # pull request. Without it the built-in token is used (docs/RELEASING.md).
+          # Optional secret: with a token other than GITHUB_TOKEN, CI runs on the release pull
+          # request without waiting for approval. Without it the built-in token is used
+          # (docs/RELEASING.md).
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
