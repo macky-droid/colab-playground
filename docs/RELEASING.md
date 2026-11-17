@@ -18,7 +18,8 @@ The pieces:
 
 ## How a release happens
 
-1. Conventional commits land on `main` through pull requests.
+1. Pull requests are squash-merged into `main`: each becomes one conventional commit, titled after
+   the pull request.
 2. On each push, the **Release** workflow runs release-please. If anything since the last release
    would appear in the changelog, it opens or updates one pull request, `chore(main): release
    X.Y.Z`, from the branch `release-please--branches--main`. The pull request changes:
@@ -28,8 +29,8 @@ The pieces:
    - `.release-please-manifest.json`.
 
    Commits of hidden types alone (see the table below) open no pull request.
-3. When the release should go out, merge that pull request with **Rebase and merge** (one commit on
-   `main`, like every other commit). Nothing else needs editing.
+3. When the release should go out, merge that pull request with **Squash and merge**, like every
+   other pull request. Nothing else needs editing.
 4. That push runs Release again. release-please tags the merge commit `vX.Y.Z` and creates the
    GitHub release as a **draft**, with the changelog entry as its notes.
 5. In the same run, **Package** builds the downloads on Windows, Linux and macOS, writes
@@ -79,8 +80,8 @@ does, and what Package checks before anything is attached:
 - Before 1.0.0: a breaking change or a `feat` raises the minor version (0.1.3 → 0.2.0); any other
   commit that shows in the changelog raises the patch version. From 1.0.0 a breaking change raises
   the major version.
-- To choose a version (for example 1.0.0), add the footer `Release-As: 1.0.0` to a `feat` or `fix`
-  commit. A commit of a hidden type that carries the footer is listed in the changelog anyway, under
+- To choose a version (for example 1.0.0), end the squash commit of a `feat` or `fix` pull request
+  with the footer `Release-As: 1.0.0` (see [footers](#writing-commits-for-the-changelog)). A commit of a hidden type that carries the footer is listed in the changelog anyway, under
   its hidden section's name (for example "Chores").
 - The release type is `simple`, with the version written into `Cargo.toml` and `Cargo.lock` as
   `extra-files`. release-please's `rust` type and its `cargo-workspace` plugin cannot handle a
@@ -91,8 +92,14 @@ does, and what Package checks before anything is attached:
 
 ## Writing commits for the changelog
 
-Each commit subject becomes one changelog line; the body is not shown. The scope (`app`, `core`)
-is printed in bold before the line, and each line links to its commit.
+Each commit on `main` is a squash-merged pull request, and its subject is the pull request's title:
+**write the title as a conventional commit**, because it becomes one changelog line. The commits
+inside the pull request do not show. The body is not shown either. The scope (`app`, `core`) is
+printed in bold before the line, and each line links to its commit.
+
+**Footers** (`BREAKING CHANGE:`, `Release-As:`) belong at the end of the squash commit's message.
+When merging, check the message GitHub proposes (it lists the pull request's commits) and put the
+footer on its last lines.
 
 | Type | Section | Use it for |
 | --- | --- | --- |
@@ -178,18 +185,17 @@ Does not match (release-please's fixed format):
    requiring them would block every merge. The required names are the job names in
    [`ci.yml`](../.github/workflows/ci.yml): change one and the ruleset must follow.
 
-3. **Merge by rebasing only.** Settings → General → Pull Requests: tick only **Allow rebase
-   merging**, and **Automatically delete head branches**. Each commit of a pull request then lands
-   on `main` with its own message (GitHub gives it a new SHA), and release-please writes one
-   changelog line per `feat:` or `fix:` commit, so tidy a pull request's commits before merging it.
-   A rebase merge may drop an empty commit, so put a `Release-As` footer on a commit that changes
-   files, not on an empty one (see [Version numbers](#version-numbers)). The ruleset still lists
-   all three merge methods; the repository setting is the one that limits them. The same with the
-   CLI:
+3. **Merge by squashing only.** Settings → General → Pull Requests: tick only **Allow squash
+   merging**, with the default commit message set to "Default to pull request title and commit
+   details", and tick **Automatically delete head branches**. Each pull request then lands as one
+   commit titled after it, so fix-up commits (review fixes, Auto-fix) never reach the changelog;
+   this is also the merge method release-please recommends. The ruleset still lists all three merge
+   methods; the repository setting is the one that limits them. The same with the CLI:
 
    ```sh
-   gh api -X PATCH repos/scarletkc/colab-playground -F allow_rebase_merge=true \
-     -F allow_squash_merge=false -F allow_merge_commit=false -F delete_branch_on_merge=true
+   gh api -X PATCH repos/scarletkc/colab-playground -F allow_squash_merge=true \
+     -F allow_rebase_merge=false -F allow_merge_commit=false -F delete_branch_on_merge=true \
+     -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=COMMIT_MESSAGES
    ```
 
 4. Optionally, the token described in the next section.
