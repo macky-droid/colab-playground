@@ -43,7 +43,7 @@ impl Render for Strip {
 #[gpui::test]
 fn every_chrome_draws_its_strip_with_only_its_own_controls(cx: &mut TestAppContext) {
     for chrome in Chrome::ALL {
-        let layout = chrome.layout(false);
+        let layout = chrome.layout();
         let (_, cx) = mount(cx, move |_, cx| {
             i18n::install(Language::EnUs, cx);
             Strip {
@@ -85,16 +85,10 @@ fn every_chrome_draws_its_strip_with_only_its_own_controls(cx: &mut TestAppConte
                 "{chrome:?}: and the right edge"
             );
         }
-        let mark = cx.debug_bounds(MARK_SELECTOR).expect("the app mark");
-        let inset = cx.update(|window, cx| {
-            cx.theme()
-                .traffic_light_inset()
-                .to_pixels(window.rem_size())
-        });
         assert_eq!(
-            mark.left() >= inset,
-            layout.traffic_light_room,
-            "{chrome:?}: room for the traffic lights only on macOS"
+            cx.debug_bounds(MARK_SELECTOR).is_some(),
+            layout.mark,
+            "{chrome:?}: the mark and name, except beside macOS's traffic lights"
         );
     }
 }
@@ -104,8 +98,9 @@ fn the_app_window_carries_the_strip_for_this_os(cx: &mut TestAppContext) {
     let mut app = TestApp::new(cx);
     assert!(app.shown(TITLE_BAR_SELECTOR));
     // gpui's test window reports server decorations, as Windows and macOS windows do.
-    let layout = platform::chrome(Decorations::Server).layout(false);
+    let layout = platform::chrome(Decorations::Server).layout();
     assert_eq!(app.shown(CONTROLS_SELECTOR), layout.controls.is_some());
+    assert_eq!(app.shown(MARK_SELECTOR), layout.mark);
     for button in CAPTION_BUTTONS {
         assert_eq!(
             app.shown(button),
@@ -121,7 +116,6 @@ fn the_mark_and_the_account_slot_line_up_with_the_nav_items(cx: &mut TestAppCont
         .bounds(Route::Overview.nav_selector())
         .expect("a nav item");
     let account = app.bounds(ACCOUNT_SLOT_SELECTOR).expect("the account slot");
-    let mark = app.bounds(MARK_SELECTOR).expect("the app mark");
     let strip = app.bounds(TITLE_BAR_SELECTOR).expect("the strip");
     let brand = app.bounds(BRAND_SELECTOR).expect("the brand column");
     assert_eq!(
@@ -133,22 +127,8 @@ fn the_mark_and_the_account_slot_line_up_with_the_nav_items(cx: &mut TestAppCont
         account.size.width, nav.size.width,
         "and spans the same width"
     );
-    // As in `the_app_window_carries_the_strip_for_this_os`: the app draws this OS's chrome.
-    if platform::chrome(Decorations::Server)
-        .layout(false)
-        .traffic_light_room
-    {
-        let inset = app.cx.update(|window, cx| {
-            cx.theme()
-                .traffic_light_inset()
-                .to_pixels(window.rem_size())
-        });
-        assert_eq!(
-            mark.left(),
-            inset,
-            "the mark starts after the traffic lights"
-        );
-    } else {
+    // Drawn except on macOS (`the_app_window_carries_the_strip_for_this_os`).
+    if let Some(mark) = app.bounds(MARK_SELECTOR) {
         assert_eq!(mark.left(), nav.left(), "the mark sits over the nav icons");
     }
     assert!(

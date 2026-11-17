@@ -319,8 +319,9 @@ failure. It is the default in debug builds and the only backend used by UI tests
   it follows the theme and blends with the sidebar: Windows gets themed minimise / maximise /
   close buttons with native behaviour (drag, double-click to maximise, edge resize, Aero Snap and
   the Windows 11 snap-layout flyout); macOS keeps the native traffic lights over a transparent
-  title bar; Linux uses client-side decorations where the compositor expects them. Platform
-  differences are `cfg`-isolated.
+  title bar and shows no app mark or name beside them (the menu bar names the app); Linux uses
+  client-side decorations where the compositor expects them. Platform differences are
+  `cfg`-isolated.
 - Shell: sidebar navigation (Overview, Sessions, Plugins, Accounts, Settings), account switcher,
   always-visible balance / burn-rate badge, toasts.
 - Overview: first-run checklist (environment → CLI installed → signed in) and quick actions;

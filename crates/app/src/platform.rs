@@ -25,7 +25,8 @@ pub enum Chrome {
     /// Windows: the app draws themed caption buttons; dragging, double-click to maximise, Aero
     /// Snap, the snap-layout flyout and edge resizing stay native through gpui's hit-test areas.
     Windows,
-    /// macOS: the system draws its traffic lights over the transparent title bar.
+    /// macOS: the system draws its traffic lights over the transparent title bar, and the strip
+    /// holds nothing else.
     Mac,
     /// Linux whose compositor wants client-side decorations: the app draws buttons and resize
     /// borders.
@@ -39,8 +40,9 @@ pub enum Chrome {
 pub struct TitleBarLayout {
     /// Ely window controls drawn at the strip's end, in this platform's manner.
     pub controls: Option<Platform>,
-    /// Room kept at the strip's start for the system's traffic lights.
-    pub traffic_light_room: bool,
+    /// The app mark and name at the strip's start. Not on macOS: the traffic lights sit there
+    /// and the menu bar names the app, as in other Mac apps.
+    pub mark: bool,
     /// Whether the strip moves the window (and maximises on double-click).
     pub draggable: bool,
 }
@@ -54,27 +56,27 @@ impl Chrome {
         Chrome::LinuxServer,
     ];
 
-    /// The title strip for this chrome; `fullscreen` hides macOS's traffic lights.
-    pub fn layout(self, fullscreen: bool) -> TitleBarLayout {
+    /// The title strip for this chrome.
+    pub fn layout(self) -> TitleBarLayout {
         match self {
             Chrome::Windows => TitleBarLayout {
                 controls: Some(Platform::Windows),
-                traffic_light_room: false,
+                mark: true,
                 draggable: true,
             },
             Chrome::Mac => TitleBarLayout {
                 controls: None,
-                traffic_light_room: !fullscreen,
+                mark: false,
                 draggable: true,
             },
             Chrome::LinuxClient => TitleBarLayout {
                 controls: Some(Platform::Linux),
-                traffic_light_room: false,
+                mark: true,
                 draggable: true,
             },
             Chrome::LinuxServer => TitleBarLayout {
                 controls: None,
-                traffic_light_room: false,
+                mark: true,
                 draggable: false,
             },
         }
@@ -229,28 +231,25 @@ mod tests {
 
     #[test]
     fn each_chrome_draws_only_the_controls_the_system_does_not() {
-        let windows = Chrome::Windows.layout(false);
+        let windows = Chrome::Windows.layout();
         assert_eq!(windows.controls, Some(Platform::Windows));
-        assert!(windows.draggable && !windows.traffic_light_room);
+        assert!(windows.draggable && windows.mark);
 
-        let mac = Chrome::Mac.layout(false);
+        let mac = Chrome::Mac.layout();
         assert_eq!(mac.controls, None, "macOS keeps the system traffic lights");
-        assert!(mac.draggable && mac.traffic_light_room);
-        assert!(
-            !Chrome::Mac.layout(true).traffic_light_room,
-            "full screen hides the lights"
-        );
+        assert!(mac.draggable);
+        assert!(!mac.mark, "and nothing beside them");
 
-        let client = Chrome::LinuxClient.layout(false);
+        let client = Chrome::LinuxClient.layout();
         assert_eq!(client.controls, Some(Platform::Linux));
-        assert!(client.draggable);
+        assert!(client.draggable && client.mark);
 
-        let server = Chrome::LinuxServer.layout(false);
+        let server = Chrome::LinuxServer.layout();
         assert_eq!(
             server.controls, None,
             "the compositor draws its own buttons"
         );
-        assert!(!server.draggable && !server.traffic_light_room);
+        assert!(!server.draggable && server.mark);
     }
 
     #[test]
