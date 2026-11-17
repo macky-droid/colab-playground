@@ -29,7 +29,11 @@ jobs:
         with:
           toolchain: "1.98"
           components: rustfmt, clippy
+      # Pull requests restore main's cache and save none of their own: each saved copy is large,
+      # and the repository's cache quota would evict main's copies.
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # gpui's Wayland and X11 backends link xkbcommon and fontconfig (same list as Ely's CI).
       - run: sudo apt-get update && sudo apt-get install -y libxkbcommon-x11-dev libfontconfig-dev
       - run: cargo fmt --all -- --check
@@ -50,6 +54,8 @@ jobs:
         with:
           toolchain: "1.98"
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }} # as in the linux job
       - run: cargo check --workspace --all-targets --locked
       - run: cargo test -p colab-playground-core --locked
       # Windows is the primary platform, so the app's headless UI tests run there too.
