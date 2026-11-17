@@ -178,7 +178,18 @@ Does not match (release-please's fixed format):
    requiring them would block every merge. The required names are the job names in
    [`ci.yml`](../.github/workflows/ci.yml): change one and the ruleset must follow.
 
-3. Optionally, the token described in the next section.
+3. **Merge by rebasing only.** Settings → General → Pull Requests: tick only **Allow rebase
+   merging**, and **Automatically delete head branches**. Each commit of a pull request then lands
+   on `main` as it is, and release-please writes one changelog line per `feat:` or `fix:` commit,
+   so tidy a pull request's commits before merging it. The ruleset still lists all three merge
+   methods; the repository setting is the one that limits them. The same with the CLI:
+
+   ```sh
+   gh api -X PATCH repos/scarletkc/colab-playground -F allow_rebase_merge=true \
+     -F allow_squash_merge=false -F allow_merge_commit=false -F delete_branch_on_merge=true
+   ```
+
+4. Optionally, the token described in the next section.
 
 Only `GITHUB_TOKEN` is used otherwise. Permissions per job: release-please gets `contents`,
 `issues` (labels) and `pull-requests` write; the build and checksum jobs get `contents: read`; only
