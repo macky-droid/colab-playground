@@ -58,6 +58,5 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }} # as in the linux job
       - run: cargo check --workspace --all-targets --locked
       - run: cargo test -p colab-playground-core --locked
-      # Windows is the primary platform, so the app's headless UI tests run there too.
-      - if: runner.os == 'Windows'
-        run: cargo test -p colab-playground --locked
+      # The app's headless UI tests: the title strip, fonts and paths differ per OS.
+      - run: cargo test -p colab-playground --locked
