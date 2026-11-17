@@ -15,6 +15,9 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
 
+# The three job names below are the status checks the `main` ruleset requires
+# (docs/RELEASING.md). Renaming a job or changing the matrix means updating the ruleset too,
+# or no pull request can be merged.
 jobs:
   linux:
     name: Linux (fmt, clippy, test)

@@ -18,7 +18,7 @@ The pieces:
 
 ## How a release happens
 
-1. Conventional commits land on `main`.
+1. Conventional commits land on `main` through pull requests.
 2. On each push, the **Release** workflow runs release-please. If anything since the last release
    would appear in the changelog, it opens or updates one pull request, `chore(main): release
    X.Y.Z`, from the branch `release-please--branches--main`. The pull request changes:
@@ -151,8 +151,8 @@ Does not match (release-please's fixed format):
 - Once a release exists, release-please counts from it and ignores `bootstrap-sha` and
   `initial-version`; both can stay in the config.
 - The first release is otherwise a normal one: do the one-time settings below, push, wait for the
-  release pull request, optionally run CI on it, merge it, and watch the Release run publish v0.1.0
-  with its four files.
+  release pull request, get CI to run on it (see below), merge it, and watch the Release run publish
+  v0.1.0 with its four files.
 
 ## One-time repository settings
 
@@ -167,7 +167,18 @@ Does not match (release-please's fixed format):
      -f default_workflow_permissions=read -F can_approve_pull_request_reviews=true
    ```
 
-2. Optionally, the token described in the next section.
+2. **Protect `main` with a ruleset.** Settings → Rules → Rulesets. The ruleset `main` applies to the
+   default branch:
+   - changes arrive by pull request (no approval needed);
+   - the three CI jobs must pass, on a branch that is up to date with `main`;
+   - force pushes and deleting the branch are blocked;
+   - repository admins can bypass all of it.
+
+   Only the CI jobs are required. Release and Package do not run on every pull request, so
+   requiring them would block every merge. The required names are the job names in
+   [`ci.yml`](../.github/workflows/ci.yml): change one and the ruleset must follow.
+
+3. Optionally, the token described in the next section.
 
 Only `GITHUB_TOKEN` is used otherwise. Permissions per job: release-please gets `contents`,
 `issues` (labels) and `pull-requests` write; the build and checksum jobs get `contents: read`; only
@@ -180,8 +191,8 @@ published release then becomes impossible.
 
 GitHub starts no workflow for events caused by `GITHUB_TOKEN` (except `workflow_dispatch` and
 `repository_dispatch`). The release pull request is opened and updated with that token, so by
-default neither CI nor the Package dry run runs on it. That blocks the merge only if `main` is set to
-require status checks; to see the checks anyway:
+default neither CI nor the Package dry run runs on it. `main` requires the CI jobs, so the release
+pull request cannot be merged until they have run on it:
 
 - **Simplest:** just before merging, **Close pull request**, then **Reopen pull request**. The reopen
   is your event, so CI and the Package dry run (the pull request changes
@@ -194,6 +205,9 @@ require status checks; to see the checks anyway:
   release builds each time. The job's `permissions` do not limit this token. When it
   expires the Release job fails: renew it, or delete the secret and the workflow uses
   `GITHUB_TOKEN` again.
+- **Without the checks:** a repository admin can tick **Merge without waiting for requirements to be
+  met** on the pull request. The release commit then reaches `main` unchecked; CI still runs on
+  `main` after the merge, at the same time as the release is built.
 
 ## Dry-running the packaging
 
