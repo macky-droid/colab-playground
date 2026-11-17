@@ -203,7 +203,8 @@ impl AppState {
         )
     }
 
-    /// Probes the host, then (with the CLI present) lists accounts and fetches usage.
+    /// Probes the host, then (with the CLI present) lists accounts and fetches usage. Plugins
+    /// are listed either way: the list is kept on this computer.
     pub fn check_environment(&mut self, cx: &mut Context<Self>) {
         self.probe.begin();
         self.run_backend(
@@ -220,6 +221,7 @@ impl AppState {
                 } else {
                     state.accounts = Load::Idle;
                 }
+                state.load_plugins(cx);
             },
         );
         cx.notify();

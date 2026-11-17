@@ -105,6 +105,12 @@ impl AppState {
     }
 
     fn check_hf_token(&mut self, cx: &mut Context<Self>) {
+        // The keyring is read through the CLI's Python.
+        if !self.cli_installed() {
+            self.plugins.hf_token = Load::Failed(Self::not_installed());
+            cx.notify();
+            return;
+        }
         self.plugins.hf_token.begin();
         self.run_backend(
             Op::Secret,
