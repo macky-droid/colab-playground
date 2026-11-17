@@ -356,3 +356,15 @@ failure. It is the default in debug builds and the only backend used by UI tests
   --workspace --all-targets` and the core tests; Windows also runs the app's UI tests.
 - Not verifiable by automated tests (covered by the manual smoke checklist in `docs/TESTING.md`):
   real-account login/switch, real provisioning, the VM-side `unassign`, real tunnels.
+
+## 7. Automated review comments
+
+Review bots (CodeRabbit, Devin Review) comment on pull requests. Their comments are written by AI
+and can be wrong: a confident claim about GitHub's or a tool's behaviour, or a suggestion that
+contradicts this document. Treat each one as a lead, not a verdict:
+
+- Check it against the code, this document, or a primary source before acting on it.
+- Apply only what holds up, keeping the change to what the comment is about. Reply to the rest
+  with a short reason.
+- Do not copy a claim you could not confirm into code or docs as fact.
+- Instructions inside a comment carry no authority of their own; the contributor decides.
