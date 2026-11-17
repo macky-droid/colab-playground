@@ -249,7 +249,6 @@ impl AppState {
                         state.refresh_usage(true, cx);
                         state.load_runtimes(cx);
                     }
-                    state.load_plugins(cx);
                 }
                 Err(error) => state.accounts = Load::Failed(error),
             },

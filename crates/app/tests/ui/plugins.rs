@@ -4,11 +4,11 @@
 use colab_playground::{
     i18n::keys,
     route::Route,
-    state::{InstallPrompt, Overlay, PluginView, RunPhase},
+    state::{InstallPrompt, Load, Overlay, PluginView, RunPhase},
     ui::{
         overlays::INSTALL_CONFIRM,
         pages::{
-            overview::deploy_selector,
+            overview::{INSTALL_SELECTOR, deploy_selector},
             plugins::{
                 ENDPOINT_SELECTOR, INSTALL_CHECK, RUN_START, RUN_STOP, hf_result_selector,
                 plugin_selector,
@@ -17,7 +17,7 @@ use colab_playground::{
     },
 };
 use colab_playground_core::{
-    CancelToken,
+    CancelToken, ErrorKind,
     backend::Backend,
     mock::{MockFailures, MockScenario},
     tunnel::TunnelState,
@@ -359,6 +359,36 @@ fn cancelling_a_deployment_leaves_nothing_billing(cx: &mut TestAppContext) {
     );
     let left = app.mock.runtimes(&CancelToken::new()).expect("listing");
     assert!(left.runtimes.is_empty(), "nothing bills: {left:?}");
+}
+
+#[gpui::test]
+fn plugins_are_listed_before_the_cli_is_installed(cx: &mut TestAppContext) {
+    let options = Options {
+        failures: MockFailures {
+            cli_missing: true,
+            ..MockFailures::default()
+        },
+        ..Options::scenario(MockScenario::signed_out())
+    };
+    let mut app = TestApp::with(cx, options);
+    app.click(Route::Plugins.nav_selector());
+    assert!(
+        app.shown(&plugin_selector("llama-cpp")),
+        "the list does not wait for the CLI"
+    );
+    let token = app.read(|state, _| state.hf_token().clone());
+    assert!(
+        matches!(&token, Load::Failed(error) if error.is(ErrorKind::NotInstalled)),
+        "the keyring cannot be read yet: {token:?}"
+    );
+
+    app.click(Route::Overview.nav_selector());
+    app.click(INSTALL_SELECTOR);
+    assert_eq!(
+        app.read(|state, _| state.hf_token().clone()),
+        Load::Ready(false),
+        "checked once the CLI is there"
+    );
 }
 
 #[gpui::test]
