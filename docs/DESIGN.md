@@ -72,7 +72,8 @@ Non-goals (v1)
    The fake must never resolve to the system Python's `keyring` or a real `colab`.
 5. All external side effects go through one seam: `Host` (process spawning) + `Toolchain`
    (paths of `colab` and its helper interpreter). Nothing else calls `std::process::Command`.
-6. Do not commit or push. The coordinator commits.
+6. Never push to `main` directly. Every change lands through a pull request
+   ([DEVELOPMENT.md](DEVELOPMENT.md#landing-a-change)).
 
 ## 3. Workspace layout
 
