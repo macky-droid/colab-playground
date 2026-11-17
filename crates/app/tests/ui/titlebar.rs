@@ -133,7 +133,24 @@ fn the_mark_and_the_account_slot_line_up_with_the_nav_items(cx: &mut TestAppCont
         account.size.width, nav.size.width,
         "and spans the same width"
     );
-    assert_eq!(mark.left(), nav.left(), "the mark sits over the nav icons");
+    // As in `the_app_window_carries_the_strip_for_this_os`: the app draws this OS's chrome.
+    if platform::chrome(Decorations::Server)
+        .layout(false)
+        .traffic_light_room
+    {
+        let inset = app.cx.update(|window, cx| {
+            cx.theme()
+                .traffic_light_inset()
+                .to_pixels(window.rem_size())
+        });
+        assert_eq!(
+            mark.left(),
+            inset,
+            "the mark starts after the traffic lights"
+        );
+    } else {
+        assert_eq!(mark.left(), nav.left(), "the mark sits over the nav icons");
+    }
     assert!(
         nav.top() >= strip.bottom(),
         "the sidebar starts under the strip"
