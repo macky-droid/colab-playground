@@ -912,4 +912,8 @@ pub(super) const MESSAGES: Messages = &[
     ),
     (PROV_RECONCILING, "正在检查取消的申请是否留下了运行时…"),
     (PROV_RECONCILED, "已检查取消的申请是否留下了运行时"),
+    (
+        PROV_NO_ANSWER,
+        "Colab 已有 {time}没有回应。有的申请要等更久，也可以现在取消。",
+    ),
 ];

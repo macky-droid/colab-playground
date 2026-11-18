@@ -1092,4 +1092,8 @@ pub(super) const MESSAGES: Messages = &[
         PROV_RECONCILED,
         "Checked whether the cancelled request left a runtime",
     ),
+    (
+        PROV_NO_ANSWER,
+        "Colab hasn't answered for {time}. Some requests take longer; you can also cancel now.",
+    ),
 ];

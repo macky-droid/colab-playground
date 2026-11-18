@@ -632,6 +632,7 @@ catalog_keys! {
     SWITCH_UNMANAGED_UNKNOWN => "app.b10.switch_unmanaged_unknown",
     PROV_RECONCILING => "app.b11.prov_reconciling",
     PROV_RECONCILED => "app.b11.prov_reconciled",
+    PROV_NO_ANSWER => "app.b11.prov_no_answer",
 }
 
 /// A message table: `(key, message)` pairs; `{name}` marks an argument.

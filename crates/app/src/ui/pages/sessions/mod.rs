@@ -256,6 +256,11 @@ fn provisioning(state: &AppState, handle: &Entity<AppState>, cx: &App) -> Option
                     .description(progress::headline(&session.progress, cx)),
                 )
                 .child(progress::render(&session.progress, true, cx))
+                .children(progress::no_answer_note(
+                    &session.progress,
+                    state.backend_now(),
+                    cx,
+                ))
                 .child(
                     div()
                         .flex()

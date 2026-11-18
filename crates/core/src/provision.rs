@@ -138,6 +138,12 @@ pub enum ProvisionEvent {
         attempt: u32,
         max_attempts: u32,
     },
+    /// Until this (or `AllocationFailed`) arrives, Colab has not answered the
+    /// request; the hardware probe comes after it.
+    Allocated {
+        /// Attempt.
+        attempt: u32,
+    },
     /// `colab new` failed (retryable unless followed by `Failed`).
     AllocationFailed {
         attempt: u32,
@@ -435,6 +441,7 @@ fn run(
             clock.sleep(spec.retry_delay, cancel)?;
             continue;
         }
+        events(ProvisionEvent::Allocated { attempt });
         let started_at = clock.now();
         if cancel.is_cancelled() {
             events(ProvisionEvent::Releasing { attempt });
@@ -727,6 +734,27 @@ mod tests {
         assert_eq!(out.attempts, 2);
         assert_eq!(out.hardware.vram_mib, Some(81_920));
         assert!(!out.below_spec);
+        // Each answered `colab new` is reported before its hardware is probed.
+        let steps: Vec<&str> = ev
+            .iter()
+            .filter_map(|e| match e {
+                ProvisionEvent::Allocating { .. } => Some("allocating"),
+                ProvisionEvent::Allocated { .. } => Some("allocated"),
+                ProvisionEvent::Probed { .. } => Some("probed"),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            steps,
+            [
+                "allocating",
+                "allocated",
+                "probed",
+                "allocating",
+                "allocated",
+                "probed"
+            ]
+        );
         assert!(
             ev.iter()
                 .any(|e| matches!(e, ProvisionEvent::Rejected { attempt: 1, .. }))
