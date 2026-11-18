@@ -18,7 +18,8 @@ The pieces:
 
 ## How a release happens
 
-1. Conventional commits land on `main` through pull requests.
+1. Pull requests are squash-merged into `main`: each becomes one conventional commit, titled after
+   the pull request.
 2. On each push, the **Release** workflow runs release-please. If anything since the last release
    would appear in the changelog, it opens or updates one pull request, `chore(main): release
    X.Y.Z`, from the branch `release-please--branches--main`. The pull request changes:
@@ -28,9 +29,9 @@ The pieces:
    - `.release-please-manifest.json`.
 
    Commits of hidden types alone (see the table below) open no pull request.
-3. When the release should go out, merge that pull request with **Rebase and merge** (one commit on
-   `main`, like every other commit). Nothing else needs editing.
-4. That push runs Release again. release-please tags the merge commit `vX.Y.Z` and creates the
+3. When the release should go out, merge that pull request with **Squash and merge**, like every
+   other pull request. Nothing else needs editing.
+4. That push runs Release again. release-please tags the squash commit `vX.Y.Z` and creates the
    GitHub release as a **draft**, with the changelog entry as its notes.
 5. In the same run, **Package** builds the downloads on Windows, Linux and macOS, writes
    `SHA256SUMS`, attaches all four files to the draft and only then publishes it. A draft is hidden
@@ -79,9 +80,10 @@ does, and what Package checks before anything is attached:
 - Before 1.0.0: a breaking change or a `feat` raises the minor version (0.1.3 → 0.2.0); any other
   commit that shows in the changelog raises the patch version. From 1.0.0 a breaking change raises
   the major version.
-- To choose a version (for example 1.0.0), add the footer `Release-As: 1.0.0` to a `feat` or `fix`
-  commit. A commit of a hidden type that carries the footer is listed in the changelog anyway, under
-  its hidden section's name (for example "Chores").
+- To choose a version (for example 1.0.0), end the squash commit of a `feat` or `fix` pull request
+  with the footer `Release-As: 1.0.0` (see [footers](#writing-commits-for-the-changelog)). A
+  commit of a hidden type that carries the footer is listed in the changelog anyway, under its
+  hidden section's name (for example "Chores").
 - The release type is `simple`, with the version written into `Cargo.toml` and `Cargo.lock` as
   `extra-files`. release-please's `rust` type and its `cargo-workspace` plugin cannot handle a
   version inherited from `[workspace.package]` (the `rust` updater only edits `[package].version`,
@@ -91,8 +93,20 @@ does, and what Package checks before anything is attached:
 
 ## Writing commits for the changelog
 
-Each commit subject becomes one changelog line; the body is not shown. The scope (`app`, `core`)
-is printed in bold before the line, and each line links to its commit.
+Each commit on `main` is a squash-merged pull request, and its subject is the pull request's title:
+**write the title as a conventional commit**, because it becomes one changelog line. The rest of
+the message does not appear in the changelog, with two exceptions:
+
+- the text of a `BREAKING CHANGE:` footer (see **Breaking change** below);
+- a paragraph that starts with a standard type after a blank line (`feat: …`, `fix(app): …`):
+  release-please reads it as one more commit, with its own changelog line and its effect on the
+  version. The commits GitHub lists in the proposed message start with `* `, so they do not count.
+
+The scope (`app`, `core`) is printed in bold before the line, and each line links to its commit.
+
+**Footers** (`BREAKING CHANGE:`, `Release-As:`) belong at the end of the squash commit's message.
+When merging, check the message GitHub proposes: put any footer on its last lines, and make sure
+no paragraph starts with a type unless you want that extra line.
 
 | Type | Section | Use it for |
 | --- | --- | --- |
@@ -178,7 +192,20 @@ Does not match (release-please's fixed format):
    requiring them would block every merge. The required names are the job names in
    [`ci.yml`](../.github/workflows/ci.yml): change one and the ruleset must follow.
 
-3. Optionally, the token described in the next section.
+3. **Merge by squashing only.** Settings → General → Pull Requests: tick only **Allow squash
+   merging**, with the default commit message set to "Default to pull request title and commit
+   details", and tick **Automatically delete head branches**. Each pull request then lands as one
+   commit titled after it, so fix-up commits (review fixes and the like) never reach the changelog;
+   this is also the merge method release-please recommends. The ruleset still lists all three merge
+   methods; the repository setting is the one that limits them. The same with the CLI:
+
+   ```sh
+   gh api -X PATCH repos/scarletkc/colab-playground -F allow_squash_merge=true \
+     -F allow_rebase_merge=false -F allow_merge_commit=false -F delete_branch_on_merge=true \
+     -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=COMMIT_MESSAGES
+   ```
+
+4. Optionally, the token described in the next section.
 
 Only `GITHUB_TOKEN` is used otherwise. Permissions per job: release-please gets `contents`,
 `issues` (labels) and `pull-requests` write; the build and checksum jobs get `contents: read`; only
@@ -189,21 +216,23 @@ published release then becomes impossible.
 
 ## CI on the release pull request
 
-GitHub starts no workflow for events caused by `GITHUB_TOKEN` (except `workflow_dispatch` and
-`repository_dispatch`). The release pull request is opened and updated with that token, so by
-default neither CI nor the Package dry run runs on it. `main` requires the CI jobs, so the release
-pull request cannot be merged until they have run on it:
+The release pull request is opened and updated with `GITHUB_TOKEN`, as `github-actions[bot]`. For
+the pull request events that token causes, GitHub creates the CI and Package runs but holds them
+until someone with write access approves them: they show as **Action required**. The repository's
+setting for approving workflows from outside contributors does not change this. `main` requires
+the CI jobs, so the release pull request cannot be merged until they have run on it:
 
-- **Simplest:** just before merging, **Close pull request**, then **Reopen pull request**. The reopen
-  is your event, so CI and the Package dry run (the pull request changes
-  `.release-please-manifest.json`) run on the exact release commit. If release-please updates the
-  pull request afterwards, that update again runs nothing.
+- **Simplest:** just before merging, open one of the waiting runs (from the pull request's checks or
+  the Actions tab) and click **Approve and run**. CI and the Package dry run (the pull request
+  changes `.release-please-manifest.json`) then run on the exact release commit. Each later update
+  of the pull request by release-please waits for approval again. Closing and reopening the pull
+  request works too: the reopen is your event, so its runs start without approval.
 - **Every time, automatically:** create a fine-grained personal access token limited to this
   repository with **Contents**, **Pull requests** and **Issues** set to read and write, and save it
   as the Actions secret `RELEASE_PLEASE_TOKEN`. release-please then acts as you, so every update of
-  the release pull request (each time its changelog grows) runs CI and the Package dry run, three
-  release builds each time. The job's `permissions` do not limit this token. When it
-  expires the Release job fails: renew it, or delete the secret and the workflow uses
+  the release pull request (each time its changelog grows) runs CI and the Package dry run without
+  approval, three release builds each time. The job's `permissions` do not limit this token. When
+  it expires the Release job fails: renew it, or delete the secret and the workflow uses
   `GITHUB_TOKEN` again.
 - **Without the checks:** a repository admin can tick **Merge without waiting for requirements to be
   met** on the pull request. The release commit then reaches `main` unchecked; CI still runs on
