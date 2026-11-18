@@ -7,8 +7,6 @@
 //!   failed. Unknown is never treated as zero.
 //! * [`poll_due`] — the cadence from [`Defaults`] (30 s while the account has
 //!   sessions, 5 min otherwise by default; manual refresh is always allowed).
-//! * [`UsageSnapshot::eta`] — time left at the current rate.
-//! * [`BalanceHistory`] — a small ring buffer of balances for a sparkline.
 //! * [`RateAttribution`] — an *estimated* per-session burn rate, taken from the
 //!   change of the account rate observed when sessions start or stop, split
 //!   evenly when ambiguous. All per-session figures are estimates (`≈`).
@@ -24,10 +22,8 @@ use crate::error::Error;
 /// Default capacity of [`BalanceHistory`] (one hour at 30 s).
 pub const HISTORY_CAPACITY: usize = 120;
 
-/// One raw reading of an account's compute units.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Usage {
-    /// Remaining balance in compute units.
     pub balance_cu: f64,
     /// Current burn rate of the whole account in CU per hour.
     pub rate_cu_per_hour: f64,
@@ -35,16 +31,11 @@ pub struct Usage {
     pub assignments: u32,
 }
 
-/// The latest known usage of an account.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct UsageSnapshot {
-    /// Remaining balance in compute units.
     pub balance_cu: f64,
-    /// Burn rate in CU per hour.
     pub rate_cu_per_hour: f64,
-    /// Active assignments.
     pub assignments: u32,
-    /// When these values were fetched.
     #[serde(with = "serde_secs")]
     pub fetched_at: SystemTime,
     /// A later fetch failed: the values are the last known ones.
@@ -52,7 +43,6 @@ pub struct UsageSnapshot {
 }
 
 impl UsageSnapshot {
-    /// A fresh snapshot of `usage` taken at `at`.
     pub fn new(usage: Usage, at: SystemTime) -> Self {
         UsageSnapshot {
             balance_cu: usage.balance_cu,
@@ -63,7 +53,6 @@ impl UsageSnapshot {
         }
     }
 
-    /// The raw reading.
     pub fn usage(&self) -> Usage {
         Usage {
             balance_cu: self.balance_cu,
@@ -118,13 +107,10 @@ pub fn poll_due(
     }
 }
 
-/// One point of [`BalanceHistory`].
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct BalancePoint {
-    /// When.
     #[serde(with = "serde_secs")]
     pub at: SystemTime,
-    /// Balance in compute units.
     pub balance_cu: f64,
 }
 
@@ -169,18 +155,15 @@ impl BalanceHistory {
         self.points.iter().copied().collect()
     }
 
-    /// Number of points.
     pub fn len(&self) -> usize {
         self.points.len()
     }
 
-    /// True when empty.
     pub fn is_empty(&self) -> bool {
         self.points.is_empty()
     }
 }
 
-/// Estimated per-session burn rates for one account.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RateAttribution {
     last_rate: Option<f64>,
@@ -188,8 +171,6 @@ pub struct RateAttribution {
 }
 
 impl RateAttribution {
-    /// Folds in a fresh account reading.
-    ///
     /// `live` are the app-managed sessions running now. Sessions that appeared
     /// since the previous reading share the rate increase (plus whatever the
     /// sessions that disappeared were estimated at) evenly. Sessions without
@@ -244,7 +225,6 @@ impl RateAttribution {
         self.rates.get(name).copied().flatten()
     }
 
-    /// All estimates.
     pub fn rates(&self) -> BTreeMap<String, f64> {
         self.rates
             .iter()
@@ -253,24 +233,18 @@ impl RateAttribution {
     }
 }
 
-/// Everything known about one account's usage.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AccountUsage {
-    /// Latest snapshot.
     pub snapshot: Option<UsageSnapshot>,
-    /// Balance history.
     pub history: BalanceHistory,
-    /// Per-session estimates.
     pub attribution: RateAttribution,
     /// Last fetch attempt (successful or not), for [`poll_due`].
     #[serde(default, with = "serde_secs::option")]
     pub last_attempt: Option<SystemTime>,
-    /// Why the last fetch failed, if it did.
     pub last_error: Option<Error>,
 }
 
 impl AccountUsage {
-    /// Records a successful fetch.
     pub fn record_success(&mut self, usage: Usage, now: SystemTime, live: &BTreeSet<String>) {
         self.snapshot = Some(UsageSnapshot::new(usage, now));
         self.history.push(now, usage.balance_cu);
@@ -280,7 +254,6 @@ impl AccountUsage {
         self.last_error = None;
     }
 
-    /// Records a failed fetch: keeps the last values and marks them stale.
     pub fn record_failure(&mut self, error: Error, now: SystemTime) {
         if let Some(s) = self.snapshot.as_mut() {
             s.stale = true;
@@ -330,14 +303,10 @@ pub fn totals<'a>(snapshots: impl IntoIterator<Item = Option<&'a UsageSnapshot>>
     t
 }
 
-/// Totals across accounts for the Accounts page.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct UsageTotals {
-    /// Sum of known balances.
     pub balance_cu: f64,
-    /// Sum of known rates.
     pub rate_cu_per_hour: f64,
-    /// Accounts included.
     pub accounts: u32,
     /// False if some account's usage is unknown.
     pub complete: bool,

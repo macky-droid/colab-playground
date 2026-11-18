@@ -59,7 +59,6 @@ fn events(app: &mut TestApp<'_>) -> Vec<ProvisionEvent> {
     })
 }
 
-/// Opens the dialog on `scenario`, applies `edit` to the form and starts.
 fn provision(
     app: &mut TestApp<'_>,
     edit: impl FnOnce(&mut colab_playground_core::provision::ProvisionSpec),

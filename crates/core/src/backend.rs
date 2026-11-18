@@ -2,9 +2,7 @@
 //!
 //! [`Backend`] is object-safe and `Send + Sync`; every method is blocking and
 //! meant to run on a background executor. Long operations stream typed events
-//! through an [`Events`] sender and accept a [`CancelToken`]. Two
-//! implementations exist: [`crate::real::RealBackend`] (drives the Colab CLI)
-//! and [`crate::mock::MockBackend`] (deterministic, clock-driven simulation).
+//! through an [`Events`] sender and accept a [`CancelToken`].
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -35,9 +33,7 @@ pub type Events<T> = Sender<T>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BackendKind {
-    /// Drives the real Colab CLI.
     Real,
-    /// Simulation.
     Mock,
 }
 
@@ -56,32 +52,25 @@ pub enum InstallMethod {
 /// Interactive add-account flow. Dropping it without finishing rolls back,
 /// restoring the previously active credential.
 pub trait LoginFlow: Send {
-    /// The URL to open in the browser.
     fn auth_url(&self) -> &str;
-    /// Sends the authorisation code. On any failure the previous credential
-    /// is restored and the flow must be started again.
+    /// On any failure the previous credential is restored and the flow must be
+    /// started again.
     fn submit_code(self: Box<Self>, code: &str, cancel: &CancelToken) -> Result<Account>;
     /// Aborts and restores the previous credential.
     fn cancel(self: Box<Self>) -> Result<()>;
 }
 
-/// Identifies a runtime on any saved account.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RuntimeRef {
-    /// Owning account.
     pub account: AccountId,
-    /// Server endpoint.
     pub endpoint: String,
     /// Local session name, if known.
     pub name: Option<String>,
 }
 
-/// A runtime as listed across all accounts.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Runtime {
-    /// How to address it.
     pub id: RuntimeRef,
-    /// Owner's email.
     pub account_email: Option<String>,
     /// The owner is the active account (exec, tunnels and plugin runs possible).
     pub on_active_account: bool,
@@ -89,7 +78,6 @@ pub struct Runtime {
     pub accelerator: Option<Accelerator>,
     /// Raw hardware label.
     pub hardware: String,
-    /// High-RAM shape.
     pub high_mem: bool,
     /// Created and tracked by this app.
     pub managed: bool,
@@ -102,23 +90,19 @@ pub struct Runtime {
     /// When it will be stopped automatically (earliest of guard and watchdog).
     #[serde(default, with = "crate::clock::serde_secs::option")]
     pub auto_stop_at: Option<SystemTime>,
-    /// Open tunnels to it.
     pub tunnels: Vec<TunnelId>,
 }
 
 /// A per-account failure while listing.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AccountError {
-    /// Account.
     pub account: AccountId,
-    /// What failed.
     pub error: Error,
 }
 
-/// All runtimes on all saved accounts.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RuntimesView {
-    /// Runtimes (active account first).
+    /// Active account first.
     pub runtimes: Vec<Runtime>,
     /// Accounts that could not be listed.
     pub errors: Vec<AccountError>,
@@ -139,12 +123,9 @@ impl Default for StopOptions {
     }
 }
 
-/// Usage of one account for the UI.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AccountUsageView {
-    /// Account.
     pub account: AccountId,
-    /// Email.
     pub email: Option<String>,
     /// Last snapshot (possibly stale).
     pub snapshot: Option<UsageSnapshot>,
@@ -157,16 +138,12 @@ pub struct AccountUsageView {
     pub unmanaged_runtimes: u32,
     /// Estimated rate per managed session name (≈).
     pub session_rates: BTreeMap<String, f64>,
-    /// Last fetch error.
     pub last_error: Option<Error>,
 }
 
-/// One guard decision.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GuardDecision {
-    /// Session.
     pub session: RuntimeRef,
-    /// Decision.
     pub decision: Decision,
     /// The guard stopped it in this poll.
     pub stopped: bool,
@@ -174,25 +151,20 @@ pub struct GuardDecision {
     pub error: Option<Error>,
 }
 
-/// Result of [`Backend::guard_poll`].
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct GuardReport {
     /// Decisions for every tracked live session.
     pub decisions: Vec<GuardDecision>,
     /// Sessions found gone since the last poll.
     pub vanished: Vec<RuntimeRef>,
-    /// Usage after this poll.
     pub usage: Vec<AccountUsageView>,
 }
 
 /// What switching to another account affects (shown before confirming).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SwitchImpact {
-    /// Current active account.
     pub from: Option<AccountId>,
-    /// Target account.
     pub to: AccountId,
-    /// Tunnels that will be closed.
     pub tunnels_closing: Vec<TunnelInfo>,
     /// Managed sessions of the current account that keep running (and
     /// billing) under their watchdog.
@@ -209,42 +181,33 @@ pub struct SwitchImpact {
     pub unmanaged_count: Option<u32>,
 }
 
-/// Where a plugin runs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RunTarget {
     /// An existing session on the active account.
     Existing {
-        /// Session name.
         name: String,
     },
-    /// A fresh session provisioned for this run.
     Provision(ProvisionSpec),
 }
 
-/// A plugin run request.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PluginRunSpec {
-    /// Plugin id.
     pub plugin: String,
     /// Input values by id (missing ones take manifest defaults).
     pub inputs: BTreeMap<String, InputValue>,
-    /// Where to run.
     pub target: RunTarget,
     /// Stop a session provisioned for this run when the run fails. (A
     /// cancelled run always stops the session it provisioned.)
     pub stop_on_failure: bool,
 }
 
-/// Progress of a plugin run.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum PluginRunEvent {
     /// Provisioning progress (fresh sessions only).
     Provision(ProvisionEvent),
-    /// The script was started.
     Launched {
-        /// Session.
         session: String,
         /// Run id (run directory name on the VM).
         run_id: String,
@@ -258,26 +221,18 @@ pub enum PluginRunEvent {
     },
 }
 
-/// A finished (ready) run.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PluginRunOutcome {
-    /// Session it runs on.
     pub session: String,
-    /// Owning account.
     pub account: AccountId,
-    /// Run id.
     pub run_id: String,
     /// Final status (`ready`).
     pub status: RunStatus,
-    /// Endpoints to forward.
     pub endpoints: Vec<ResolvedEndpoint>,
 }
 
-/// Everything the UI can ask of the core.
 pub trait Backend: Send + Sync {
-    /// Real or mock.
     fn kind(&self) -> BackendKind;
-    /// Current defaults.
     fn defaults(&self) -> Defaults;
     /// Replaces the defaults (the app persists them in its settings file).
     fn set_defaults(&self, defaults: Defaults);
@@ -287,7 +242,6 @@ pub trait Backend: Send + Sync {
     // ---- environment
     /// Reports WSL, tools, `colab` and its helper interpreter.
     fn probe(&self, cancel: &CancelToken) -> Result<ProbeReport>;
-    /// Installs the CLI, streaming its log.
     fn install_cli(
         &self,
         method: InstallMethod,
@@ -300,7 +254,6 @@ pub trait Backend: Send + Sync {
     fn accounts(&self, cancel: &CancelToken) -> Result<AccountsView>;
     /// Saves the credential currently in the CLI slot as an account.
     fn adopt_active_account(&self, cancel: &CancelToken) -> Result<Account>;
-    /// Starts adding an account (opens a login flow).
     fn begin_add_account(&self, cancel: &CancelToken) -> Result<Box<dyn LoginFlow>>;
     /// What switching to `to` affects (no side effects).
     fn switch_impact(&self, to: &AccountId) -> Result<SwitchImpact>;
@@ -378,11 +331,9 @@ pub trait Backend: Send + Sync {
     fn open_tunnel(&self, spec: TunnelSpec, events: Events<TunnelEvent>) -> Result<TunnelId>;
     /// Closes a tunnel (billing continues).
     fn close_tunnel(&self, id: TunnelId) -> Result<()>;
-    /// All tunnels.
     fn tunnels(&self) -> Vec<TunnelInfo>;
 
     // ---- plugins
-    /// Installed plugins.
     fn plugins(&self) -> Vec<PluginInfo>;
     /// A run request pre-filled from the manifest and [`Defaults`] (fresh
     /// session with a generated name).
@@ -391,9 +342,7 @@ pub trait Backend: Send + Sync {
     fn inspect_plugin_folder(&self, path: &Path) -> Result<PluginPreview>;
     /// Clones a Git URL with the local `git` and validates it.
     fn inspect_plugin_git(&self, url: &str, cancel: &CancelToken) -> Result<PluginPreview>;
-    /// Installs a previewed plugin.
     fn install_plugin(&self, preview: &PluginPreview) -> Result<PluginInfo>;
-    /// Enables or disables a plugin.
     fn set_plugin_enabled(&self, id: &str, enabled: bool) -> Result<()>;
     /// Removes a user plugin.
     fn remove_plugin(&self, id: &str) -> Result<()>;
@@ -408,15 +357,11 @@ pub trait Backend: Send + Sync {
     // ---- app secrets (stored in the keyring vault; never returned to the UI)
     /// Stores a secret such as `hf_token`.
     fn set_secret(&self, name: &str, value: &str, cancel: &CancelToken) -> Result<()>;
-    /// Whether a secret is stored.
     fn has_secret(&self, name: &str, cancel: &CancelToken) -> Result<bool>;
-    /// Deletes a secret.
     fn delete_secret(&self, name: &str, cancel: &CancelToken) -> Result<()>;
 
     // ---- Hugging Face
-    /// Searches GGUF models.
     fn hf_search(&self, query: &str, limit: u32, cancel: &CancelToken) -> Result<Vec<HfModel>>;
-    /// Lists a repo's GGUF quantisations.
     fn hf_files(&self, repo: &str, cancel: &CancelToken) -> Result<GgufListing>;
     // ---- updates
     /// Whether a newer release of this app is published (one request to GitHub; nothing is
@@ -462,7 +407,6 @@ pub fn accelerator_prefix(a: Accelerator) -> String {
     }
 }
 
-/// Pre-fills a run request from a manifest and the defaults.
 pub fn run_template(info: &PluginInfo, defaults: &Defaults, taken: &[String]) -> PluginRunSpec {
     let m = &info.manifest;
     let mut spec = defaults.provision_spec(generate_session_name(&m.id, taken));
@@ -489,7 +433,6 @@ pub fn run_template(info: &PluginInfo, defaults: &Defaults, taken: &[String]) ->
     }
 }
 
-/// Builds the usage view for one account.
 pub fn usage_view(
     account: &AccountId,
     email: Option<String>,

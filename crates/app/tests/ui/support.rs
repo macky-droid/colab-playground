@@ -53,7 +53,6 @@ use tempfile::TempDir;
 /// The window size tests draw at, as the app opens by default.
 pub const WINDOW: (f32, f32) = colab_playground::app::WINDOW_SIZE;
 
-/// Where the app keeps its settings in a test.
 pub enum ConfigDir {
     /// A fresh temporary directory (the default).
     Temp,
@@ -66,15 +65,11 @@ pub enum ConfigDir {
     None,
 }
 
-/// How to build the app under test.
 pub struct Options {
-    /// The mock's starting world.
     pub scenario: MockScenario,
     /// Failures switched on before the app starts.
     pub failures: MockFailures,
-    /// What the OS reports as its locale.
     pub os_locale: Option<String>,
-    /// Where settings live.
     pub config: ConfigDir,
 }
 
@@ -90,7 +85,6 @@ impl Default for Options {
 }
 
 impl Options {
-    /// The default options over `scenario`.
     pub fn scenario(scenario: MockScenario) -> Self {
         Self {
             scenario,
@@ -99,17 +93,12 @@ impl Options {
     }
 }
 
-/// The app in a headless test window.
 pub struct TestApp<'a> {
-    /// The window's context: simulate input, read entities.
     pub cx: &'a mut VisualTestContext,
-    /// The root view.
     pub root: Entity<RootView>,
-    /// The app state.
     pub state: Entity<AppState>,
     /// The simulated backend the app drives (shared with the app).
     pub mock: MockBackend,
-    /// The mock's clock.
     pub clock: ManualClock,
     /// Cancels a backend call at one of its later waits (see [`CancelSwitch`]).
     pub cancel_switch: CancelSwitch,
@@ -118,7 +107,6 @@ pub struct TestApp<'a> {
 }
 
 impl<'a> TestApp<'a> {
-    /// The app with the mock backend, an `en-US` OS locale and a temporary config directory.
     pub fn new(cx: &'a mut TestAppContext) -> Self {
         Self::with(cx, Options::default())
     }
@@ -172,7 +160,6 @@ impl<'a> TestApp<'a> {
         self.settle();
     }
 
-    /// Reads the root view (its text fields).
     pub fn read_root<R>(&mut self, read: impl FnOnce(&RootView, &App) -> R) -> R {
         let root = self.root.clone();
         self.cx.update(|_, cx| read(root.read(cx), cx))
@@ -271,7 +258,6 @@ impl<'a> TestApp<'a> {
         self.settle();
     }
 
-    /// Reads the app state.
     pub fn read<R>(&mut self, read: impl FnOnce(&AppState, &App) -> R) -> R {
         let state = self.state.clone();
         self.cx.update(|_, cx| read(state.read(cx), cx))
@@ -308,17 +294,14 @@ impl<'a> TestApp<'a> {
         });
     }
 
-    /// The page on show.
     pub fn route(&mut self) -> Route {
         self.read(|state, _| state.route())
     }
 
-    /// The language Ely's `I18n` shows.
     pub fn language(&mut self) -> Language {
         self.cx.update(|_, cx| i18n::current(cx))
     }
 
-    /// The theme's mode.
     pub fn mode(&mut self) -> Mode {
         self.cx.update(|_, cx| cx.theme().mode())
     }
@@ -328,7 +311,6 @@ impl<'a> TestApp<'a> {
         self.cx.update(|_, cx| i18n::tr(cx, key))
     }
 
-    /// The titles of the toasts on show.
     pub fn toasts(&mut self) -> Vec<SharedString> {
         let toaster = self.read(|state, _| state.toaster().clone());
         self.cx.update(|_, cx| {
@@ -352,12 +334,10 @@ impl<'a> TestApp<'a> {
         self.cx.update(|_, cx| toaster.read(cx).shown())
     }
 
-    /// The temporary config directory, if the app has one.
     pub fn config_dir(&self) -> Option<&Path> {
         self.config_dir.as_deref()
     }
 
-    /// The settings file path, if the app has a config directory.
     pub fn settings_file(&self) -> Option<PathBuf> {
         self.config_dir().map(|dir| dir.join("settings.json"))
     }
@@ -430,15 +410,12 @@ fn start(cx: &mut TestAppContext, options: Options) -> Started {
 /// runtimes are all still pending until `cx.run_until_parked()`. For start-up behaviour a
 /// window would hide (opening one runs the executor).
 pub struct Launch {
-    /// The app state.
     pub state: Entity<AppState>,
-    /// The simulated backend.
     pub mock: MockBackend,
     _config: Option<TempDir>,
 }
 
 impl Launch {
-    /// Starts the app's state from `options`.
     pub fn new(cx: &mut TestAppContext, options: Options) -> Self {
         let started = start(cx, options);
         Launch {
@@ -494,7 +471,6 @@ impl CancelSwitch {
     }
 }
 
-/// The mock's manual clock, with the cancel switch.
 struct SwitchedClock {
     inner: ManualClock,
     switch: CancelSwitch,

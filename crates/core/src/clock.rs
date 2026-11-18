@@ -10,20 +10,16 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::error::{Error, Result};
 
-/// A source of wall-clock time that can also wait.
 pub trait Clock: Send + Sync {
-    /// Current wall-clock time.
     fn now(&self) -> SystemTime;
 
-    /// Waits for `duration` or until `cancel` fires.
-    ///
     /// Returns `Err(Cancelled)` if the token fired before the time elapsed.
     /// Implementations must never block forever: [`ManualClock`] advances its
     /// own time and returns immediately.
     fn sleep(&self, duration: Duration, cancel: &CancelToken) -> Result<()>;
 }
 
-/// The real clock. `sleep` waits in short slices so cancellation is prompt.
+/// `sleep` waits in short slices so cancellation is prompt.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SystemClock;
 
@@ -59,7 +55,6 @@ pub struct ManualClock {
 }
 
 impl ManualClock {
-    /// A clock starting at `start`.
     pub fn new(start: SystemTime) -> Self {
         ManualClock {
             now: Arc::new(Mutex::new(start)),
@@ -72,13 +67,11 @@ impl ManualClock {
         ManualClock::new(SystemTime::UNIX_EPOCH + Duration::from_secs(1_767_225_600))
     }
 
-    /// Moves time forward.
     pub fn advance(&self, by: Duration) {
         let mut now = self.now.lock().unwrap_or_else(|e| e.into_inner());
         *now += by;
     }
 
-    /// Sets the current time.
     pub fn set(&self, to: SystemTime) {
         *self.now.lock().unwrap_or_else(|e| e.into_inner()) = to;
     }
@@ -104,17 +97,16 @@ impl Clock for ManualClock {
     }
 }
 
-/// A shared cancellation flag. Cloning shares the flag.
+/// Cloning shares the flag.
 #[derive(Debug, Clone, Default)]
 pub struct CancelToken(Arc<AtomicBool>);
 
 impl CancelToken {
-    /// A fresh, un-cancelled token.
     pub fn new() -> Self {
         CancelToken::default()
     }
 
-    /// Requests cancellation. Idempotent.
+    /// Idempotent.
     pub fn cancel(&self) {
         self.0.store(true, Ordering::SeqCst);
     }
@@ -124,7 +116,6 @@ impl CancelToken {
         self.0.load(Ordering::SeqCst)
     }
 
-    /// Returns `Err(Cancelled)` if cancelled.
     pub fn check(&self) -> Result<()> {
         if self.is_cancelled() {
             Err(Error::cancelled())
@@ -141,7 +132,6 @@ pub fn unix_secs(t: SystemTime) -> u64 {
         .unwrap_or(0)
 }
 
-/// Inverse of [`unix_secs`].
 pub fn from_unix_secs(secs: u64) -> SystemTime {
     SystemTime::UNIX_EPOCH + Duration::from_secs(secs)
 }
@@ -151,12 +141,10 @@ pub mod serde_secs {
     use serde::{Deserialize, Deserializer, Serializer};
     use std::time::SystemTime;
 
-    /// Serialize as Unix seconds.
     pub fn serialize<S: Serializer>(t: &SystemTime, s: S) -> Result<S::Ok, S::Error> {
         s.serialize_u64(super::unix_secs(*t))
     }
 
-    /// Deserialize from Unix seconds.
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<SystemTime, D::Error> {
         Ok(super::from_unix_secs(u64::deserialize(d)?))
     }
@@ -166,7 +154,6 @@ pub mod serde_secs {
         use serde::{Deserialize, Deserializer, Serializer};
         use std::time::SystemTime;
 
-        /// Serialize as optional Unix seconds.
         pub fn serialize<S: Serializer>(t: &Option<SystemTime>, s: S) -> Result<S::Ok, S::Error> {
             match t {
                 Some(t) => s.serialize_some(&crate::clock::unix_secs(*t)),
@@ -174,7 +161,6 @@ pub mod serde_secs {
             }
         }
 
-        /// Deserialize from optional Unix seconds.
         pub fn deserialize<'de, D: Deserializer<'de>>(
             d: D,
         ) -> Result<Option<SystemTime>, D::Error> {
@@ -188,12 +174,10 @@ pub mod serde_dur {
     use serde::{Deserialize, Deserializer, Serializer};
     use std::time::Duration;
 
-    /// Serialize as whole seconds.
     pub fn serialize<S: Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Error> {
         s.serialize_u64(d.as_secs())
     }
 
-    /// Deserialize from whole seconds.
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
         Ok(Duration::from_secs(u64::deserialize(d)?))
     }
@@ -203,7 +187,6 @@ pub mod serde_dur {
         use serde::{Deserialize, Deserializer, Serializer};
         use std::time::Duration;
 
-        /// Serialize as optional whole seconds.
         pub fn serialize<S: Serializer>(d: &Option<Duration>, s: S) -> Result<S::Ok, S::Error> {
             match d {
                 Some(d) => s.serialize_some(&d.as_secs()),
@@ -211,7 +194,6 @@ pub mod serde_dur {
             }
         }
 
-        /// Deserialize from optional whole seconds.
         pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Duration>, D::Error> {
             Ok(Option::<u64>::deserialize(d)?.map(Duration::from_secs))
         }

@@ -13,28 +13,21 @@ use gpui::{Context, ScrollHandle};
 use super::{AppState, Load, Op};
 use crate::platform::EnvironmentKind;
 
-/// Where an install stands.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum InstallPhase {
-    /// Not started.
     #[default]
     Idle,
     /// Running (its log streams in).
     Running,
     /// Finished; the environment is checked again.
     Done,
-    /// The user cancelled it.
     Cancelled,
-    /// It failed.
     Failed(Error),
 }
 
-/// The install, its log and the method picked.
 #[derive(Clone, Debug, Default)]
 pub struct InstallState {
-    /// Where it stands.
     pub phase: InstallPhase,
-    /// Its output so far.
     pub lines: Rc<Vec<Line>>,
     /// The method the user picked; `None` = the recommended one.
     pub method: Option<InstallMethod>,
@@ -42,52 +35,41 @@ pub struct InstallState {
     pub scroll: ScrollHandle,
 }
 
-/// How a checklist step stands.
 #[derive(Clone, Debug, PartialEq)]
 pub enum StepState {
-    /// Being checked.
     Checking,
-    /// Done.
     Done,
     /// The user has something to do here.
     Todo,
     /// Waiting for an earlier step.
     Waiting,
-    /// Checking it failed.
     Failed(Error),
 }
 
-/// Which step.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EnvironmentStep {
     /// WSL with a distribution (Windows).
     Wsl,
     /// `bash` (and `ssh`) on the host (macOS, Linux).
     ShellTools,
-    /// The Colab CLI.
     Cli,
     /// A saved, active Google account.
     SignIn,
 }
 
-/// One step of the checklist.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Step {
-    /// Which.
     pub step: EnvironmentStep,
-    /// How it stands.
     pub state: StepState,
 }
 
 /// The first-run checklist, in order.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Checklist {
-    /// The steps.
     pub steps: Vec<Step>,
 }
 
 impl Checklist {
-    /// Whether every step is done.
     pub fn complete(&self) -> bool {
         self.steps.iter().all(|step| step.state == StepState::Done)
     }
@@ -177,24 +159,20 @@ pub fn install_methods(report: Option<&ProbeReport>) -> Vec<InstallMethod> {
 }
 
 impl AppState {
-    /// The last probe.
     pub fn probe(&self) -> &Load<ProbeReport> {
         &self.probe
     }
 
-    /// The install and its log.
     pub fn install(&self) -> &InstallState {
         &self.install
     }
 
-    /// Whether the probe found the CLI.
     pub fn cli_installed(&self) -> bool {
         self.probe
             .ready()
             .is_some_and(|report| report.colab.is_some())
     }
 
-    /// The checklist for this OS.
     pub fn checklist(&self) -> Checklist {
         checklist(
             crate::platform::environment_kind(),
@@ -227,7 +205,6 @@ impl AppState {
         cx.notify();
     }
 
-    /// Picks how to install the CLI.
     pub fn set_install_method(&mut self, method: InstallMethod, cx: &mut Context<Self>) {
         self.install.method = Some(method);
         cx.notify();
@@ -273,7 +250,6 @@ impl AppState {
         );
     }
 
-    /// Asks a running install to stop.
     pub fn cancel_install(&mut self, cx: &mut Context<Self>) {
         self.ops.cancel(Op::Install);
         cx.notify();

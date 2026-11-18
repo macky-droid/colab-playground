@@ -1,8 +1,5 @@
 //! Typed wrapper over the `colab` CLI.
 //!
-//! Argument vectors are built by pure functions ([`build_argv`]) with global
-//! flags first (`--config <state file>`), run through [`Host`], and parsed by
-//! pure functions ([`parse_sessions`], [`parse_usage`], [`find_result`]).
 //! Failures are classified by [`classify_failure`] from the CLI's own messages
 //! (see `google-colab-cli` sources), because exit codes are unreliable:
 //! `colab stop` of a missing session exits 0, and `colab exec` exits 0 even
@@ -32,7 +29,6 @@ pub const AUTH_PROMPT_MARKER: &str = "To authorize colab-cli";
 /// VM port used by Colab itself; never forward or bind it.
 pub const RESERVED_VM_PORT: u16 = 8080;
 
-/// A `colab` subcommand with its arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {
     /// `colab sessions`.
@@ -41,16 +37,13 @@ pub enum CliCommand {
     Usage,
     /// `colab new -s NAME [--gpu G|--tpu T] [--high-mem]`.
     New {
-        /// Session name.
         name: String,
-        /// Requested hardware.
         accelerator: Accelerator,
         /// Request the high-RAM shape (ignored where unsupported).
         high_mem: bool,
     },
     /// `colab exec -s NAME --timeout S [--env K=V]...` (code on stdin).
     Exec {
-        /// Session name.
         name: String,
         /// Environment for the remote kernel.
         env: Vec<(String, String)>,
@@ -174,7 +167,6 @@ fn parse_session_line(line: &str) -> Option<ServerSession> {
     saw_hardware.then_some(s)
 }
 
-/// Parses `colab usage` output.
 pub fn parse_usage(stdout: &str) -> Result<Usage> {
     let mut balance = None;
     let mut rate = None;
@@ -216,7 +208,6 @@ pub fn find_result(stdout: &str) -> Option<serde_json::Value> {
         .and_then(|j| serde_json::from_str(j.trim()).ok())
 }
 
-/// Maps a failed CLI run to an [`ErrorKind`] using the CLI's messages.
 pub fn classify_failure(out: &ScriptOutput) -> Error {
     let all = format!("{}\n{}", out.stdout, out.stderr);
     let has = |s: &str| all.contains(s);
@@ -271,7 +262,6 @@ fn allocation_read_timed_out(stderr: &str) -> bool {
     })
 }
 
-/// Result of `colab stop`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StopOutcome {
     /// "Session terminated."
@@ -280,10 +270,8 @@ pub enum StopOutcome {
     NotFound,
 }
 
-/// Output of `colab exec`.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ExecOutput {
-    /// Remote stdout.
     pub stdout: String,
     /// Remote stderr (tracebacks land here).
     pub stderr: String,
@@ -291,10 +279,8 @@ pub struct ExecOutput {
     pub result: Option<serde_json::Value>,
 }
 
-/// Runs `colab` through a [`Host`].
 #[derive(Debug, Clone)]
 pub struct Cli {
-    /// Where the CLI runs.
     pub host: Host,
     /// Absolute path of `colab` on the host.
     pub colab: String,
@@ -305,7 +291,6 @@ pub struct Cli {
 const RUN_COLAB: &str = r#"exec "$CPG_COLAB" "$@""#;
 
 impl Cli {
-    /// A CLI wrapper.
     pub fn new(host: Host, colab: impl Into<String>, base_env: Vec<(String, String)>) -> Self {
         Cli {
             host,
@@ -314,7 +299,6 @@ impl Cli {
         }
     }
 
-    /// The script request for `cmd` (pure).
     pub fn request(&self, state: Option<&HostPath>, cmd: &CliCommand) -> Result<ScriptRequest> {
         let mut req = ScriptRequest::new(RUN_COLAB).args(build_argv(state, cmd)?);
         req.env = self.base_env.clone();
@@ -376,7 +360,6 @@ impl Cli {
         )
     }
 
-    /// `colab sessions` for the given state file.
     pub fn sessions(&self, state: &HostPath, cancel: &CancelToken) -> Result<Vec<ServerSession>> {
         let out = self.run_simple(Some(state), &CliCommand::Sessions, 120, cancel)?;
         if !out.success() {
@@ -385,7 +368,6 @@ impl Cli {
         Ok(parse_sessions(&out.stdout))
     }
 
-    /// `colab usage`.
     pub fn usage(&self, state: &HostPath, cancel: &CancelToken) -> Result<Usage> {
         let out = self.run_simple(Some(state), &CliCommand::Usage, 120, cancel)?;
         if !out.success() {
@@ -478,7 +460,6 @@ impl Cli {
         })
     }
 
-    /// `colab stop`.
     pub fn stop(&self, state: &HostPath, name: &str, cancel: &CancelToken) -> Result<StopOutcome> {
         let out = self.run_simple(
             Some(state),
@@ -497,7 +478,6 @@ impl Cli {
         }
     }
 
-    /// `colab version` → the version string.
     pub fn version(&self, cancel: &CancelToken) -> Result<String> {
         let out = self.run_simple(None, &CliCommand::Version, 60, cancel)?;
         if !out.success() {

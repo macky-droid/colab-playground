@@ -28,12 +28,9 @@ use crate::{
     ui::{Inputs, error_view, tagged},
 };
 
-/// Selector of the switch dialog's "nothing is running" line.
 pub const SWITCH_NOTHING_SELECTOR: &str = "switch-nothing";
-/// Selector of the switch dialog's line for runtimes that could not be checked.
 pub const SWITCH_UNMANAGED_UNKNOWN_SELECTOR: &str = "switch-unmanaged-unknown";
 
-/// The open account dialog, if any.
 pub fn render(
     state: &AppState,
     handle: &Entity<AppState>,

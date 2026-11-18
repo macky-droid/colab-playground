@@ -31,21 +31,15 @@ const STREAM_TICK: Duration = Duration::from_millis(120);
 pub enum Op {
     /// Probe, then accounts, then usage.
     Environment,
-    /// Installing the CLI.
     Install,
-    /// Listing accounts.
     Accounts,
     /// Fetching usage (with a guard round while managed runtimes exist).
     Usage,
     /// Starting or finishing a sign-in.
     Login,
-    /// Rolling back an abandoned sign-in.
     LoginRollback,
-    /// What a switch affects.
     SwitchImpact,
-    /// Switching account.
     Switch,
-    /// Removing an account.
     Remove,
     /// Saving the CLI's account.
     Adopt,
@@ -53,9 +47,7 @@ pub enum Op {
     Rebuild,
     /// Listing runtimes on every account.
     Runtimes,
-    /// A generated session name.
     SessionName,
-    /// Provisioning a new session.
     Provision,
     /// Stopping one runtime (keyed by runtime).
     Stop(u64),
@@ -67,15 +59,12 @@ pub enum Op {
     Forward(u64),
     /// Closing a forward (keyed by tunnel id).
     CloseForward(u64),
-    /// Listing plugins.
     Plugins,
     /// Checking a plugin folder or Git URL before installing.
     InspectPlugin,
     /// Installing, enabling, disabling or removing a plugin (keyed by plugin id).
     PluginChange(u64),
-    /// Running a plugin.
     PluginRun,
-    /// A run form template.
     RunTemplate,
     /// Reading, saving or deleting a stored secret.
     Secret,
@@ -117,14 +106,12 @@ pub fn key_of(value: &impl std::hash::Hash) -> u64 {
     hasher.finish()
 }
 
-/// Calls under way, by kind, with their tokens.
 #[derive(Default)]
 pub(crate) struct Ops {
     running: HashMap<Op, CancelToken>,
 }
 
 impl Ops {
-    /// Whether a call of `op` is under way.
     pub(crate) fn is_running(&self, op: Op) -> bool {
         self.running.contains_key(&op)
     }
@@ -134,17 +121,14 @@ impl Ops {
         self.running.get(&op).is_some_and(CancelToken::is_cancelled)
     }
 
-    /// Whether any call is under way.
     pub(crate) fn any(&self) -> bool {
         !self.running.is_empty()
     }
 
-    /// Whether a call that pauses the usage poll is under way.
     pub(crate) fn pausing_poll(&self) -> bool {
         self.running.keys().any(|op| op.pauses_polling())
     }
 
-    /// Asks the call of `op` to stop.
     pub(crate) fn cancel(&self, op: Op) {
         if let Some(token) = self.running.get(&op) {
             log::info!("ops: cancelling {op:?}");
@@ -174,7 +158,6 @@ impl Ops {
 }
 
 impl AppState {
-    /// Whether a call of `op` is under way.
     pub fn is_busy(&self, op: Op) -> bool {
         self.ops.is_running(op)
     }

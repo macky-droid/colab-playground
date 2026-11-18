@@ -1,5 +1,3 @@
-//! 简体中文。
-
 use super::{Messages, keys::*};
 
 pub(super) const MESSAGES: Messages = &[

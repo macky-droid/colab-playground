@@ -17,7 +17,6 @@ use crate::{
     ui::tagged,
 };
 
-/// Selector around the progress list.
 pub const PROGRESS_SELECTOR: &str = "provision-progress";
 
 /// The headline: attempt n of N (or "Starting…").
@@ -160,19 +159,15 @@ pub fn sentence(event: &ProvisionEvent, done: bool, cx: &App) -> Option<(SharedS
     })
 }
 
-/// How a line looks.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Tone {
     /// Under way (spinner while it is the last line).
     Busy,
-    /// Plain information.
     #[default]
     Info,
-    /// Went well.
     Good,
     /// Needs attention but continues.
     Warn,
-    /// Went wrong.
     Bad,
 }
 
@@ -224,7 +219,6 @@ pub fn render(progress: &ProvisionProgress, live: bool, cx: &App) -> AnyElement 
     .into_any_element()
 }
 
-/// Whether the progress list would show anything.
 pub fn has_lines(progress: &ProvisionProgress, cx: &App) -> bool {
     progress
         .events

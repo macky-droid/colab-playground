@@ -211,7 +211,6 @@ impl Fixture {
             .collect()
     }
 
-    /// The listed runtime `name` and the watchdog state its ledger entry carries.
     fn listed_watchdog(&self, name: &str) -> (Runtime, WatchdogInfo) {
         let rt = self
             .b

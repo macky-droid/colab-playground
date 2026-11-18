@@ -3,10 +3,7 @@
 //! Views read [`AppState`] in `render` and change it only through its methods; each method
 //! calls `cx.notify()` so observing views re-render. Every backend call goes through
 //! `AppState::run_backend` (see `ops`): it runs the blocking call on the background executor
-//! with a `CancelToken`, and applies the result on the foreground. The parts live in
-//! submodules: `environment` (probe, CLI install, the first-run checklist), `accounts` (list,
-//! sign-in, switch, remove), `usage` (polling and the cached usage) and `defaults` (policy
-//! defaults and where the CLI lives).
+//! with a `CancelToken`, and applies the result on the foreground.
 
 mod accounts;
 mod defaults;
@@ -67,9 +64,7 @@ use crate::{
 /// (always with a headless mock).
 #[derive(Clone)]
 pub struct StateOptions {
-    /// Where the backend comes from.
     pub source: BackendSource,
-    /// Where settings live.
     pub store: SettingsStore,
     /// The OS locale, for the `System` language.
     pub os_locale: Option<String>,
@@ -83,14 +78,11 @@ pub enum Load<T> {
     Idle,
     /// Being fetched for the first time.
     Loading,
-    /// Fetched.
     Ready(T),
-    /// Fetching failed.
     Failed(Error),
 }
 
 impl<T> Load<T> {
-    /// The value, when fetched.
     pub fn ready(&self) -> Option<&T> {
         match self {
             Load::Ready(value) => Some(value),
@@ -98,7 +90,6 @@ impl<T> Load<T> {
         }
     }
 
-    /// The error, when fetching failed.
     pub fn error(&self) -> Option<&Error> {
         match self {
             Load::Failed(error) => Some(error),
@@ -166,13 +157,10 @@ pub enum Overlay {
     Stop(StopPrompt),
     /// Cancel a runtime's auto-stop, confirmed once.
     CancelAutoStop(StopPrompt),
-    /// The new-session form and its progress.
     NewSession,
-    /// Forward a port.
     Forward(ForwardForm),
     /// Install a plugin, after checking it.
     InstallPlugin(InstallPrompt),
-    /// Remove a plugin.
     RemovePlugin(RemovePrompt),
     /// Quit with runtimes still billing.
     Quit(QuitPrompt),
@@ -181,7 +169,6 @@ pub enum Overlay {
 /// A text field the root view owns, for state to fill (`AppState::set_input`).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum InputSlot {
-    /// The new-session name.
     SessionName,
     /// The fresh session name in the run form.
     RunSessionName,
@@ -191,7 +178,6 @@ pub enum InputSlot {
     ForwardRemote,
     /// The forward's port on this computer.
     ForwardLocal,
-    /// The forward's health path.
     Health,
     /// A run-form text, secret or model field, by input id.
     Field(String),
@@ -201,7 +187,6 @@ struct GlobalAppState(Entity<AppState>);
 
 impl Global for GlobalAppState {}
 
-/// How a [`AppearancePref`] reads as Ely's [`Appearance`].
 pub fn ely_appearance(pref: AppearancePref) -> Appearance {
     match pref {
         AppearancePref::System => Appearance::System,
@@ -210,7 +195,6 @@ pub fn ely_appearance(pref: AppearancePref) -> Appearance {
     }
 }
 
-/// How Ely's [`Appearance`] is stored.
 pub fn appearance_pref(appearance: Appearance) -> AppearancePref {
     match appearance {
         Appearance::System => AppearancePref::System,
@@ -220,9 +204,7 @@ pub fn appearance_pref(appearance: Appearance) -> AppearancePref {
 }
 
 impl AppState {
-    /// Loads settings, installs the i18n catalog and theme mode, builds the backend, creates the
-    /// state, publishes it as a global and starts checking the environment. Call once, after
-    /// Ely's `init`.
+    /// Call once, after Ely's `init`.
     pub fn init(options: StateOptions, cx: &mut App) -> Entity<AppState> {
         let loaded = options.store.load();
         let language = i18n::resolve(loaded.settings.language, options.os_locale.as_deref());
@@ -317,12 +299,10 @@ impl AppState {
         state
     }
 
-    /// The app's state, from anywhere that has `&App`.
     pub fn global(cx: &App) -> Entity<AppState> {
         cx.global::<GlobalAppState>().0.clone()
     }
 
-    /// The page on show.
     pub fn route(&self) -> Route {
         self.route
     }
@@ -358,7 +338,6 @@ impl AppState {
         std::mem::take(&mut self.pending_inputs)
     }
 
-    /// Whether at least one account is saved.
     pub fn has_saved_accounts(&self) -> bool {
         self.accounts
             .ready()
@@ -372,7 +351,6 @@ impl AppState {
             .then_some(keys::ACCOUNT_CHANGE_BLOCKED)
     }
 
-    /// Shows another page.
     pub fn navigate(&mut self, route: Route, cx: &mut Context<Self>) {
         if self.route != route {
             log::info!("app: route {:?} -> {route:?}", self.route);
@@ -389,27 +367,22 @@ impl AppState {
         self.settings_focus
     }
 
-    /// The settings in effect.
     pub fn settings(&self) -> &Settings {
         &self.settings
     }
 
-    /// Where settings are saved.
     pub fn store(&self) -> &SettingsStore {
         &self.store
     }
 
-    /// Real or mock.
     pub fn flavor(&self) -> Flavor {
         self.source.flavor()
     }
 
-    /// Why the backend could not be built, if it could not.
     pub fn backend_error(&self) -> Option<&Error> {
         self.backend.as_ref().err()
     }
 
-    /// The OS locale the `System` language follows.
     pub fn os_locale(&self) -> Option<&str> {
         self.os_locale.as_deref()
     }
@@ -419,7 +392,6 @@ impl AppState {
         self.language
     }
 
-    /// The language `System` would show.
     pub fn system_language(&self) -> Language {
         i18n::resolve(LanguagePref::System, self.os_locale.as_deref())
     }
@@ -434,24 +406,20 @@ impl AppState {
         ely_appearance(self.settings.appearance).mode(self.system_mode)
     }
 
-    /// The CJK font fallbacks the root text style carries.
     pub fn font_fallbacks(&self) -> Option<&FontFallbacks> {
         self.font_fallbacks.as_ref()
     }
 
-    /// The toast host the root view draws.
     pub fn toaster(&self) -> &Entity<Toaster> {
         &self.toaster
     }
 
-    /// Shows a toast.
     pub fn toast(&self, toast: Toast, cx: &mut Context<Self>) {
         self.toaster.update(cx, |toaster, cx| {
             toaster.push(toast, cx);
         });
     }
 
-    /// Shows a success toast with `title`.
     pub(crate) fn toast_done(&self, title: gpui::SharedString, cx: &mut Context<Self>) {
         self.toast(Toast::new(title).severity(Severity::Success), cx);
     }

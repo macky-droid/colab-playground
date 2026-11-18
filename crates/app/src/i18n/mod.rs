@@ -647,18 +647,13 @@ pub const CATALOGS: [(&str, Messages); 5] = [
     ("ko-KR", ko_kr::MESSAGES),
 ];
 
-/// A display language the app ships.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Language {
-    /// English (United States).
     EnUs,
-    /// Simplified Chinese.
     ZhCn,
     /// Traditional Chinese, Taiwan wording.
     ZhTw,
-    /// Japanese.
     JaJp,
-    /// Korean.
     KoKr,
 }
 
@@ -745,7 +740,6 @@ pub fn resolve(pref: LanguagePref, os_locale: Option<&str>) -> Language {
     }
 }
 
-/// Ely's `I18n` holding every catalog of the app, showing `language`.
 pub fn catalog(language: Language) -> I18n {
     CATALOGS
         .iter()
@@ -765,7 +759,6 @@ pub fn set_language(language: Language, cx: &mut App) {
     I18n::set_locale(language.tag(), cx);
 }
 
-/// The shown language.
 pub fn current(cx: &App) -> Language {
     let tag = cx.global::<I18n>().locale().tag;
     Language::ALL
@@ -774,12 +767,10 @@ pub fn current(cx: &App) -> Language {
         .unwrap_or_else(|| panic!("i18n: the app has no catalog for {tag}"))
 }
 
-/// The message for `key` in the shown language.
 pub fn tr(cx: &App, key: &str) -> SharedString {
     cx.global::<I18n>().text(key, &[])
 }
 
-/// The message for `key`, each `{name}` filled from `args`.
 pub fn tr_args(cx: &App, key: &str, args: &[(&str, &str)]) -> SharedString {
     cx.global::<I18n>().text(key, args)
 }
@@ -802,7 +793,6 @@ pub fn tr_lenient(cx: &App, key: &str, args: &[(&str, &str)]) -> SharedString {
     fill_lenient(template(cx, key), args).into()
 }
 
-/// `message` with each `{name}` that has an argument replaced.
 pub fn fill_lenient(message: &str, args: &[(&str, &str)]) -> String {
     let mut out = String::with_capacity(message.len());
     let mut rest = message;

@@ -17,10 +17,8 @@ use crate::{
     ui::tagged,
 };
 
-/// Runs the failed thing again.
 pub type Retry = Rc<dyn Fn(&mut Window, &mut App)>;
 
-/// Does what `action` offers.
 pub fn perform(
     action: ErrorAction,
     handle: &Entity<AppState>,

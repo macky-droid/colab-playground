@@ -29,12 +29,10 @@ use crate::http::{local_http_status, local_port_open};
 use crate::paths::HostPath;
 use crate::sessions::validate_session_name;
 
-/// What to forward.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TunnelSpec {
     /// Account owning the session (must be active while the tunnel runs).
     pub account: AccountId,
-    /// Session name.
     pub session: String,
     /// Local port on `127.0.0.1`.
     pub local_port: u16,
@@ -45,7 +43,6 @@ pub struct TunnelSpec {
 }
 
 impl TunnelSpec {
-    /// Validates ports, session name and health path.
     pub fn validate(&self) -> Result<()> {
         validate_session_name(&self.session)?;
         if self.remote_port == RESERVED_VM_PORT {
@@ -62,25 +59,19 @@ impl TunnelSpec {
         Ok(())
     }
 
-    /// `http://127.0.0.1:<local>`.
     pub fn local_url(&self) -> String {
         format!("http://127.0.0.1:{}", self.local_port)
     }
 }
 
-/// Identifies an open tunnel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct TunnelId(pub u64);
 
-/// Lifecycle of a tunnel.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum TunnelState {
-    /// Connecting for the first time.
     Starting,
-    /// The local port forwards to the VM.
     Up,
-    /// Waiting before reconnecting.
     Reconnecting {
         /// Reconnect attempt (1-based).
         attempt: u32,
@@ -89,7 +80,6 @@ pub enum TunnelState {
     },
     /// Gave up (`SshBusy`, `PortInUse`, `SessionGone`, `AuthRequired`, …).
     Failed {
-        /// Why.
         error: Error,
     },
     /// Closed by the user (or because its account was switched away).
@@ -97,39 +87,28 @@ pub enum TunnelState {
 }
 
 impl TunnelState {
-    /// `Failed` or `Stopped`.
     pub fn is_terminal(&self) -> bool {
         matches!(self, TunnelState::Failed { .. } | TunnelState::Stopped)
     }
 }
 
-/// Snapshot of a tunnel for the UI.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TunnelInfo {
-    /// Id.
     pub id: TunnelId,
-    /// What it forwards.
     pub spec: TunnelSpec,
-    /// Current state.
     pub state: TunnelState,
     /// Last health probe result (`None` before the first probe or without a health path).
     pub healthy: Option<bool>,
 }
 
-/// Change notifications.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum TunnelEvent {
-    /// The state changed.
     State {
-        /// Tunnel.
         id: TunnelId,
-        /// New state.
         state: TunnelState,
     },
-    /// A health probe finished.
     Health {
-        /// Tunnel.
         id: TunnelId,
         /// It answered with a status below 500.
         healthy: bool,
@@ -147,7 +126,6 @@ pub fn proxy_command(colab: &str, state_file: &HostPath, session: &str) -> Strin
     )
 }
 
-/// Arguments for `ssh` (pure).
 pub fn ssh_args(colab: &str, state_file: &HostPath, spec: &TunnelSpec) -> Result<Vec<String>> {
     spec.validate()?;
     let opt = |s: &str| ["-o".to_owned(), s.to_owned()];
@@ -231,18 +209,13 @@ pub fn state_has_session(state_json: &str, session: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Everything a tunnel thread needs.
 #[derive(Clone)]
 pub struct TunnelCtx {
-    /// Where ssh runs.
     pub host: Host,
-    /// `colab` path on the host.
     pub colab: String,
-    /// Environment for every script.
     pub base_env: Vec<(String, String)>,
     /// The owning account's state file.
     pub state_file: HostPath,
-    /// Clock for backoff delays.
     pub clock: Arc<dyn Clock>,
 }
 
@@ -392,7 +365,6 @@ fn run(ctx: TunnelCtx, spec: TunnelSpec, stop: CancelToken, shared: Arc<Shared>)
                 Err(RecvTimeoutError::Disconnected) => break,
             }
             if child.try_wait().is_some() {
-                // Drain what is left.
                 while let Ok(line) = child.recv_line(Duration::from_millis(100)) {
                     stderr.push(line.text);
                 }
@@ -495,12 +467,10 @@ impl std::fmt::Debug for TunnelManager {
 }
 
 impl TunnelManager {
-    /// An empty manager.
     pub fn new() -> Self {
         TunnelManager::default()
     }
 
-    /// Starts a tunnel thread.
     pub fn open(
         &self,
         ctx: TunnelCtx,
@@ -543,7 +513,7 @@ impl TunnelManager {
         Ok(id)
     }
 
-    /// Closes a tunnel and waits for its thread. Closing does not stop billing.
+    /// Closing does not stop billing.
     pub fn close(&self, id: TunnelId) -> Result<()> {
         let entry = self
             .tunnels
@@ -561,7 +531,6 @@ impl TunnelManager {
         Ok(())
     }
 
-    /// Closes every tunnel of `account`; returns their ids.
     pub fn close_account(&self, account: &AccountId) -> Vec<TunnelId> {
         let ids: Vec<TunnelId> = self
             .list()
@@ -575,7 +544,6 @@ impl TunnelManager {
         ids
     }
 
-    /// Closes every tunnel of `session` on `account`.
     pub fn close_session(&self, account: &AccountId, session: &str) {
         for t in self
             .list()

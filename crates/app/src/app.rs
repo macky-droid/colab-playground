@@ -1,5 +1,3 @@
-//! Bootstrap: Ely, the app state and the main window.
-
 use anyhow::Context as _;
 use ely_gpui_component::Assets;
 use gpui::{
@@ -65,7 +63,6 @@ pub fn window_options(cx: &App) -> WindowOptions {
     }
 }
 
-/// Opens the main window over `state`.
 pub fn open_main_window(
     state: Entity<AppState>,
     cx: &mut App,
