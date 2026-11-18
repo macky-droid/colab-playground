@@ -70,6 +70,8 @@ They apply to every contributor and agent.
    instead of experimenting. Do not use the `colab-operator` skill to try things.
 2. Debug builds default to the **mock** backend. The real backend needs `--real` (or
    `COLAB_PLAYGROUND_BACKEND=real`). Release builds default to real; `--mock` forces mock.
+   The app on the real backend runs real `colab` commands, so an agent starts it there only when
+   asked to.
 3. No test may spawn `wsl.exe`, except the `#[ignore]`d Windows smoke tests of the WSL bridge
    (`wsl_smoke`), which only run `printf`/`cat` round trips and never name `colab`.
 4. The real backend is tested only against the **fake CLI** (`crates/core/tests/fake/`), on unix.

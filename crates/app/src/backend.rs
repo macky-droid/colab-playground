@@ -13,6 +13,8 @@ use colab_playground_core::{
     real::{RealBackend, RealConfig},
 };
 
+use crate::platform;
+
 /// Environment variable that picks the backend when no flag is given: `mock` or `real`.
 pub const BACKEND_ENV: &str = "COLAB_PLAYGROUND_BACKEND";
 
@@ -205,8 +207,7 @@ pub fn check_args<S: AsRef<str>>(args: &[S]) -> Result<(), BackendError> {
         if arg == "--mock" || arg == "--real" {
             continue;
         }
-        // Old macOS launchers append a process serial number; it is not ours to judge.
-        if cfg!(target_os = "macos") && arg.starts_with("-psn_") {
+        if platform::is_launcher_argument(arg) {
             continue;
         }
         if let Some(&flag) = VALUE_FLAGS.iter().find(|flag| **flag == arg) {
