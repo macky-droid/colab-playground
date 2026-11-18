@@ -86,7 +86,7 @@ pub(super) fn render(
                 .child(Paragraph::new(tr(cx, keys::NEW_INTRO)))
                 .child(form);
             dialog
-                .child(scrolled(NEW_SESSION_FORM, &session.scroll, body))
+                .child(scrolled(NEW_SESSION_FORM, Some(&session.scroll), body))
                 .action({
                     let handle = handle.clone();
                     move |_| cancel_button(cancel, handle)

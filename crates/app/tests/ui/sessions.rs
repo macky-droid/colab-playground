@@ -9,7 +9,8 @@ use colab_playground::{
     state::{EndReason, Overlay, ProvisionPhase},
     ui::{
         overlays::{
-            FORWARD_SUBMIT, NEW_SESSION_FORM, NEW_SESSION_LIMIT, NEW_SESSION_START, RESERVED_NOTE,
+            FORWARD_BODY, FORWARD_SUBMIT, NEW_SESSION_FORM, NEW_SESSION_LIMIT, NEW_SESSION_START,
+            RESERVED_NOTE,
         },
         pages::sessions::{NEW_SESSION_SELECTOR, forward_selector, stop_selector},
     },
@@ -846,6 +847,67 @@ fn the_new_session_form_takes_the_room_the_window_has_and_scrolls_past_it(cx: &m
             && thumb.top() >= form.top()
             && thumb.bottom() <= form.bottom(),
         "the thumb {thumb:?} is the form's {form:?}"
+    );
+}
+
+#[gpui::test]
+fn the_forward_dialog_with_an_error_scrolls_inside_a_dialog_that_fits_the_window(
+    cx: &mut TestAppContext,
+) {
+    use gpui::px;
+    let options = Options {
+        failures: MockFailures {
+            ssh_busy_attempts: 1,
+            ..MockFailures::default()
+        },
+        ..Options::default()
+    };
+    let mut app = TestApp::with(cx, options);
+    app.resize(880.0, 560.0);
+    on_sessions(&mut app);
+    app.click(&forward_selector("a100-7f3a"));
+    app.fill(|inputs| inputs.forward_remote.clone(), "8000");
+    app.click(FORWARD_SUBMIT);
+    assert!(app.shown("error-forward"), "the busy error is shown");
+    let body = app.bounds(FORWARD_BODY).expect("the body is drawn");
+    let submit = app.bounds(FORWARD_SUBMIT).expect("Forward is drawn");
+    assert!(
+        submit.top() - body.bottom() >= px(19.5),
+        "the dialog body scrolls too: content ends {:?}, Forward at {:?}",
+        body.bottom(),
+        submit.top()
+    );
+    assert!(
+        submit.bottom() + px(24.0) <= px(560.0 - 32.0) + px(0.5),
+        "the dialog overflows the window"
+    );
+    let health = app
+        .bounds("forward-health")
+        .expect("the health path is drawn");
+    assert!(
+        health.bottom() > body.bottom(),
+        "with the error the content outgrows the smallest window"
+    );
+    for _ in 0..10 {
+        if app.bounds("forward-health").unwrap().bottom() <= body.bottom() {
+            break;
+        }
+        wheel(&mut app, body, -80.0);
+    }
+    let health = app
+        .bounds("forward-health")
+        .expect("the health path is drawn");
+    assert!(
+        health.top() >= body.top() && health.bottom() <= body.bottom() + px(0.5),
+        "the wheel brings the last field {health:?} into the body {body:?}"
+    );
+    let thumb = app.bounds("scrollbar-thumb").expect("a scrollbar shows");
+    assert!(
+        thumb.left() >= body.left()
+            && thumb.right() <= body.right()
+            && thumb.top() >= body.top()
+            && thumb.bottom() <= body.bottom(),
+        "the thumb {thumb:?} is the body's {body:?}"
     );
 }
 

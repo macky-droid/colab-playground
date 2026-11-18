@@ -25,7 +25,7 @@ use crate::{
     ui::{Inputs, tagged},
 };
 
-pub use forward::{FORWARD_SUBMIT, RESERVED_NOTE};
+pub use forward::{FORWARD_BODY, FORWARD_SUBMIT, RESERVED_NOTE};
 pub use new_session::{
     NEW_SESSION_CANCEL_RUN, NEW_SESSION_FORM, NEW_SESSION_LIMIT, NEW_SESSION_START,
 };
@@ -96,20 +96,25 @@ const DIALOG_CHROME: Rems = Rems(13.5);
 /// The shortest the scrolling content gets, however small the window.
 const MIN_SCROLLED: Rems = Rems(8.0);
 
-/// A dialog's whole content, as tall as the window allows and scrolling beyond that, with the
-/// page's overlay scrollbar and soft edges where more content continues. `handle` belongs to
-/// the dialog's state, so the dialog can bring a row into view.
+/// A dialog's whole content (the dialog has no description, or `DIALOG_CHROME` is short), as
+/// tall as the window allows and scrolling beyond that, with the page's overlay scrollbar and
+/// soft edges where more content continues. A `handle` from the dialog's state lets it bring a
+/// row into view; without one, each opening starts at the top as well.
 #[derive(IntoElement)]
 struct Scrolled {
     id: &'static str,
-    handle: ScrollHandle,
+    handle: Option<ScrollHandle>,
     content: AnyElement,
 }
 
-fn scrolled(id: &'static str, handle: &ScrollHandle, content: impl IntoElement) -> Scrolled {
+fn scrolled(
+    id: &'static str,
+    handle: Option<&ScrollHandle>,
+    content: impl IntoElement,
+) -> Scrolled {
     Scrolled {
         id,
-        handle: handle.clone(),
+        handle: handle.cloned(),
         content: content.into_any_element(),
     }
 }
@@ -121,12 +126,14 @@ impl RenderOnce for Scrolled {
             .max(MIN_SCROLLED.to_pixels(rem));
         // The bar's track takes presses at the right edge, so the content keeps clear of it.
         let gutter = cx.theme().scrollbar_thickness().to_pixels(rem) * 2.0;
+        let area = ScrollArea::new(self.id).vertical().shadows();
+        let area = match &self.handle {
+            Some(handle) => area.track_scroll(handle),
+            None => area,
+        };
         tagged(
             self.id,
-            ScrollArea::new(self.id)
-                .vertical()
-                .shadows()
-                .track_scroll(&self.handle)
+            area
                 // A column, so the scrolling body shrinks to the room instead of clipping.
                 .flex()
                 .flex_col()
