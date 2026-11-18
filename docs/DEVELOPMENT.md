@@ -32,13 +32,10 @@ The code is the source of truth for what the app does.
 2. Push the branch and open a pull request against `main`. Nothing is pushed to `main` directly:
    the `main` ruleset requires a pull request
    ([RELEASING.md](RELEASING.md#one-time-repository-settings)).
-3. If the change touches the interface (what a screen shows, its layout or wording, how a
-   control looks or responds), confirm it by looking at screenshots of the running app yourself;
-   they need not go in the pull request. Take them from a debug build on the mock backend with its
-   own config folder ([USAGE.md](USAGE.md#demo-data)), showing the states the change is about,
-   such as the smallest window, the longest translation or dark mode, and the screen before the
-   change when an existing one changed. The UI tests run headless and draw nothing, so passing
-   them does not show that a screen looks right.
+3. If the change touches the interface, confirm it by looking at screenshots of the running app;
+   the UI tests run headless and draw nothing. Take them from a debug build on the mock backend
+   with its own config folder ([USAGE.md](USAGE.md#demo-data)), in the states the change is
+   about, such as the smallest window, the longest translation or dark mode.
 4. Wait for the three CI jobs to pass on a branch that is up to date with `main`. No approving
    review is needed.
 5. Merge with **Squash and merge**, the only method the repository allows. The pull request's
