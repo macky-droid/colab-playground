@@ -153,6 +153,67 @@ fn an_accelerator_the_account_cannot_use_says_so(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn changing_options_after_a_failure_shows_the_form_from_its_top(cx: &mut TestAppContext) {
+    use gpui::{point, px};
+    let options = Options {
+        failures: MockFailures {
+            not_entitled: vec![Accelerator::H100],
+            ..MockFailures::default()
+        },
+        ..Options::scenario(MockScenario::single())
+    };
+    let mut app = TestApp::with(cx, options);
+    app.resize(880.0, 560.0);
+    open_new_session(&mut app);
+    app.update(|state, cx| {
+        state.edit_new_session(
+            |spec| {
+                spec.accelerator = Accelerator::H100;
+                spec.min_vram_mib = None;
+            },
+            cx,
+        )
+    });
+    let scroll = form_scroll(&mut app);
+    scroll.set_offset(point(px(0.0), -scroll.max_offset().y));
+    app.settle();
+    assert!(scroll.offset().y < px(0.0), "scrolled to the end");
+    let form = app.bounds(NEW_SESSION_FORM).expect("the form is drawn");
+    let name = app
+        .bounds("new-session-name")
+        .expect("the name field is drawn");
+    assert!(
+        name.top() < form.top(),
+        "the name {name:?} has scrolled above the form {form:?}"
+    );
+    app.click(NEW_SESSION_START);
+    let failed = phase(&mut app);
+    assert!(
+        matches!(failed, Some(ProvisionPhase::Failed(_))),
+        "expected a failure, got {failed:?}"
+    );
+    app.click("new-session-change");
+    assert_eq!(
+        phase(&mut app),
+        Some(ProvisionPhase::Editing),
+        "back to the form"
+    );
+    assert_eq!(
+        form_scroll(&mut app).offset().y,
+        px(0.0),
+        "the form shows from its top again"
+    );
+    let form = app.bounds(NEW_SESSION_FORM).expect("the form is drawn");
+    let name = app
+        .bounds("new-session-name")
+        .expect("the name field is drawn");
+    assert!(
+        name.top() >= form.top() - px(0.5) && name.bottom() <= form.bottom() + px(0.5),
+        "the name {name:?} is inside the form {form:?}"
+    );
+}
+
+#[gpui::test]
 fn the_session_limit_is_explained_before_starting(cx: &mut TestAppContext) {
     // The demo's active account already has two named sessions (the default cap is 2), plus a
     // runtime opened in the browser that does not count.
