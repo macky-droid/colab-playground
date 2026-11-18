@@ -28,6 +28,11 @@ use crate::{
     ui::{Inputs, error_view, tagged},
 };
 
+/// Selector of the switch dialog's "nothing is running" line.
+pub const SWITCH_NOTHING_SELECTOR: &str = "switch-nothing";
+/// Selector of the switch dialog's line for runtimes that could not be checked.
+pub const SWITCH_UNMANAGED_UNKNOWN_SELECTOR: &str = "switch-unmanaged-unknown";
+
 /// The open account dialog, if any.
 pub fn render(
     state: &AppState,
@@ -276,11 +281,17 @@ fn switch(
 /// What switching affects: tunnels that close and runtimes that keep billing.
 fn impact_list(impact: &SwitchImpact, now: SystemTime, state: &AppState, cx: &App) -> AnyElement {
     let theme = cx.theme();
+    // "Nothing is running" needs a known count of zero: an unknown one may hide a runtime
+    // that keeps billing.
     if impact.tunnels_closing.is_empty()
         && impact.sessions_left_running.is_empty()
-        && impact.unmanaged_count == 0
+        && impact.unmanaged_count == Some(0)
     {
-        return Paragraph::new(tr(cx, keys::SWITCH_NOTHING)).into_any_element();
+        return tagged(
+            SWITCH_NOTHING_SELECTOR,
+            Paragraph::new(tr(cx, keys::SWITCH_NOTHING)),
+        )
+        .into_any_element();
     }
     let item = |text: SharedString| {
         div()
@@ -332,7 +343,17 @@ fn impact_list(impact: &SwitchImpact, now: SystemTime, state: &AppState, cx: &Ap
                 })
             }));
     }
-    if impact.unmanaged_count > 0 {
+    let Some(unmanaged_count) = impact.unmanaged_count else {
+        return tagged(
+            "switch-impact",
+            list.child(tagged(
+                SWITCH_UNMANAGED_UNKNOWN_SELECTOR,
+                InlineMessage::new(Severity::Warning, tr(cx, keys::SWITCH_UNMANAGED_UNKNOWN)),
+            )),
+        )
+        .into_any_element();
+    };
+    if unmanaged_count > 0 {
         // Runtimes opened in the browser or elsewhere keep billing with no automatic stop.
         list = list
             .child(Paragraph::new(tr(cx, keys::SWITCH_UNMANAGED)))
@@ -349,11 +370,11 @@ fn impact_list(impact: &SwitchImpact, now: SystemTime, state: &AppState, cx: &Ap
                 ))
             }));
         let listed = impact.unmanaged_left_running.len() as u32;
-        if impact.unmanaged_count > listed {
+        if unmanaged_count > listed {
             list = list.child(item(tr_args(
                 cx,
                 keys::SWITCH_UNMANAGED_MORE,
-                &[("count", &(impact.unmanaged_count - listed).to_string())],
+                &[("count", &(unmanaged_count - listed).to_string())],
             )));
         }
     }

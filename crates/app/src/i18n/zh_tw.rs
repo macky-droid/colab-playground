@@ -924,4 +924,8 @@ pub(super) const MESSAGES: Messages = &[
     (SUMMARY_INCOMPLETE, "不完整"),
     (SUMMARY_NOT_COUNTED, "未計入：{emails}"),
     (SESSIONS_EMPTY_PARTIAL_TITLE, "能列出的帳號上沒有執行階段"),
+    (
+        SWITCH_UNMANAGED_UNKNOWN,
+        "無法確認目前帳號上是否有非本應用程式啟動的執行階段。如果有，它們會繼續計費，且不會自動停止。請到「工作階段」中查看。",
+    ),
 ];

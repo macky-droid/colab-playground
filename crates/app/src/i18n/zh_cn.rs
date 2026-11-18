@@ -906,4 +906,8 @@ pub(super) const MESSAGES: Messages = &[
     (SUMMARY_INCOMPLETE, "不完整"),
     (SUMMARY_NOT_COUNTED, "未计入：{emails}"),
     (SESSIONS_EMPTY_PARTIAL_TITLE, "能列出的账号上没有运行时"),
+    (
+        SWITCH_UNMANAGED_UNKNOWN,
+        "无法确认当前账号上是否有非本应用启动的运行时。如果有，它们会继续计费，且不会自动停止。请到“会话”中查看。",
+    ),
 ];

@@ -910,11 +910,38 @@ fn switch_impact_lists_unmanaged_runtimes_via_the_helper() {
     let impact = f.b.switch_impact(&alice.id).unwrap();
     assert_eq!(impact.from.as_ref(), Some(&bob.id));
     assert_eq!(impact.sessions_left_running.len(), 1);
-    assert_eq!(impact.unmanaged_count, 1);
+    assert_eq!(impact.unmanaged_count, Some(1));
     assert_eq!(impact.unmanaged_left_running[0].endpoint, "browser-9");
     assert_eq!(impact.unmanaged_left_running[0].account, bob.id);
     let same = f.b.switch_impact(&bob.id).unwrap();
-    assert_eq!(same.unmanaged_count, 0);
+    assert_eq!(same.unmanaged_count, Some(0));
+}
+
+#[test]
+fn switch_impact_never_counts_unlisted_runtimes_as_zero() {
+    let f = fixture();
+    let alice = f.adopt_alice();
+    let bob = f.add_bob();
+    f.edit_server(|s| {
+        s["accounts"]["bob"]["assignments"]["browser-9"] =
+            json!({"accelerator": "L4", "variant": "GPU", "shape": "STANDARD"});
+    });
+    // The helper answers, but reports that bob's runtimes could not be listed.
+    f.knob("cli_api_broken", json!(true));
+    let unknown = f.b.switch_impact(&alice.id).unwrap();
+    assert_eq!(unknown.from.as_ref(), Some(&bob.id));
+    assert_eq!(unknown.unmanaged_count, None, "no listing and no usage");
+    assert!(unknown.unmanaged_left_running.is_empty());
+    assert_eq!(
+        f.b.switch_impact(&bob.id).unwrap().unmanaged_count,
+        Some(0),
+        "staying leaves nothing behind"
+    );
+
+    f.b.refresh_usage(&[], &nc()).unwrap();
+    let counted = f.b.switch_impact(&alice.id).unwrap();
+    assert_eq!(counted.unmanaged_count, Some(1), "counted from usage");
+    assert!(counted.unmanaged_left_running.is_empty());
 }
 
 /// Overriding only the `colab` path derives the interpreter from its

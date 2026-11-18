@@ -93,10 +93,12 @@ pub struct MockFailures {
     pub update_available: bool,
     /// The update check fails (as if GitHub could not be reached).
     pub update_check_fails: bool,
-    /// Listing runtimes fails outright.
+    /// Listing runtimes fails outright. `switch_impact` then counts unmanaged runtimes from
+    /// usage, or reports the count as unknown without a reading.
     pub runtimes_listing_fails: bool,
     /// Accounts (by email) whose runtimes cannot be listed: listings leave their runtimes out
-    /// and report each account in `RuntimesView::errors`.
+    /// and report each account in `RuntimesView::errors`. Leaving such an account affects
+    /// `switch_impact` as `runtimes_listing_fails` does.
     pub unlisted_accounts: Vec<String>,
 }
 
@@ -437,6 +439,14 @@ impl World {
                 name: r.name.clone(),
             })
             .collect()
+    }
+
+    /// Whether a failure switch keeps the runtimes on `account` from being listed.
+    fn listing_fails_for(&self, account: &AccountId) -> bool {
+        self.failures.runtimes_listing_fails
+            || self
+                .email(account)
+                .is_some_and(|email| self.failures.unlisted_accounts.contains(&email))
     }
 
     /// Burns balances up to `now`.
@@ -1191,9 +1201,22 @@ impl Backend for MockBackend {
         }
         let from = w.active.clone();
         let switching = from.as_ref() != Some(to);
-        let unmanaged = match (&from, switching) {
-            (Some(f), true) => w.unmanaged_on(f),
-            _ => vec![],
+        let (unmanaged, unmanaged_count) = match (&from, switching) {
+            (Some(f), true) if w.listing_fails_for(f) => {
+                let known = w.live_names(f).len();
+                let count = w
+                    .usage
+                    .get(f)
+                    .filter(|u| u.snapshot.is_some())
+                    .map(|u| u.unmanaged_runtimes(known));
+                (vec![], count)
+            }
+            (Some(f), true) => {
+                let unmanaged = w.unmanaged_on(f);
+                let count = unmanaged.len() as u32;
+                (unmanaged, Some(count))
+            }
+            _ => (vec![], Some(0)),
         };
         Ok(SwitchImpact {
             from: from.clone(),
@@ -1210,7 +1233,7 @@ impl Backend for MockBackend {
                 .filter(|e| switching && e.stopped.is_none() && Some(&e.account) == from.as_ref())
                 .cloned()
                 .collect(),
-            unmanaged_count: unmanaged.len() as u32,
+            unmanaged_count,
             unmanaged_left_running: unmanaged,
         })
     }
@@ -2598,7 +2621,7 @@ mod tests {
         let (m, _) = mock(MockScenario::demo());
         let accts = m.accounts(&nc()).unwrap();
         let impact = m.switch_impact(&accts.accounts[1].id).unwrap();
-        assert_eq!(impact.unmanaged_count, 1);
+        assert_eq!(impact.unmanaged_count, Some(1));
         assert_eq!(impact.unmanaged_left_running.len(), 1);
         assert_eq!(
             impact.unmanaged_left_running[0].account,
@@ -2606,8 +2629,52 @@ mod tests {
         );
         assert!(impact.unmanaged_left_running[0].name.is_none());
         let same = m.switch_impact(&accts.accounts[0].id).unwrap();
-        assert_eq!(same.unmanaged_count, 0);
+        assert_eq!(same.unmanaged_count, Some(0));
         assert!(same.unmanaged_left_running.is_empty());
+    }
+
+    #[test]
+    fn switch_impact_never_counts_unlisted_runtimes_as_zero() {
+        let unlisted = || MockFailures {
+            unlisted_accounts: vec!["ada@example.com".into()],
+            ..MockFailures::default()
+        };
+        let (m, _) = mock(MockScenario::demo());
+        let accts = m.accounts(&nc()).unwrap();
+        let (ada, lin) = (&accts.accounts[0].id, &accts.accounts[1].id);
+        m.set_failures(unlisted());
+        let unknown = m.switch_impact(lin).unwrap();
+        assert_eq!(unknown.unmanaged_count, None, "no listing and no usage");
+        assert!(unknown.unmanaged_left_running.is_empty());
+        assert_eq!(unknown.sessions_left_running.len(), 2);
+        assert_eq!(
+            m.switch_impact(ada).unwrap().unmanaged_count,
+            Some(0),
+            "staying leaves nothing behind"
+        );
+
+        m.set_failures(MockFailures {
+            usage_fetch_fails: true,
+            ..unlisted()
+        });
+        m.refresh_usage(&[], &nc()).unwrap();
+        assert_eq!(
+            m.switch_impact(lin).unwrap().unmanaged_count,
+            None,
+            "a failed usage fetch is not a reading"
+        );
+
+        m.set_failures(unlisted());
+        m.refresh_usage(&[], &nc()).unwrap();
+        let counted = m.switch_impact(lin).unwrap();
+        assert_eq!(counted.unmanaged_count, Some(1), "counted from usage");
+        assert!(counted.unmanaged_left_running.is_empty());
+
+        m.set_failures(MockFailures {
+            runtimes_listing_fails: true,
+            ..MockFailures::default()
+        });
+        assert_eq!(m.switch_impact(lin).unwrap().unmanaged_count, Some(1));
     }
 
     #[test]

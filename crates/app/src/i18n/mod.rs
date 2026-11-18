@@ -625,6 +625,7 @@ catalog_keys! {
     SUMMARY_INCOMPLETE => "app.b10.summary_incomplete",
     SUMMARY_NOT_COUNTED => "app.b10.summary_not_counted",
     SESSIONS_EMPTY_PARTIAL_TITLE => "app.b10.sessions_empty_partial_title",
+    SWITCH_UNMANAGED_UNKNOWN => "app.b10.switch_unmanaged_unknown",
 }
 
 /// A message table: `(key, message)` pairs; `{name}` marks an argument.

@@ -1080,4 +1080,8 @@ pub(super) const MESSAGES: Messages = &[
         SESSIONS_EMPTY_PARTIAL_TITLE,
         "Nothing is running on the accounts that could be listed",
     ),
+    (
+        SWITCH_UNMANAGED_UNKNOWN,
+        "Couldn't check whether the current account has runtimes that this app did not start. Any that are running keep billing, with no automatic stop. Check Sessions.",
+    ),
 ];

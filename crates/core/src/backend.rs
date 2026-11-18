@@ -203,8 +203,9 @@ pub struct SwitchImpact {
     pub unmanaged_left_running: Vec<RuntimeRef>,
     /// How many unmanaged runtimes the current account has. Can exceed the
     /// list when they could not be listed (then known only from usage).
+    /// `None` when neither source could say: unknown, never zero.
     #[serde(default)]
-    pub unmanaged_count: u32,
+    pub unmanaged_count: Option<u32>,
 }
 
 /// Where a plugin runs.
