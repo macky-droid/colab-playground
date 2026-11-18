@@ -94,14 +94,19 @@ does, and what Package checks before anything is attached:
 ## Writing commits for the changelog
 
 Each commit on `main` is a squash-merged pull request, and its subject is the pull request's title:
-**write the title as a conventional commit**, because it becomes one changelog line. Neither the
-commits inside the pull request nor the commit body appear in the changelog, except the text of a
-`BREAKING CHANGE:` footer (see **Breaking change** below). The scope (`app`, `core`) is printed in
-bold before the line, and each line links to its commit.
+**write the title as a conventional commit**, because it becomes one changelog line. The rest of
+the message does not appear in the changelog, with two exceptions:
+
+- the text of a `BREAKING CHANGE:` footer (see **Breaking change** below);
+- a paragraph that starts with a standard type after a blank line (`feat: …`, `fix(app): …`):
+  release-please reads it as one more commit, with its own changelog line and its effect on the
+  version. The commits GitHub lists in the proposed message start with `* `, so they do not count.
+
+The scope (`app`, `core`) is printed in bold before the line, and each line links to its commit.
 
 **Footers** (`BREAKING CHANGE:`, `Release-As:`) belong at the end of the squash commit's message.
-When merging, check the message GitHub proposes (it lists the pull request's commits) and put the
-footer on its last lines.
+When merging, check the message GitHub proposes: put any footer on its last lines, and make sure
+no paragraph starts with a type unless you want that extra line.
 
 | Type | Section | Use it for |
 | --- | --- | --- |
