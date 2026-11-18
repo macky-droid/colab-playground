@@ -13,16 +13,13 @@ use ely_gpui_component::{
     theme::{ActiveTheme, TextSize},
     typography::{Caption, Paragraph},
 };
-use gpui::{
-    AnyElement, App, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, div,
-};
+use gpui::{AnyElement, App, Entity, FontWeight, IntoElement, ParentElement, Styled, div};
 
-use super::{cancel_button, close};
+use super::{cancel_button, close, scrolled};
 use crate::{
     i18n::{keys, tr, tr_args},
     state::{AppState, ForwardForm},
-    ui::{Inputs, error_view, tagged},
+    ui::{Inputs, error_view, metrics, tagged},
 };
 
 pub const FORWARD_SUBMIT: &str = "forward-submit";
@@ -147,12 +144,7 @@ pub(super) fn render(
     ));
     // At the smallest window an error would push the dialog past the window: the body scrolls.
     let dialog = Dialog::new("forward", tr(cx, keys::FORWARD_TITLE), close(handle)).child(
-        div()
-            .id("forward-body")
-            .max_h(gpui::rems(17.0))
-            .overflow_y_scroll()
-            .pr_2()
-            .child(body),
+        scrolled("forward-body", metrics::FORWARD_BODY_MAX_HEIGHT, body),
     );
     let (cancel, label) = (tr(cx, keys::ACTION_CANCEL), tr(cx, keys::FORWARD_ACTION));
     let (go, fields) = (handle.clone(), inputs.clone());

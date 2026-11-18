@@ -22,8 +22,8 @@ use crate::{
     ui::{
         duration_field::DurationField,
         pages::defaults::{
-            MAX_CU_FIELD, MAX_VRAM_FIELD_GIB, START_IDLE, START_MIN_BALANCE_CU, START_MIN_VRAM_GIB,
-            START_SPEND_CU,
+            MAX_CU_FIELD, MAX_VRAM_FIELD_GIB, MIB_PER_GIB, START_IDLE, START_MIN_BALANCE_CU,
+            START_MIN_VRAM_GIB, START_SPEND_CU,
         },
         tagged,
     },
@@ -169,7 +169,7 @@ pub fn render(prefix: &'static str, spec: &ProvisionSpec, edit: SpecEdit, cx: &A
         "min_vram",
         spec.min_vram_mib.is_some(),
         &edit,
-        |spec, on| spec.min_vram_mib = on.then_some(START_MIN_VRAM_GIB * 1024),
+        |spec, on| spec.min_vram_mib = on.then_some(START_MIN_VRAM_GIB * MIB_PER_GIB),
         {
             let edit = edit.clone();
             div()
@@ -177,7 +177,11 @@ pub fn render(prefix: &'static str, spec: &ProvisionSpec, edit: SpecEdit, cx: &A
                 .child(
                     NumberInput::new(
                         id("min-vram"),
-                        f64::from(spec.min_vram_mib.unwrap_or(START_MIN_VRAM_GIB * 1024) / 1024),
+                        f64::from(
+                            spec.min_vram_mib
+                                .unwrap_or(START_MIN_VRAM_GIB * MIB_PER_GIB)
+                                / MIB_PER_GIB,
+                        ),
                     )
                     .range(1.0, MAX_VRAM_FIELD_GIB)
                     .precision(0)
@@ -185,7 +189,7 @@ pub fn render(prefix: &'static str, spec: &ProvisionSpec, edit: SpecEdit, cx: &A
                     .suffix(div().child(tr(cx, keys::UNIT_GB)))
                     .on_change(move |v, _, cx| {
                         edit(cx, &|spec| {
-                            spec.min_vram_mib = Some((v.round() as u32).max(1) * 1024)
+                            spec.min_vram_mib = Some((v.round() as u32).max(1) * MIB_PER_GIB)
                         })
                     }),
                 )

@@ -15,8 +15,8 @@ use ely_gpui_component::{
     typography::Caption,
 };
 use gpui::{
-    AnyElement, App, Entity, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, Window, div, rems,
+    AnyElement, App, Entity, InteractiveElement, IntoElement, ParentElement, Rems, SharedString,
+    StatefulInteractiveElement, Styled, Window, div,
 };
 
 use crate::{
@@ -84,11 +84,15 @@ fn busy_line(id: &'static str, text: SharedString) -> impl IntoElement {
         .child(Caption::new(text))
 }
 
-/// Tall content scrolls inside the dialog.
-fn scrolled(id: &'static str, content: impl IntoElement) -> impl IntoElement {
+/// Tall content scrolls inside the dialog, past `max_height`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "under a maximum height, Ely's `ScrollArea` leaves the Forward dialog's body cut off and unscrollable"
+)]
+fn scrolled(id: &'static str, max_height: Rems, content: impl IntoElement) -> impl IntoElement {
     div()
         .id(id)
-        .max_h(rems(28.0))
+        .max_h(max_height)
         .overflow_y_scroll()
         .pr_2()
         .child(content)

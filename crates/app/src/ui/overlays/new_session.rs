@@ -20,7 +20,7 @@ use crate::{
     i18n::{keys, tr, tr_args},
     route::Route,
     state::{AppState, ProvisionPhase},
-    ui::{Inputs, error_view, progress, provision_form, tagged},
+    ui::{Inputs, error_view, metrics, progress, provision_form, tagged},
 };
 
 pub const NEW_SESSION_START: &str = "new-session-start";
@@ -70,7 +70,11 @@ pub(super) fn render(
             let (go, name) = (handle.clone(), inputs.session_name.clone());
             dialog
                 .child(Paragraph::new(tr(cx, keys::NEW_INTRO)))
-                .child(scrolled("new-session-form", form))
+                .child(scrolled(
+                    "new-session-form",
+                    metrics::NEW_SESSION_FORM_MAX_HEIGHT,
+                    form,
+                ))
                 .action({
                     let handle = handle.clone();
                     move |_| cancel_button(cancel, handle)

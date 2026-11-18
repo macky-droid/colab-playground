@@ -14,7 +14,7 @@ use ely_gpui_component::{
     data_display::{Badge, Tone},
     feedback::InlineMessage,
     forms::Switch,
-    layout::{Card, CardHeader, Page, ScrollArea},
+    layout::{Card, CardHeader, Page, ScrollArea, Well},
     motion::{ProgressBar, Spinner},
     primitives::{Icon, IconName, Severity},
     terminal::AnsiText,
@@ -23,13 +23,12 @@ use ely_gpui_component::{
 };
 use gpui::{
     AnyElement, App, Entity, FontWeight, IntoElement, ParentElement, SharedString, Styled, div,
-    rems,
 };
 
 use crate::{
     i18n::{keys, tr, tr_args},
     state::{AppState, Load, Op, PluginRun, RunPhase},
-    ui::{error_view, progress, tagged},
+    ui::{error_view, metrics, progress, tagged},
 };
 
 /// Selector of Cancel while running.
@@ -491,10 +490,7 @@ fn endpoint_card(
                         )),
                 )
                 .child(
-                    div()
-                        .p_2()
-                        .rounded(theme.radius(ely_gpui_component::theme::Radius::Md))
-                        .bg(theme.colors.surface)
+                    Well::new()
                         .font_family(theme.mono_family.clone())
                         .text_size(theme.text_size(TextSize::Xs))
                         .child(curl),
@@ -516,20 +512,15 @@ fn log(run: &PluginRun, cx: &App) -> AnyElement {
     Card::new()
         .header(CardHeader::new(tr(cx, keys::RUN_LOG)))
         .child(
-            div()
-                .h(rems(14.0))
-                .rounded(theme.radius(ely_gpui_component::theme::Radius::Md))
-                .bg(theme.colors.surface)
-                .p_2()
-                .child(
-                    ScrollArea::new("run-log").vertical().size_full().child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .font_family(theme.mono_family.clone())
-                            .children(lines),
-                    ),
+            Well::new().h(metrics::RUN_LOG_HEIGHT).child(
+                ScrollArea::new("run-log").vertical().size_full().child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .font_family(theme.mono_family.clone())
+                        .children(lines),
                 ),
+            ),
         )
         .w_full()
         .into_any_element()

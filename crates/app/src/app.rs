@@ -2,20 +2,17 @@ use anyhow::Context as _;
 use ely_gpui_component::Assets;
 use gpui::{
     App, AppContext, Bounds, Entity, TitlebarOptions, WindowBounds, WindowHandle, WindowOptions,
-    px, size,
 };
 
 use crate::{
     i18n::{keys, tr},
     platform,
     state::{AppState, StateOptions},
-    ui::root::RootView,
+    ui::{
+        metrics::{WINDOW_MIN_SIZE, WINDOW_SIZE},
+        root::RootView,
+    },
 };
-
-/// Default window size, in logical pixels.
-pub const WINDOW_SIZE: (f32, f32) = (1180.0, 780.0);
-/// Smallest window size, in logical pixels.
-pub const WINDOW_MIN_SIZE: (f32, f32) = (880.0, 560.0);
 
 /// Runs the app until its last window closes.
 pub fn run(options: StateOptions) {
@@ -47,10 +44,10 @@ pub fn run(options: StateOptions) {
 /// is still set for the taskbar and window switcher; the app draws its own strip, see
 /// `ui::titlebar`). Decorations, background and traffic lights per OS come from `platform`.
 pub fn window_options(cx: &App) -> WindowOptions {
-    let bounds = Bounds::centered(None, size(px(WINDOW_SIZE.0), px(WINDOW_SIZE.1)), cx);
+    let bounds = Bounds::centered(None, WINDOW_SIZE, cx);
     WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
-        window_min_size: Some(size(px(WINDOW_MIN_SIZE.0), px(WINDOW_MIN_SIZE.1))),
+        window_min_size: Some(WINDOW_MIN_SIZE),
         titlebar: Some(TitlebarOptions {
             title: Some(tr(cx, keys::APP_NAME)),
             appears_transparent: true,

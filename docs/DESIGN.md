@@ -101,4 +101,5 @@ Properties the code must keep. A change that breaks one is wrong even if every t
 - **The default of every setting lives in one place**, is editable in Settings and can be
   overridden for one action. Nothing hard-codes it where it is used.
 - **No user-visible literal outside the i18n catalog**, and every locale has the same keys.
-- **Colours and radii come from the theme.**
+- **Colours, radii and sizes come from the theme (a size it has no token for, from
+  `ui::metrics`), and UI code names every other number but 0 and 1 as a constant.**
