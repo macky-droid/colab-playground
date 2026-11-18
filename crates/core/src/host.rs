@@ -949,17 +949,13 @@ impl LineDecoder {
     }
 }
 
-/// `None` until the bytes so far tell. A UTF-16LE line break is `0A 00` at an even
-/// offset and arrives in one write, so a `\n` at an odd offset or at the end of what
-/// was read is UTF-8.
+/// `None` until the first line break. wsl.exe's UTF-16LE messages contain ASCII (or end
+/// in `0D 00 0A 00`), so a NUL in a high-byte position shows up by then.
 fn detect_utf16(p: &[u8]) -> Option<bool> {
     if p.starts_with(&[0xff, 0xfe]) || p.iter().skip(1).step_by(2).any(|&b| b == 0) {
         return Some(true);
     }
-    p.iter()
-        .enumerate()
-        .any(|(i, &b)| b == b'\n' && (i % 2 == 1 || i + 1 == p.len()))
-        .then_some(false)
+    p.contains(&b'\n').then_some(false)
 }
 
 fn decode_line(bytes: &[u8], utf16: bool) -> String {
@@ -1291,6 +1287,15 @@ mod tests {
         let mut with_bom = vec![0xff, 0xfe];
         with_bom.extend(utf16le("Ubuntu\r\n"));
         assert_eq!(decode_all(true, &with_bom, 4096), ["Ubuntu"]);
+    }
+
+    #[test]
+    fn wsl_utf8_lines_are_split_as_soon_as_they_end() {
+        let mut decoder = LineDecoder::new(true);
+        let mut lines = Vec::new();
+        decoder.push(b"\x1eCPG-PGID 1234\nerr", &mut lines);
+        assert_eq!(lines, ["\x1eCPG-PGID 1234"]);
+        assert_eq!(decoder.finish().as_deref(), Some("err"));
     }
 
     #[test]
