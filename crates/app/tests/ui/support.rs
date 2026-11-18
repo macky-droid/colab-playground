@@ -45,13 +45,13 @@ use colab_playground_core::{
 };
 use ely_gpui_component::theme::{ActiveTheme, Mode};
 use gpui::{
-    App, Bounds, Context, Entity, Modifiers, Pixels, Render, SharedString, TestAppContext,
-    VisualTestContext, Window, point, px, size,
+    App, Bounds, Context, Entity, Modifiers, Pixels, Render, SharedString, Size, TestAppContext,
+    VisualTestContext, Window, point, px,
 };
 use tempfile::TempDir;
 
 /// The window size tests draw at, as the app opens by default.
-pub const WINDOW: (f32, f32) = colab_playground::app::WINDOW_SIZE;
+pub const WINDOW: Size<Pixels> = colab_playground::ui::metrics::WINDOW_SIZE;
 
 pub enum ConfigDir {
     /// A fresh temporary directory (the default).
@@ -118,7 +118,7 @@ impl<'a> TestApp<'a> {
         // Opening the window runs the executor, so the start-up loads arrive here.
         let (root, cx) =
             cx.add_window_view(move |window, cx| RootView::new(root_state, window, cx));
-        cx.simulate_resize(size(px(WINDOW.0), px(WINDOW.1)));
+        cx.simulate_resize(WINDOW);
         cx.update(|window, _| window.activate_window());
         let mut app = TestApp {
             cx,
@@ -165,9 +165,9 @@ impl<'a> TestApp<'a> {
         self.cx.update(|_, cx| read(root.read(cx), cx))
     }
 
-    /// Resizes the window (logical pixels), then settles.
-    pub fn resize(&mut self, width: f32, height: f32) {
-        self.cx.simulate_resize(size(px(width), px(height)));
+    /// Resizes the window, then settles.
+    pub fn resize(&mut self, window: Size<Pixels>) {
+        self.cx.simulate_resize(window);
         self.settle();
     }
 

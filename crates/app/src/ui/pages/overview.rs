@@ -9,7 +9,8 @@ use ely_gpui_component::{
     data_display::{Badge, Tone},
     feedback::{Alert, InlineMessage},
     forms::{Choice, Select},
-    layout::{Card, CardHeader, Page, ScrollArea},
+    layout::{Card, CardHeader, Page, ScrollArea, Well},
+    lists::List,
     motion::Spinner,
     primitives::{Icon, IconName, Severity},
     terminal::AnsiText,
@@ -92,7 +93,7 @@ pub fn render(state: &AppState, handle: &Entity<AppState>, cx: &App) -> Page {
                             .description(tr(cx, keys::CHECKLIST_DESCRIPTION)),
                     )
                     .child(
-                        div().flex().flex_col().children(
+                        List::new().divided().children(
                             checklist
                                 .steps
                                 .iter()
@@ -242,7 +243,6 @@ fn step_row(
             .items_start()
             .gap_3()
             .py_3()
-            .when(ix > 0, |row| row.border_t_1().border_color(colors.border))
             .child(div().flex_none().pt_0p5().child(mark))
             .child(
                 div()
@@ -525,14 +525,9 @@ fn install_log(state: &AppState, cx: &App) -> AnyElement {
     });
     tagged(
         INSTALL_LOG_SELECTOR,
-        div()
+        Well::new()
             .h(theme.list_max_height())
             .w_full()
-            .rounded(theme.radius(ely_gpui_component::theme::Radius::Md))
-            .border_1()
-            .border_color(colors.border)
-            .bg(colors.surface)
-            .p_2()
             .font_family(theme.mono_family.clone())
             .text_size(theme.text_size(TextSize::Xs))
             .child(
@@ -717,12 +712,14 @@ fn summary(state: &AppState, handle: &Entity<AppState>, cx: &App) -> impl IntoEl
     .w_full()
 }
 
-/// The accounts a runtime count leaves out: by email while they fit on the tile (two at most,
-/// all with an email), otherwise how many.
+const MAX_EMAILS_ON_TILE: usize = 2;
+
+/// The accounts a runtime count leaves out: by email while they fit on the tile (all with an
+/// email), otherwise how many.
 fn not_counted(uncounted: &[Option<String>], cx: &App) -> SharedString {
     let emails: Option<Vec<&str>> = uncounted.iter().map(Option::as_deref).collect();
     match emails {
-        Some(emails) if emails.len() <= 2 => tr_args(
+        Some(emails) if emails.len() <= MAX_EMAILS_ON_TILE => tr_args(
             cx,
             keys::SUMMARY_NOT_COUNTED,
             &[("emails", &emails.join(", "))],

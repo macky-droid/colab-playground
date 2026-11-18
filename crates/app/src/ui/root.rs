@@ -25,6 +25,7 @@ pub const PAGE_SELECTOR: &str = "page-area";
 
 /// Draw order of the title strip: above Ely's dialog backdrops (priority 0).
 const TITLE_STRIP_PRIORITY: usize = 1;
+const PORT_DIGITS: usize = u16::MAX.ilog10() as usize + 1;
 
 pub struct RootView {
     focus: FocusHandle,
@@ -65,7 +66,7 @@ impl RootView {
                 TextInput::new(window, cx)
                     .label_key(label)
                     .filter(|c| c.is_ascii_digit())
-                    .max_len(5)
+                    .max_len(PORT_DIGITS)
             })
         };
         let field =
@@ -242,14 +243,17 @@ impl Render for RootView {
         let route = self.state.read(cx).route();
         if route != self.shown_route {
             self.shown_route = route;
-            self.page_scroll
-                .set_offset(gpui::point(gpui::px(0.0), gpui::px(0.0)));
+            self.page_scroll.set_offset(gpui::Point::default());
         }
         let chrome = platform::chrome(window.window_decorations());
         let title_bar = titlebar::render(chrome, window, cx);
         let handle = self.state.clone();
         let state = self.state.read(cx);
         let theme = cx.theme();
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the title strip sits outside Ely's `AppShell`, which grounds only itself, so the window grounds the strip"
+        )]
         let mut root = FocusScope::new(&self.focus)
             .root()
             .size_full()
