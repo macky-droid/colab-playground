@@ -877,13 +877,14 @@ fn turning_on_a_limit_at_the_bottom_of_the_form_scrolls_its_value_into_view(
         "the click turned the limit on"
     );
     let control = app.bounds(&idle).expect("the idle limit is drawn");
+    let form = app.bounds(NEW_SESSION_FORM).expect("the form is drawn");
     assert!(
         scroll.offset().y < before,
         "the form scrolled on: {before:?} -> {:?}",
         scroll.offset().y
     );
     assert!(
-        control.bottom() <= form.bottom() + px(0.5),
+        control.top() >= form.top() - px(0.5) && control.bottom() <= form.bottom() + px(0.5),
         "the value {control:?} is inside the form {form:?}"
     );
 }
