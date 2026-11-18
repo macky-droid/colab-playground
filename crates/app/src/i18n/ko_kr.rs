@@ -423,6 +423,10 @@ pub(super) const MESSAGES: Messages = &[
         "지금은 Colab에 이를 위한 여유 리소스가 없습니다.",
     ),
     (
+        ERR_ALLOCATION_TIMEOUT,
+        "Colab이 이 하드웨어 요청에 끝내 응답하지 않았습니다.",
+    ),
+    (
         ERR_SSH_BUSY,
         "이 런타임에 대한 다른 연결이 이미 열려 있습니다.",
     ),
@@ -1099,5 +1103,13 @@ pub(super) const MESSAGES: Messages = &[
     (
         SESSIONS_EMPTY_PARTIAL_TITLE,
         "목록을 가져온 계정에서는 실행 중인 것이 없습니다",
+    ),
+    (
+        PROV_RECONCILING,
+        "취소한 요청으로 남은 런타임이 있는지 확인하는 중…",
+    ),
+    (
+        PROV_RECONCILED,
+        "취소한 요청으로 남은 런타임이 있는지 확인했습니다",
     ),
 ];
