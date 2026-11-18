@@ -66,8 +66,8 @@ Non-goals (v1)
    instead of experimenting. Do not use the `colab-operator` skill to try things.
 2. Debug builds default to the **mock** backend. The real backend needs `--real` (or
    `COLAB_PLAYGROUND_BACKEND=real`). Release builds default to real; `--mock` forces mock.
-3. No test may spawn `wsl.exe`, except the single `#[ignore]`d Windows smoke test of the WSL
-   bridge, which only runs `printf`-style round trips and never names `colab`.
+3. No test may spawn `wsl.exe`, except the `#[ignore]`d Windows smoke tests of the WSL bridge
+   (`wsl_smoke`), which only run `printf`/`cat` round trips and never name `colab`.
 4. The real backend is tested only against the **fake CLI** (`crates/core/tests/fake/`), on unix.
    The fake must never resolve to the system Python's `keyring` or a real `colab`.
 5. All external side effects go through one seam: `Host` (process spawning) + `Toolchain`
@@ -117,6 +117,11 @@ pub enum Host { Local, Wsl { distro: Option<String> } }
   values are passed as environment/positional args, never interpolated into script text.
 - A login shell (`bash -lc`) is used so `~/.local/bin` is on `PATH`.
 - Long-lived children (tunnels, login) are owned handles that kill the whole process tree on drop.
+- Under WSL the real backend holds one idle `wsl.exe` (`HostKeepalive`, reading stdin until EOF)
+  from its first CLI or helper call until it is dropped. WSL stops an idle distribution shortly
+  after its last command, and the keyring daemon restarts locked with it, so background polls
+  would otherwise keep asking for the keyring password. The app exiting closes the pipe, so the
+  process never outlives it.
 - `Host::probe()` reports: WSL present / default distro (Windows), `bash`, `ssh`, `git`, `uv`,
   `python3`, `colab` path + version.
 

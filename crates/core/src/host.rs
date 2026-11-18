@@ -884,6 +884,79 @@ impl Drop for HostChild {
     }
 }
 
+/// Script of [`HostKeepalive`]: idle until stdin reaches EOF.
+const KEEPALIVE_SCRIPT: &str = "cat >/dev/null";
+
+/// Keeps a WSL distribution running while it is held.
+///
+/// WSL stops a distribution shortly after its last command ends, and the user's
+/// keyring daemon stops with it. The next command starts a new daemon whose
+/// keyring is locked again, so background polls would ask for the keyring
+/// password again and again. One idle process, open between commands,
+/// keeps the distribution (and the unlocked keyring) up. It reads stdin until
+/// EOF: dropping the keepalive closes that pipe, and so does the app exiting
+/// for any reason, so it never outlives the app.
+///
+/// A no-op on [`Host::Local`], which nothing stops between commands.
+#[derive(Debug)]
+pub struct HostKeepalive {
+    host: Host,
+    child: Mutex<Option<HostChild>>,
+}
+
+impl HostKeepalive {
+    /// A keepalive for `host`; spawns nothing until [`HostKeepalive::ensure`].
+    pub fn new(host: Host) -> HostKeepalive {
+        HostKeepalive {
+            host,
+            child: Mutex::new(None),
+        }
+    }
+
+    /// Starts the idle process, or starts it again if it ended (after
+    /// `wsl --shutdown`, for example). A failed start is retried on the next call.
+    pub fn ensure(&self) {
+        if !matches!(self.host, Host::Wsl { .. }) {
+            return;
+        }
+        let mut slot = self.child.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(child) = slot.as_mut()
+            && child.try_wait().is_none()
+        {
+            return;
+        }
+        *slot = self.host.spawn(keepalive_request()).ok();
+    }
+
+    /// Whether the idle process is running.
+    pub fn is_running(&self) -> bool {
+        let mut slot = self.child.lock().unwrap_or_else(|e| e.into_inner());
+        slot.as_mut()
+            .is_some_and(|child| child.try_wait().is_none())
+    }
+}
+
+impl Drop for HostKeepalive {
+    fn drop(&mut self) {
+        let slot = self.child.get_mut().unwrap_or_else(|e| e.into_inner());
+        if let Some(mut child) = slot.take() {
+            // EOF ends it. Wait off the caller's thread, and only kill the process
+            // group (through another `wsl.exe`) if it is still there after that.
+            child.close_stdin();
+            thread::spawn(move || {
+                let deadline = Instant::now() + Duration::from_secs(5);
+                while child.try_wait().is_none() && Instant::now() < deadline {
+                    thread::sleep(Duration::from_millis(50));
+                }
+            });
+        }
+    }
+}
+
+fn keepalive_request() -> ScriptRequest {
+    ScriptRequest::new(KEEPALIVE_SCRIPT).stdin_pipe()
+}
+
 fn spawn_reader<R: Read + Send + 'static>(
     mut r: R,
     stream: Stream,
@@ -1214,6 +1287,41 @@ mod tests {
         assert!(out.stdout.contains("env=[v=1 ñ\n]"), "{}", out.stdout);
         assert!(out.stdout.contains("from stdin ✓"));
         assert!(!out.stderr.contains("CPG-PGID"));
+    }
+
+    #[test]
+    fn keepalive_runs_only_under_wsl_and_holds_stdin() {
+        let local = HostKeepalive::new(Host::Local);
+        local.ensure();
+        assert!(!local.is_running());
+        // Spawns nothing: tests never start `wsl.exe` (DESIGN.md section 2).
+        let wsl = HostKeepalive::new(Host::Wsl { distro: None });
+        assert!(!wsl.is_running());
+        let req = keepalive_request();
+        assert_eq!(req.stdin, StdinMode::Pipe);
+        assert!(req.timeout.is_none());
+        let inv = Host::Wsl {
+            distro: Some("Ubuntu".into()),
+        }
+        .invocation(&req, true)
+        .unwrap();
+        assert_eq!(inv.program, "wsl.exe");
+        assert!(inv.no_window);
+    }
+
+    /// The keepalive script through the real bootstrap: up until stdin closes.
+    #[cfg(unix)]
+    #[test]
+    fn keepalive_script_ends_at_stdin_eof() {
+        let mut child = Host::Local.spawn(keepalive_request()).unwrap();
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(child.try_wait().is_none(), "ended before stdin closed");
+        child.close_stdin();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while child.try_wait().is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(child.try_wait(), Some(Some(0)));
     }
 
     #[cfg(unix)]

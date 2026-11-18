@@ -5,10 +5,34 @@
 //! only performs `printf`/`cat` round trips through the default distribution.
 #![cfg(windows)]
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use colab_playground_core::host::{Host, LineAction, ScriptRequest};
+use colab_playground_core::host::{Host, HostKeepalive, LineAction, ScriptRequest};
 use colab_playground_core::{CancelToken, ErrorKind};
+
+#[test]
+#[ignore = "spawns wsl.exe; run explicitly"]
+fn wsl_keepalive_holds_until_stdin_closes() {
+    let host = Host::Wsl { distro: None };
+    let keepalive = HostKeepalive::new(host.clone());
+    keepalive.ensure();
+    std::thread::sleep(Duration::from_secs(3));
+    assert!(keepalive.is_running(), "the keepalive ended while held");
+    drop(keepalive);
+
+    // The same script ends once its stdin closes, which is what happens when the app exits.
+    let mut child = host
+        .spawn(ScriptRequest::new("cat >/dev/null").stdin_pipe())
+        .expect("wsl.exe spawn");
+    std::thread::sleep(Duration::from_secs(3));
+    assert!(child.try_wait().is_none(), "ended before stdin closed");
+    child.close_stdin();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while child.try_wait().is_none() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(child.try_wait(), Some(Some(0)));
+}
 
 #[test]
 #[ignore = "spawns wsl.exe; run explicitly"]

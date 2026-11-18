@@ -27,7 +27,9 @@ use crate::defaults::Defaults;
 use crate::error::{Error, ErrorKind, Result};
 use crate::guard::{Decision, GuardPolicy, SpendMeter, evaluate};
 use crate::hf::{HfClient, HfModel};
-use crate::host::{Host, Line, LineAction, ProbeReport, ScriptRequest, Stream, Toolchain, tail};
+use crate::host::{
+    Host, HostKeepalive, Line, LineAction, ProbeReport, ScriptRequest, Stream, Toolchain, tail,
+};
 use crate::hostfs::HostFs;
 use crate::http::HttpClient;
 use crate::paths::{DataLayout, HostPath};
@@ -179,6 +181,8 @@ struct Inner {
     state: Mutex<State>,
     tunnels: TunnelManager,
     login_active: AtomicBool,
+    /// Keeps WSL up between commands, so its keyring stays unlocked (see [`HostKeepalive`]).
+    keepalive: HostKeepalive,
 }
 
 /// The backend that drives the real Colab CLI.
@@ -226,6 +230,7 @@ impl RealBackend {
         };
         Ok(RealBackend {
             inner: Arc::new(Inner {
+                keepalive: HostKeepalive::new(cfg.host.clone()),
                 cfg,
                 slot: Arc::new(SlotLock::default()),
                 state: Mutex::new(state),
@@ -293,18 +298,23 @@ impl Inner {
         DataLayout::new(self.cfg.local_dir.clone(), HostPath::new("/"))
     }
 
+    // Both read the keyring, so both keep the host up first.
     fn cli(&self) -> Result<Cli> {
+        let colab = self.toolchain()?.colab;
+        self.keepalive.ensure();
         Ok(Cli::new(
             self.cfg.host.clone(),
-            self.toolchain()?.colab,
+            colab,
             self.cfg.base_env.clone(),
         ))
     }
 
     fn helper(&self) -> Result<Helper> {
+        let python = self.toolchain()?.helper_python;
+        self.keepalive.ensure();
         Ok(Helper::new(
             self.cfg.host.clone(),
-            self.toolchain()?.helper_python,
+            python,
             self.cfg.base_env.clone(),
         ))
     }
