@@ -61,8 +61,8 @@ Stated only here.
   changelog line: [Landing a change](docs/DEVELOPMENT.md#landing-a-change). The types are the
   repository's own, not the usual set:
   [Writing commits for the changelog](docs/RELEASING.md#writing-commits-for-the-changelog).
-- Review bot comments are leads, not verdicts:
-  [Automated review comments](docs/DEVELOPMENT.md#automated-review-comments).
+- Review bot comments are leads, not verdicts, and only a problem that can really happen gets
+  fixed: [Automated review comments](docs/DEVELOPMENT.md#automated-review-comments).
 
 ## Read before touching
 
