@@ -1,7 +1,7 @@
 # Building and running Colab Playground
 
 How to build the app, choose its backend, try it with demo data, and find what it stores.
-What the app does is in the [README](../README.md); why it is built this way is in
+What the app does is in the [README](../README.md); the principles and rules behind it are in
 [DESIGN.md](DESIGN.md).
 
 ## Install a release

@@ -1,4 +1,4 @@
-//! Live compute-unit usage per account (DESIGN §4.5.1).
+//! Live compute-unit usage per account.
 //!
 //! Colab only reports account totals (balance, burn rate, number of
 //! assignments). This module turns successive readings into what the UI shows:
