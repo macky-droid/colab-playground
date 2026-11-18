@@ -894,8 +894,6 @@ impl Drop for HostChild {
     }
 }
 
-/// Splits a byte stream into lines of text.
-///
 /// `wsl.exe` writes its own messages (usage, errors, `-l`) in UTF-16LE whenever it
 /// ignores `WSL_UTF8`: the inbox stub on Windows without WSL and older WSL builds do.
 /// Linux programs behind it write UTF-8, which never contains NUL, so a NUL in a
@@ -964,13 +962,11 @@ fn decode_line(bytes: &[u8], utf16: bool) -> String {
             .chunks(2)
             .map(|u| u16::from_le_bytes([u[0], u.get(1).copied().unwrap_or(0)]))
             .collect();
-        String::from_utf16_lossy(&units)
+        let units = units.strip_prefix(&[0xfeff]).unwrap_or(&units);
+        String::from_utf16_lossy(units)
     } else {
         String::from_utf8_lossy(bytes).into_owned()
     };
-    if text.starts_with('\u{feff}') {
-        text.remove(0);
-    }
     if text.ends_with('\r') {
         text.pop();
     }
