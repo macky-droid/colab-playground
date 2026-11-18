@@ -24,7 +24,7 @@ use crate::{
     i18n::{keys, tr, tr_args},
     platform,
     state::AppState,
-    ui::{Inputs, tagged},
+    ui::{Inputs, metrics, tagged},
 };
 
 /// Where an idle limit starts when turned on.
@@ -41,6 +41,8 @@ pub const MAX_CONCURRENT_FIELD: f64 = 20.0;
 pub const MAX_CU_FIELD: f64 = 100_000.0;
 /// The largest GPU memory the field accepts, in GiB.
 pub const MAX_VRAM_FIELD_GIB: f64 = 1024.0;
+/// GPU memory is set in GiB and stored in MiB.
+pub const MIB_PER_GIB: u32 = 1024;
 
 /// The selector around a defaults row's control: `def <field>`.
 pub fn field_selector(field: &str) -> String {
@@ -267,21 +269,23 @@ pub fn defaults_section(state: &AppState, handle: &Entity<AppState>, cx: &App) -
         "min_vram",
         d.min_vram_mib.is_some(),
         edit(handle, |d, on: bool| {
-            d.min_vram_mib = on.then_some(START_MIN_VRAM_GIB * 1024)
+            d.min_vram_mib = on.then_some(START_MIN_VRAM_GIB * MIB_PER_GIB)
         }),
         div()
             .w(theme.menu_width())
             .child(
                 NumberInput::new(
                     "def-min-vram",
-                    f64::from(d.min_vram_mib.unwrap_or(START_MIN_VRAM_GIB * 1024) / 1024),
+                    f64::from(
+                        d.min_vram_mib.unwrap_or(START_MIN_VRAM_GIB * MIB_PER_GIB) / MIB_PER_GIB,
+                    ),
                 )
                 .range(1.0, MAX_VRAM_FIELD_GIB)
                 .precision(0)
                 .step(1.0)
                 .suffix(div().child(tr(cx, keys::UNIT_GB)))
                 .on_change(edit(handle, |d, v: f64| {
-                    d.min_vram_mib = Some((v.round() as u32).max(1) * 1024)
+                    d.min_vram_mib = Some((v.round() as u32).max(1) * MIB_PER_GIB)
                 })),
             )
             .into_any_element(),
@@ -463,7 +467,7 @@ pub fn host_section(
     }
     let path = |input: &Entity<ely_gpui_component::forms::TextInput>| {
         div()
-            .w(theme.container_width(ely_gpui_component::theme::ContainerSize::Sm) * 0.5)
+            .w(metrics::path_field_width(theme))
             .child(Input::new(input))
     };
     let (apply, colab, python) = (

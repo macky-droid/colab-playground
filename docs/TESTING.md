@@ -1,6 +1,7 @@
 # Testing Colab Playground
 
-What the automated tests cover, and the manual checklist for the part they cannot.
+What the automated tests cover, how to take screenshots, and the manual checklist for the part
+the tests cannot reach.
 
 ## Automated tests
 
@@ -14,6 +15,28 @@ The commands CI runs on each platform are in
 - No test runs the real `colab` ([hard safety rules](DESIGN.md#hard-safety-rules)). The ignored,
   Windows-only `wsl_smoke` tests only round-trip `printf`/`cat` through WSL and hold an idle
   keepalive: `cargo test -p colab-playground-core --test wsl_smoke -- --ignored`.
+
+## Screenshots
+
+The UI tests draw nothing, so how a screen looks is checked in screenshots of the running app.
+On Windows, `scripts/screenshot.ps1` takes them without your mouse or keyboard: it starts a copy
+of the debug build on the mock backend with its own config folder, sends clicks, wheel turns,
+keys and text to that window alone, and saves what it draws. It never acts on a Colab Playground
+it did not start.
+
+```powershell
+$id = ./scripts/screenshot.ps1 -Start -AppArgs '--mock-scenario', 'single'
+./scripts/screenshot.ps1 -Id $id -Click 50, 127 -Out target/shots/sessions.png
+./scripts/screenshot.ps1 -Id $id -Size 880, 560 -Wheel 440, 300, 5 -Out target/shots/scrolled.png
+./scripts/screenshot.ps1 -Id $id -Stop
+```
+
+Coordinates are pixels of the saved PNG, so read them off the last screenshot. `-SettingsJson`
+starts the app in dark mode or another language; `Get-Help ./scripts/screenshot.ps1 -Detailed`
+lists the rest.
+
+On macOS and Linux, start a debug build on the mock backend with its own config folder
+([USAGE.md](USAGE.md#demo-data)) and capture its window with the system's screenshot tool.
 
 ## Manual smoke checklist (real mode)
 

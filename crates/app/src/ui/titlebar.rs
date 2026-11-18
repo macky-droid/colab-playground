@@ -55,7 +55,6 @@ pub fn render(chrome: Chrome, window: &mut Window, cx: &mut App) -> AnyElement {
             .gap_2()
             .min_w_0()
             .border_1()
-            .border_color(gpui::transparent_black())
             .px_2()
             .child(
                 Icon::new(IconName::Zap)
@@ -71,6 +70,10 @@ pub fn render(chrome: Chrome, window: &mut Window, cx: &mut App) -> AnyElement {
                     .child(Ellipsis::new(tr(cx, keys::APP_NAME))),
             )
     });
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "Ely's vertical `Divider` takes its height as a share of its parent's and draws nothing in the strip"
+    )]
     let brand = div()
         .debug_selector(|| BRAND_SELECTOR.into())
         .flex()

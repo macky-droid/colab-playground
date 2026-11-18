@@ -25,7 +25,9 @@ use colab_playground_core::{
     provision::ProvisionEvent,
     sessions::Accelerator,
 };
-use gpui::{Context, IntoElement, ParentElement, Render, Styled, TestAppContext, Window, div};
+use gpui::{
+    Context, IntoElement, ParentElement, Render, Styled, TestAppContext, Window, div, px, size,
+};
 
 use crate::support::{Options, TestApp, click_at, mount};
 
@@ -149,6 +151,67 @@ fn an_accelerator_the_account_cannot_use_says_so(cx: &mut TestAppContext) {
         phase(&mut app),
         Some(ProvisionPhase::Editing),
         "back to the form"
+    );
+}
+
+#[gpui::test]
+fn changing_options_after_a_failure_shows_the_form_from_its_top(cx: &mut TestAppContext) {
+    use gpui::point;
+    let options = Options {
+        failures: MockFailures {
+            not_entitled: vec![Accelerator::H100],
+            ..MockFailures::default()
+        },
+        ..Options::scenario(MockScenario::single())
+    };
+    let mut app = TestApp::with(cx, options);
+    app.resize(size(px(880.0), px(560.0)));
+    open_new_session(&mut app);
+    app.update(|state, cx| {
+        state.edit_new_session(
+            |spec| {
+                spec.accelerator = Accelerator::H100;
+                spec.min_vram_mib = None;
+            },
+            cx,
+        )
+    });
+    let scroll = form_scroll(&mut app);
+    scroll.set_offset(point(px(0.0), -scroll.max_offset().y));
+    app.settle();
+    assert!(scroll.offset().y < px(0.0), "scrolled to the end");
+    let form = app.bounds(NEW_SESSION_FORM).expect("the form is drawn");
+    let name = app
+        .bounds("new-session-name")
+        .expect("the name field is drawn");
+    assert!(
+        name.top() < form.top(),
+        "the name {name:?} has scrolled above the form {form:?}"
+    );
+    app.click(NEW_SESSION_START);
+    let failed = phase(&mut app);
+    assert!(
+        matches!(failed, Some(ProvisionPhase::Failed(_))),
+        "expected a failure, got {failed:?}"
+    );
+    app.click("new-session-change");
+    assert_eq!(
+        phase(&mut app),
+        Some(ProvisionPhase::Editing),
+        "back to the form"
+    );
+    assert_eq!(
+        form_scroll(&mut app).offset().y,
+        px(0.0),
+        "the form shows from its top again"
+    );
+    let form = app.bounds(NEW_SESSION_FORM).expect("the form is drawn");
+    let name = app
+        .bounds("new-session-name")
+        .expect("the name field is drawn");
+    assert!(
+        name.top() >= form.top() - px(0.5) && name.bottom() <= form.bottom() + px(0.5),
+        "the name {name:?} is inside the form {form:?}"
     );
 }
 
@@ -920,7 +983,6 @@ fn wheel(app: &mut TestApp<'_>, over: gpui::Bounds<gpui::Pixels>, dy: f32) {
 
 #[gpui::test]
 fn the_new_session_form_takes_the_room_the_window_has_and_scrolls_past_it(cx: &mut TestAppContext) {
-    use gpui::px;
     let mut app = TestApp::with(cx, Options::scenario(MockScenario::single()));
     open_new_session(&mut app);
     assert_eq!(
@@ -929,7 +991,7 @@ fn the_new_session_form_takes_the_room_the_window_has_and_scrolls_past_it(cx: &m
         "opens at the top"
     );
     for (width, height) in [(880.0, 560.0), (1180.0, 780.0), (1180.0, 1100.0)] {
-        app.resize(width, height);
+        app.resize(size(px(width), px(height)));
         let form = app.bounds(NEW_SESSION_FORM).expect("the form is drawn");
         let start = app.bounds(NEW_SESSION_START).expect("Start is drawn");
         let reach = form_scroll(&mut app).max_offset().y;
@@ -951,7 +1013,7 @@ fn the_new_session_form_takes_the_room_the_window_has_and_scrolls_past_it(cx: &m
             assert_eq!(reach, px(0.0), "{width}x{height}: the whole form fits");
         }
     }
-    app.resize(880.0, 560.0);
+    app.resize(size(px(880.0), px(560.0)));
     let form = app.bounds(NEW_SESSION_FORM).expect("the form is drawn");
     wheel(&mut app, form, -120.0);
     assert!(
@@ -974,7 +1036,6 @@ fn the_new_session_form_takes_the_room_the_window_has_and_scrolls_past_it(cx: &m
 fn the_forward_dialog_with_an_error_scrolls_inside_a_dialog_that_fits_the_window(
     cx: &mut TestAppContext,
 ) {
-    use gpui::px;
     let options = Options {
         failures: MockFailures {
             ssh_busy_attempts: 1,
@@ -983,7 +1044,7 @@ fn the_forward_dialog_with_an_error_scrolls_inside_a_dialog_that_fits_the_window
         ..Options::default()
     };
     let mut app = TestApp::with(cx, options);
-    app.resize(880.0, 560.0);
+    app.resize(size(px(880.0), px(560.0)));
     on_sessions(&mut app);
     app.click(&forward_selector("a100-7f3a"));
     app.fill(|inputs| inputs.forward_remote.clone(), "8000");
@@ -1030,7 +1091,7 @@ fn the_forward_dialog_with_an_error_scrolls_inside_a_dialog_that_fits_the_window
         "the thumb {thumb:?} runs beside the body {body:?}, in the card's padding"
     );
     // A taller window gives the body room until the error and every field fit.
-    app.resize(880.0, 780.0);
+    app.resize(size(px(880.0), px(780.0)));
     let tall = app.bounds(FORWARD_BODY).expect("the body is drawn");
     let error = app
         .bounds("error-forward")
@@ -1055,7 +1116,7 @@ fn turning_on_a_limit_at_the_bottom_of_the_form_scrolls_its_value_into_view(
     use colab_playground::ui::provision_form::field_selector;
     use gpui::{point, px};
     let mut app = TestApp::with(cx, Options::scenario(MockScenario::single()));
-    app.resize(880.0, 560.0);
+    app.resize(size(px(880.0), px(560.0)));
     open_new_session(&mut app);
     app.update(|state, cx| state.edit_new_session(|spec| spec.guard.idle_timeout = None, cx));
     let scroll = form_scroll(&mut app);
