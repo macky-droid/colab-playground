@@ -98,13 +98,51 @@ mod reconciliation_tests {
         let sample = backend.inner.reconciliation_sample();
         let listing = Vec::new();
         backend.inner.st().ledger.upsert(entry("new")).unwrap();
-        let vanished = backend
-            .inner
-            .reconcile(&account, &listing, None, &sample)
-            .unwrap();
+        let vanished = backend.inner.reconcile(&account, &listing, None, &sample);
         assert_eq!(vanished.len(), 1);
         assert_eq!(vanished[0].name.as_deref(), Some("old"));
         assert!(backend.inner.st().ledger.live(&account, "new").is_some());
+    }
+
+    #[test]
+    fn a_session_that_ended_is_reported_even_when_the_ledger_cannot_be_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = RealConfig::for_app(Defaults::default()).unwrap();
+        config.local_dir = dir.path().to_owned();
+        let backend = RealBackend::new(config).unwrap();
+        let account = AccountId::new("alice").unwrap();
+        for name in ["first", "second"] {
+            backend
+                .inner
+                .st()
+                .ledger
+                .upsert(TrackedSession {
+                    name: name.into(),
+                    account: account.clone(),
+                    endpoint: Some(format!("endpoint-{name}")),
+                    accelerator: Accelerator::T4,
+                    high_mem: false,
+                    gpu: None,
+                    vram_mib: None,
+                    policy: GuardPolicy::default(),
+                    spend: SpendMeter::new(SystemTime::UNIX_EPOCH),
+                    watchdog: None,
+                    stopped: None,
+                })
+                .unwrap();
+        }
+        let sample = backend.inner.reconciliation_sample();
+        // A directory where the file was makes every save fail.
+        let ledger = dir.path().join("ledger.json");
+        std::fs::remove_file(&ledger).unwrap();
+        std::fs::create_dir(&ledger).unwrap();
+        assert!(backend.inner.st().ledger.save().is_err());
+
+        let vanished = backend.inner.reconcile(&account, &[], None, &sample);
+        let names: Vec<_> = vanished.iter().filter_map(|r| r.name.as_deref()).collect();
+        assert_eq!(names, ["first", "second"]);
+        assert!(backend.inner.st().ledger.live(&account, "first").is_none());
+        assert!(backend.inner.st().ledger.live(&account, "second").is_none());
     }
 
     #[test]
@@ -148,7 +186,6 @@ mod reconciliation_tests {
                 backend
                     .inner
                     .reconcile(&account, &[], Some(&names), &sample)
-                    .unwrap()
                     .is_empty()
             );
             assert_eq!(
@@ -617,7 +654,7 @@ impl Inner {
         list: &[RemoteAssignment],
         names: Option<&BTreeMap<String, String>>,
         sample: &BTreeMap<AccountId, Vec<TrackedSession>>,
-    ) -> Result<Vec<RuntimeRef>> {
+    ) -> Vec<RuntimeRef> {
         let mut st = self.st();
         let live: Vec<_> = st
             .ledger
@@ -637,6 +674,8 @@ impl Inner {
             .cloned()
             .collect();
         let mut vanished = Vec::new();
+        // A failed save keeps the change in memory and the next save writes it, so the
+        // round goes on: a session that ended is still reported.
         for e in live {
             let endpoint = e.endpoint.clone().or_else(|| {
                 names.and_then(|names| {
@@ -649,16 +688,17 @@ impl Inner {
             if let Some(endpoint) = endpoint {
                 if list.iter().any(|a| a.endpoint == endpoint) {
                     if e.endpoint.is_none() {
-                        st.ledger
-                            .update(account, &e.name, |e| e.endpoint = Some(endpoint))?;
+                        let _ = st
+                            .ledger
+                            .update(account, &e.name, |e| e.endpoint = Some(endpoint));
                     }
                 } else {
-                    st.ledger.update(account, &e.name, |e| {
+                    let _ = st.ledger.update(account, &e.name, |e| {
                         e.stopped = Some(StopRecord {
                             at: self.now(),
                             reason: StopReason::Vanished,
                         });
-                    })?;
+                    });
                     vanished.push(RuntimeRef {
                         account: account.clone(),
                         endpoint,
@@ -667,7 +707,7 @@ impl Inner {
                 }
             }
         }
-        Ok(vanished)
+        vanished
     }
 
     fn reconcile_accounts(
@@ -684,13 +724,11 @@ impl Inner {
             for (account, result) in listed {
                 if let Ok(list) = result {
                     let names = self.state_names(&account, cancel);
-                    if let Ok(gone) = self.reconcile(&account, &list, names.as_ref(), &sample) {
-                        vanished.extend(gone);
-                        if !self.st().ledger.entries().iter().any(|e| {
-                            e.account == account && e.stopped.is_none() && e.endpoint.is_none()
-                        }) {
-                            verified.insert(account);
-                        }
+                    vanished.extend(self.reconcile(&account, &list, names.as_ref(), &sample));
+                    if !self.st().ledger.entries().iter().any(|e| {
+                        e.account == account && e.stopped.is_none() && e.endpoint.is_none()
+                    }) {
+                        verified.insert(account);
                     }
                 }
             }
@@ -1325,8 +1363,7 @@ impl Backend for RealBackend {
                 }
             };
             let names = self.inner.state_names(&account, cancel);
-            let _ = self
-                .inner
+            self.inner
                 .reconcile(&account, &list, names.as_ref(), &sample);
             let names = names.unwrap_or_default();
             let st = self.inner.st();
