@@ -535,6 +535,7 @@ impl World {
             .cloned()
             .collect();
         let mut vanished = Vec::new();
+        let mut unmatched = Vec::new();
         let mut verified = true;
         for e in live {
             let endpoint = e.endpoint.clone().or_else(|| {
@@ -544,7 +545,7 @@ impl World {
                     .map(|r| r.endpoint.clone())
             });
             let Some(endpoint) = endpoint else {
-                verified = false;
+                unmatched.push(e.name);
                 continue;
             };
             if self
@@ -579,6 +580,41 @@ impl World {
                     name: Some(e.name),
                 });
             }
+        }
+        // Like the real backend: a session without an endpoint can only be a runtime that
+        // no other live session claims.
+        let claimed = |endpoint: &str| {
+            self.ledger.entries().iter().any(|e| {
+                &e.account == id && e.stopped.is_none() && e.endpoint.as_deref() == Some(endpoint)
+            })
+        };
+        let all_claimed = self
+            .runtimes
+            .iter()
+            .filter(|r| &r.account == id)
+            .all(|r| claimed(&r.endpoint));
+        if all_claimed {
+            for name in unmatched {
+                if self
+                    .ledger
+                    .update(id, &name, |e| {
+                        e.stopped = Some(StopRecord {
+                            at: now,
+                            reason: StopReason::Vanished,
+                        })
+                    })
+                    .is_err()
+                {
+                    verified = false;
+                }
+                vanished.push(RuntimeRef {
+                    account: id.clone(),
+                    endpoint: String::new(),
+                    name: Some(name),
+                });
+            }
+        } else if !unmatched.is_empty() {
+            verified = false;
         }
         (verified, vanished)
     }
@@ -848,6 +884,12 @@ impl MockBackend {
     }
 
     fn stop_inner(&self, target: &RuntimeRef, reason: StopReason) -> Result<()> {
+        // Like the real backend: without an endpoint it cannot tell that the runtime is gone.
+        if target.endpoint.is_empty() {
+            return Err(
+                Error::new(ErrorKind::OrphanSuspected).detail("the session's runtime is not known")
+            );
+        }
         let now = self.now_();
         let mut w = self.w();
         w.settle(now);
@@ -2222,6 +2264,106 @@ mod tests {
             .retain(|r| r.endpoint != entry.endpoint.as_deref().unwrap());
         assert!(!w.reconcile(&account, m.now_()).0);
         assert!(w.ledger.live(&account, &entry.name).is_some());
+    }
+
+    #[test]
+    fn a_session_without_an_endpoint_ends_once_no_runtime_could_be_it() {
+        let (m, _) = mock(MockScenario::demo());
+        let (active, other) = {
+            let w = m.w();
+            (w.accounts[0].id.clone(), w.accounts[1].id.clone())
+        };
+        let lose = |account: &AccountId, name: &str| {
+            let mut w = m.w();
+            let endpoint = w
+                .ledger
+                .live(account, name)
+                .unwrap()
+                .endpoint
+                .clone()
+                .unwrap();
+            w.ledger
+                .update(account, name, |e| e.endpoint = None)
+                .unwrap();
+            w.runtimes.retain(|r| r.endpoint != endpoint);
+        };
+        let verified = |views: &[AccountUsageView], account: &AccountId| {
+            views
+                .iter()
+                .find(|v| &v.account == account)
+                .unwrap()
+                .ownership_verified
+        };
+
+        lose(&other, "cpu-0b5e");
+        assert!(m.remove_account(&other, &nc()).is_err());
+        let report = m.guard_poll(&nc()).unwrap();
+        let cpu = RuntimeRef {
+            account: other.clone(),
+            endpoint: String::new(),
+            name: Some("cpu-0b5e".into()),
+        };
+        assert_eq!(report.vanished, [cpu]);
+        assert!(verified(&report.usage, &other));
+        m.remove_account(&other, &nc()).unwrap();
+
+        lose(&active, "t4-91c2");
+        let views = m.refresh_usage(&[], &nc()).unwrap();
+        assert!(m.w().ledger.live(&active, "t4-91c2").is_some());
+        assert!(!verified(&views, &active), "the browser's L4 could be it");
+        let browser = {
+            let w = m.w();
+            let r = w
+                .runtimes
+                .iter()
+                .find(|r| r.account == active && r.name.is_none())
+                .unwrap();
+            RuntimeRef {
+                account: active.clone(),
+                endpoint: r.endpoint.clone(),
+                name: None,
+            }
+        };
+        m.stop_session(&browser, StopOptions::default(), &nc())
+            .unwrap();
+        let views = m.refresh_usage(&[], &nc()).unwrap();
+        assert!(m.w().ledger.live(&active, "t4-91c2").is_none());
+        assert!(verified(&views, &active));
+    }
+
+    #[test]
+    fn a_guard_stop_without_an_endpoint_suspects_an_orphan_and_keeps_the_session() {
+        let (m, clock) = mock(MockScenario::demo());
+        let (account, endpoint, limit) = {
+            let mut w = m.w();
+            let account = w.active.clone().unwrap();
+            let entry = w.ledger.live(&account, "t4-91c2").unwrap().clone();
+            let endpoint = entry.endpoint.unwrap();
+            w.ledger
+                .update(&account, "t4-91c2", |e| e.endpoint = None)
+                .unwrap();
+            let runtime = w
+                .runtimes
+                .iter_mut()
+                .find(|r| r.endpoint == endpoint)
+                .unwrap();
+            runtime.name = None;
+            (account, endpoint, entry.policy.max_runtime.unwrap())
+        };
+        clock.advance(limit);
+        let report = m.guard_poll(&nc()).unwrap();
+        let decision = report
+            .decisions
+            .iter()
+            .find(|d| d.session.name.as_deref() == Some("t4-91c2"))
+            .unwrap();
+        assert!(matches!(decision.decision, Decision::Stop(_)));
+        assert!(!decision.stopped);
+        let error = decision.error.as_ref().unwrap();
+        assert!(error.is(ErrorKind::OrphanSuspected), "{error:?}");
+        assert!(m.w().ledger.live(&account, "t4-91c2").is_some());
+        let listed = m.runtimes(&nc()).unwrap().runtimes;
+        assert!(listed.iter().any(|r| r.id.endpoint == endpoint));
     }
 
     #[test]

@@ -147,7 +147,7 @@ mod reconciliation_tests {
     }
 
     #[test]
-    fn a_session_without_an_endpoint_takes_only_a_listed_one_and_is_never_ended() {
+    fn a_session_without_an_endpoint_takes_only_a_listed_one_and_outlasts_a_stale_record() {
         let dir = tempfile::tempdir().unwrap();
         let mut config = RealConfig::for_app(Defaults::default()).unwrap();
         config.local_dir = dir.path().to_owned();
@@ -206,6 +206,84 @@ mod reconciliation_tests {
                 .reconcile(&account, &listing("b-current"), Some(&both), &sample);
         assert!(vanished.is_empty());
         assert_eq!(endpoint(&backend).as_deref(), Some("b-current"));
+    }
+
+    #[test]
+    fn a_session_without_an_endpoint_ends_when_no_listed_runtime_could_be_it() {
+        let account = AccountId::new("alice").unwrap();
+        let entry = |name: &str, endpoint: Option<&str>| TrackedSession {
+            name: name.into(),
+            account: account.clone(),
+            endpoint: endpoint.map(Into::into),
+            accelerator: Accelerator::T4,
+            high_mem: false,
+            gpu: None,
+            vram_mib: None,
+            policy: GuardPolicy::default(),
+            spend: SpendMeter::new(SystemTime::UNIX_EPOCH),
+            watchdog: None,
+            stopped: None,
+        };
+        let listing = |endpoints: &[&str]| -> Vec<RemoteAssignment> {
+            endpoints
+                .iter()
+                .map(|endpoint| RemoteAssignment {
+                    endpoint: (*endpoint).into(),
+                    accelerator: Some(Accelerator::T4),
+                    accelerator_label: "T4".into(),
+                    variant: "GPU".into(),
+                    high_mem: false,
+                })
+                .collect()
+        };
+        let sampled = |entries: &[TrackedSession]| {
+            let dir = tempfile::tempdir().unwrap();
+            let mut config = RealConfig::for_app(Defaults::default()).unwrap();
+            config.local_dir = dir.path().to_owned();
+            let backend = RealBackend::new(config).unwrap();
+            for e in entries {
+                backend.inner.st().ledger.upsert(e.clone()).unwrap();
+            }
+            let sample = backend.inner.reconciliation_sample();
+            (dir, backend, sample)
+        };
+        let live = |backend: &RealBackend, name: &str| {
+            backend.inner.st().ledger.live(&account, name).is_some()
+        };
+
+        let (_dir, backend, sample) = sampled(&[entry("lost", None)]);
+        // Started after the sample, it still accounts for its runtime.
+        let known = entry("known", Some("a-known"));
+        backend.inner.st().ledger.upsert(known).unwrap();
+        let vanished = backend
+            .inner
+            .reconcile(&account, &listing(&["a-known"]), None, &sample);
+        let lost = RuntimeRef {
+            account: account.clone(),
+            endpoint: String::new(),
+            name: Some("lost".into()),
+        };
+        assert_eq!(vanished, [lost]);
+        assert!(!live(&backend, "lost"));
+        assert!(live(&backend, "known"));
+
+        let (_dir, backend, sample) = sampled(&[entry("first", None), entry("second", None)]);
+        let vanished = backend
+            .inner
+            .reconcile(&account, &listing(&["b-unclaimed"]), None, &sample);
+        assert!(vanished.is_empty());
+        assert!(live(&backend, "first") && live(&backend, "second"));
+
+        backend
+            .inner
+            .st()
+            .ledger
+            .upsert(entry("late", None))
+            .unwrap();
+        let vanished = backend.inner.reconcile(&account, &[], None, &sample);
+        let names: Vec<_> = vanished.iter().filter_map(|r| r.name.as_deref()).collect();
+        assert_eq!(names, ["first", "second"]);
+        assert!(live(&backend, "late"));
     }
 
     #[test]
@@ -737,6 +815,7 @@ impl Inner {
             .cloned()
             .collect();
         let mut vanished = Vec::new();
+        let mut unmatched = Vec::new();
         // A failed save keeps the change in memory and the next save writes it, so the
         // round goes on: a session that ended is still reported.
         for e in live {
@@ -751,10 +830,13 @@ impl Inner {
                         .find(|(endpoint, name)| *name == &e.name && listed(endpoint))
                         .map(|(endpoint, _)| endpoint.clone())
                 });
-                if let Some(endpoint) = confirmed {
-                    let _ = st
-                        .ledger
-                        .update(account, &e.name, |e| e.endpoint = Some(endpoint));
+                match confirmed {
+                    Some(endpoint) => {
+                        let _ = st
+                            .ledger
+                            .update(account, &e.name, |e| e.endpoint = Some(endpoint));
+                    }
+                    None => unmatched.push(e.name),
                 }
                 continue;
             };
@@ -769,6 +851,30 @@ impl Inner {
                     account: account.clone(),
                     endpoint,
                     name: Some(e.name),
+                });
+            }
+        }
+        // A session without an endpoint can only be a listed runtime that no other live
+        // session claims; with none left, its runtime has ended.
+        let claimed = |endpoint: &str| {
+            st.ledger.entries().iter().any(|e| {
+                &e.account == account
+                    && e.stopped.is_none()
+                    && e.endpoint.as_deref() == Some(endpoint)
+            })
+        };
+        if !unmatched.is_empty() && list.iter().all(|a| claimed(&a.endpoint)) {
+            for name in unmatched {
+                let _ = st.ledger.update(account, &name, |e| {
+                    e.stopped = Some(StopRecord {
+                        at: self.now(),
+                        reason: StopReason::Vanished,
+                    });
+                });
+                vanished.push(RuntimeRef {
+                    account: account.clone(),
+                    endpoint: String::new(),
+                    name: Some(name),
                 });
             }
         }
@@ -825,6 +931,13 @@ impl Inner {
             && let Ok(StopOutcome::Terminated) = cli.stop(&state, n, &nc)
         {
             stopped_by_cli = true;
+        }
+        // The CLI did not end it and there is no endpoint to release, so its runtime may still
+        // be billing; the session stays live until reconciliation can tell that it has ended.
+        if !stopped_by_cli && target.endpoint.is_empty() {
+            return Err(
+                Error::new(ErrorKind::OrphanSuspected).detail("the session's runtime is not known")
+            );
         }
         let helper = self.helper()?;
         if !stopped_by_cli {
