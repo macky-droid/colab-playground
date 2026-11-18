@@ -47,7 +47,7 @@ url = "2"
 ely-gpui-component = { git = "https://github.com/ELY-Open-Source/Ely-GPUI-Components", rev = "c01a140e95deef8437c85aafd3617acfd798d58e", features = ["test-support"] }
 gpui = { package = "gpui-pre", version = "=0.3.12", features = ["test-support"] }
 tempfile = "3"
-# `tests/lint.rs` reads the UI sources; line numbers need `span-locations`.
+# `tests/lint.rs` reads the app's and the core's sources; line numbers need `span-locations`.
 proc-macro2 = { version = "1", features = ["span-locations"] }
 syn = { version = "2", features = ["full", "visit"] }
 

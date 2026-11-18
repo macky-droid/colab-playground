@@ -1,6 +1,5 @@
 //! Everything that differs per operating system lives here, behind `cfg`; no other module of
-//! this crate's `src/` names a target OS. (The one exception outside `src/` is the test gate on
-//! `tests/ui/fonts.rs`, which reads the host's fonts.)
+//! this crate's `src/` names a target OS.
 //!
 //! Ely bundles Latin fonts only (Inter, JetBrains Mono, IBM Plex Sans). Han characters, kana
 //! and hangul render through the platform's font fallback; the app sets an explicit fallback list
@@ -204,6 +203,12 @@ pub const WSL_INSTALL_URL: &str = "https://learn.microsoft.com/windows/wsl/insta
 /// The OS's preferred locale, such as `zh-Hant-TW`, `zh-CN` or `en_US.UTF-8`.
 pub fn os_locale() -> Option<String> {
     sys_locale::get_locale()
+}
+
+/// Whether the system that started the app added `arg`: old macOS launchers append a process
+/// serial number (`-psn_…`), which is not ours to judge.
+pub fn is_launcher_argument(arg: &str) -> bool {
+    cfg!(target_os = "macos") && arg.starts_with("-psn_")
 }
 
 /// CJK families to try for `language`, best first: the language's own faces lead (Simplified

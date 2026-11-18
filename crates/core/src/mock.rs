@@ -26,7 +26,7 @@ use crate::defaults::Defaults;
 use crate::error::{Error, ErrorKind, Result};
 use crate::guard::{Decision, GuardPolicy, SpendMeter, evaluate};
 use crate::hf::HfModel;
-use crate::host::{Line, ProbeReport, Stream};
+use crate::host::{Host, Line, ProbeReport, Stream};
 use crate::plugins::{
     PluginInfo, PluginOrigin, PluginPreview, PluginStore, resolve_endpoints, resolve_inputs,
 };
@@ -1128,13 +1128,10 @@ impl Backend for MockBackend {
         let colab = w
             .cli_installed
             .then(|| "/home/demo/.local/bin/colab".to_owned());
+        let wsl = matches!(Host::detect(), Host::Wsl { .. });
         Ok(ProbeReport {
-            wsl_installed: cfg!(windows),
-            wsl_distros: if cfg!(windows) {
-                vec!["Ubuntu".into()]
-            } else {
-                vec![]
-            },
+            wsl_installed: wsl,
+            wsl_distros: if wsl { vec!["Ubuntu".into()] } else { vec![] },
             bash: Some("/usr/bin/bash".into()),
             ssh: Some("/usr/bin/ssh".into()),
             ssh_keygen: Some("/usr/bin/ssh-keygen".into()),
