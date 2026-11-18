@@ -199,6 +199,51 @@ fn unverified_ownership_is_unknown_even_when_usage_is_fresh_or_stale(cx: &mut Te
 }
 
 #[gpui::test]
+fn unknown_ownership_on_one_account_keeps_the_title_of_a_counted_one(cx: &mut TestAppContext) {
+    let mut app = TestApp::new(cx);
+    let counted_email = app.read(|state, _| state.active_email().unwrap().to_string());
+    let unknown_email = app.read(|state, _| {
+        state
+            .usage()
+            .iter()
+            .filter_map(|view| view.email.clone())
+            .find(|email| email != &counted_email)
+            .unwrap()
+    });
+    let unknown = app
+        .cx
+        .update(|_, cx| tr_args(cx, keys::UNMANAGED_UNKNOWN, &[("email", &unknown_email)]));
+    app.set_failures(MockFailures {
+        unlisted_accounts: vec![unknown_email.clone()],
+        ..MockFailures::default()
+    });
+    app.advance(Duration::from_secs(60));
+    let title = app.text(keys::UNMANAGED_TITLE);
+    let counted = app
+        .cx
+        .update(|_, cx| tr_args(cx, keys::UNMANAGED_ONE, &[("email", &counted_email)]));
+    assert!(app.shown(&format!(
+        "unmanaged-warning {title} {counted}
+{unknown}"
+    )));
+
+    app.set_failures(MockFailures {
+        unlisted_accounts: vec![unknown_email],
+        usage_fetch_fails: true,
+        ..MockFailures::default()
+    });
+    app.advance(Duration::from_secs(60));
+    let title = app.text(keys::UNMANAGED_LAST_TITLE);
+    let counted = app
+        .cx
+        .update(|_, cx| tr_args(cx, keys::UNMANAGED_LAST_ONE, &[("email", &counted_email)]));
+    assert!(app.shown(&format!(
+        "unmanaged-warning {title} {counted}
+{unknown}"
+    )));
+}
+
+#[gpui::test]
 fn refresh_fetches_now_and_the_poller_waits_for_its_cadence(cx: &mut TestAppContext) {
     let mut app = TestApp::with(cx, Options::scenario(MockScenario::single()));
     let first = active_snapshot(&mut app).expect("fetched at start");

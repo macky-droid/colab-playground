@@ -743,9 +743,15 @@ pub fn unmanaged_warning(
     if unmanaged.is_empty() {
         return None;
     }
-    let title = if unmanaged.iter().any(|(_, count, _)| count.is_none()) {
+    // A row with a count is the stronger news, so rows of unknown ownership only decide the
+    // title when there is nothing else.
+    let mut counted = unmanaged
+        .iter()
+        .filter(|(_, count, _)| count.is_some())
+        .peekable();
+    let title = if counted.peek().is_none() {
         keys::UNMANAGED_UNKNOWN_TITLE
-    } else if unmanaged.iter().all(|(_, _, stale)| *stale) {
+    } else if counted.all(|(_, _, stale)| *stale) {
         keys::UNMANAGED_LAST_TITLE
     } else {
         keys::UNMANAGED_TITLE
