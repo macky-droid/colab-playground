@@ -1,6 +1,7 @@
 # Testing Colab Playground
 
-What the automated tests cover, and the manual checklist for the part they cannot.
+What the automated tests cover, how to take screenshots, and the manual checklist for the part
+the tests cannot reach.
 
 ## Automated tests
 
@@ -15,6 +16,24 @@ The commands CI runs on each platform are in
   Windows-only
   `wsl_smoke` test only round-trips `printf` through WSL:
   `cargo test -p colab-playground-core --test wsl_smoke -- --ignored`.
+
+## Screenshots
+
+The UI tests draw nothing, so how a screen looks is checked in screenshots of the running app.
+On Windows, `scripts/screenshot.ps1` takes them without your mouse or keyboard: it starts a copy
+of the debug build on the mock backend with its own config folder, sends clicks, wheel turns,
+keys and text to that window alone, and saves what it draws.
+
+```powershell
+$id = ./scripts/screenshot.ps1 -Start -AppArgs '--mock-scenario', 'single'
+./scripts/screenshot.ps1 -Id $id -Click 50, 127 -Out target/shots/sessions.png
+./scripts/screenshot.ps1 -Id $id -Size 880, 560 -Wheel 440, 300, 5 -Out target/shots/scrolled.png
+./scripts/screenshot.ps1 -Id $id -Stop
+```
+
+Coordinates are pixels of the saved PNG, so read them off the last screenshot. `-SettingsJson`
+starts the app in dark mode or another language; `Get-Help ./scripts/screenshot.ps1 -Detailed`
+lists the rest.
 
 ## Manual smoke checklist (real mode)
 
