@@ -11,7 +11,7 @@ use std::time::Duration;
 use gpui::Context;
 
 use super::{AppState, Overlay, updates::secs};
-use crate::settings::Settings;
+use crate::{platform, settings::Settings};
 
 /// Runtimes and deployments that must have come up before the app asks.
 pub const READY_BEFORE_ASKING: u32 = 3;
@@ -26,11 +26,10 @@ pub const PROJECT_PAGE: &str = env!("CARGO_PKG_REPOSITORY");
 /// place where the user writes.
 pub fn feedback_page() -> String {
     let build = format!(
-        "\n\n{} {} ({}, {})",
+        "\n\n{} {} ({})",
         env!("CARGO_PKG_NAME"),
         env!("CARGO_PKG_VERSION"),
-        std::env::consts::OS,
-        std::env::consts::ARCH
+        platform::system()
     );
     let body: String = url::form_urlencoded::byte_serialize(build.as_bytes()).collect();
     format!("{PROJECT_PAGE}/issues/new?body={body}")
@@ -157,6 +156,6 @@ mod tests {
         assert_eq!(name, "body");
         assert!(text.starts_with("\n\n"), "room to write above: {text:?}");
         assert!(text.contains(env!("CARGO_PKG_VERSION")), "{text:?}");
-        assert!(text.contains(std::env::consts::OS), "{text:?}");
+        assert!(text.contains(&crate::platform::system()), "{text:?}");
     }
 }
