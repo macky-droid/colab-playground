@@ -977,6 +977,23 @@ fn the_forward_dialog_with_an_error_scrolls_inside_a_dialog_that_fits_the_window
             && thumb.bottom() <= body.bottom(),
         "the thumb {thumb:?} is the body's {body:?}"
     );
+    // A taller window gives the body room until the error and every field fit.
+    app.resize(880.0, 780.0);
+    let tall = app.bounds(FORWARD_BODY).expect("the body is drawn");
+    let error = app
+        .bounds("error-forward")
+        .expect("the error is still shown");
+    let health = app
+        .bounds("forward-health")
+        .expect("the health path is drawn");
+    assert!(
+        tall.size.height > body.size.height,
+        "the body grows with the window: {body:?} -> {tall:?}"
+    );
+    assert!(
+        error.top() >= tall.top() && health.bottom() <= tall.bottom() + px(0.5),
+        "everything fits: error {error:?}, last field {health:?}, body {tall:?}"
+    );
 }
 
 #[gpui::test]
