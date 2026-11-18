@@ -1110,4 +1110,22 @@ pub(super) const MESSAGES: Messages = &[
         PROV_NO_ANSWER,
         "Colab hasn't answered for {time}. Some requests take longer; you can also cancel now.",
     ),
+    (FEEDBACK_TITLE, "Enjoying Colab Playground?"),
+    (
+        FEEDBACK_BODY,
+        "Colab Playground is free and open source. If it's useful to you, a star on GitHub helps other people find it. If something doesn't work as you expect, or you have an idea, open an issue there.",
+    ),
+    (FEEDBACK_STAR, "Star on GitHub"),
+    (FEEDBACK_GIVE, "Give feedback"),
+    (FEEDBACK_NOT_NOW, "Not now"),
+    (FEEDBACK_DONT_ASK_AGAIN, "Don't ask again"),
+    (
+        FEEDBACK_ALSO_IN_ABOUT,
+        "Both open GitHub in your browser. You can also find them in Settings → About.",
+    ),
+    (SETTINGS_FEEDBACK_TITLE, "Feedback"),
+    (
+        SETTINGS_FEEDBACK_DESCRIPTION,
+        "Report a problem or suggest an idea on GitHub. The issue form opens with the app's version and your operating system filled in.",
+    ),
 ];

@@ -1,7 +1,9 @@
 //! Dialogs other than the account ones: stop and end billing, new session (with its live
-//! progress), forward a port, install or remove a plugin, and quitting while runtimes bill.
-//! Every button carries a selector (`overlay-cancel` for the dismissing one).
+//! progress), forward a port, install or remove a plugin, quitting while runtimes bill, and
+//! asking for a star or feedback. Every button carries a selector (`overlay-cancel` for the
+//! dismissing one).
 
+mod feedback;
 mod forward;
 mod new_session;
 mod plugin;
@@ -25,6 +27,7 @@ use crate::{
     ui::{Inputs, metrics, tagged},
 };
 
+pub use feedback::{FEEDBACK_GIVE, FEEDBACK_PROMPT, FEEDBACK_STAR};
 pub use forward::{FORWARD_BODY, FORWARD_SUBMIT, RESERVED_NOTE};
 pub use new_session::{
     NEW_SESSION_CANCEL_RUN, NEW_SESSION_FORM, NEW_SESSION_LIMIT, NEW_SESSION_START,
@@ -51,6 +54,7 @@ pub fn render(
         Overlay::InstallPlugin(prompt) => plugin::install(prompt, state, handle, cx),
         Overlay::RemovePlugin(prompt) => plugin::remove(prompt, state, handle, cx),
         Overlay::Quit(prompt) => quit::render(prompt, state, handle, cx),
+        Overlay::Feedback => feedback::render(state, handle, cx),
     })
 }
 

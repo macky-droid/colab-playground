@@ -950,4 +950,22 @@ pub(super) const MESSAGES: Messages = &[
         PROV_NO_ANSWER,
         "Colab 已有 {time}沒有回應。有些申請要等更久，也可以現在取消。",
     ),
+    (FEEDBACK_TITLE, "覺得 Colab Playground 好用嗎？"),
+    (
+        FEEDBACK_BODY,
+        "Colab Playground 是免費的開放原始碼軟體。如果它對你有幫助，在 GitHub 上加個星號能讓更多人發現它。如果有地方和你預期的不同，或你有什麼想法，歡迎到那裡回報。",
+    ),
+    (FEEDBACK_STAR, "在 GitHub 上加星號"),
+    (FEEDBACK_GIVE, "提供意見回饋"),
+    (FEEDBACK_NOT_NOW, "以後再說"),
+    (FEEDBACK_DONT_ASK_AGAIN, "不再提示"),
+    (
+        FEEDBACK_ALSO_IN_ABOUT,
+        "兩者都在瀏覽器中開啟 GitHub，也可在「設定 → 關於」中找到。",
+    ),
+    (SETTINGS_FEEDBACK_TITLE, "意見回饋"),
+    (
+        SETTINGS_FEEDBACK_DESCRIPTION,
+        "在 GitHub 上回報問題或提出建議。開啟的表單會預先填好本應用程式的版本和你的作業系統。",
+    ),
 ];

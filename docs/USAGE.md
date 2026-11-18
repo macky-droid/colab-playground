@@ -46,6 +46,16 @@ The app checks GitHub for a newer release and never downloads or installs one it
 - A check that fails is reported in Settings → About (and in a message when you started it by hand).
 - Demo data never contacts GitHub.
 
+## Feedback
+
+- **Any time:** Settings → About → "Give feedback" opens a new issue on GitHub in your browser,
+  with the app's version and operating system filled in. Nothing is sent until you submit it
+  there.
+- **When the app asks:** after a few runtimes or deployments, the app asks whether you enjoy it,
+  with "Star on GitHub" (the project page) and "Give feedback". It asks only right after you stop
+  a runtime while nothing else runs or starts, at most twice, and never again once you choose
+  either link.
+
 ## Requirements
 
 - Rust: the version in `rust-version` under `[workspace.package]` in

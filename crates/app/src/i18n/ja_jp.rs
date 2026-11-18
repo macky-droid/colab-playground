@@ -1212,4 +1212,22 @@ pub(super) const MESSAGES: Messages = &[
         PROV_NO_ANSWER,
         "{time}の間、Colab から応答がありません。さらに時間がかかる要求もあります。今すぐキャンセルすることもできます。",
     ),
+    (FEEDBACK_TITLE, "Colab Playground はいかがですか？"),
+    (
+        FEEDBACK_BODY,
+        "Colab Playground は無料のオープンソース ソフトウェアです。役に立っている場合は、GitHub でスターを付けると、ほかの人が見つけやすくなります。思いどおりに動かないところやアイデアがあれば、GitHub で Issue を作成してください。",
+    ),
+    (FEEDBACK_STAR, "スターを付ける"),
+    (FEEDBACK_GIVE, "フィードバックを送る"),
+    (FEEDBACK_NOT_NOW, "今はしない"),
+    (FEEDBACK_DONT_ASK_AGAIN, "今後表示しない"),
+    (
+        FEEDBACK_ALSO_IN_ABOUT,
+        "どちらもブラウザーで GitHub を開きます。あとから「設定」の「このアプリについて」でも開けます。",
+    ),
+    (SETTINGS_FEEDBACK_TITLE, "フィードバック"),
+    (
+        SETTINGS_FEEDBACK_DESCRIPTION,
+        "GitHub で問題を報告したり、アイデアを提案したりできます。開くフォームには、アプリのバージョンとお使いのオペレーティング システムがあらかじめ入力されています。",
+    ),
 ];

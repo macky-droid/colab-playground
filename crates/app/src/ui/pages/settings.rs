@@ -121,6 +121,7 @@ fn about(state: &AppState, handle: &Entity<AppState>, cx: &App) -> impl IntoElem
             ))),
         )
         .row(SettingsRow::new(tr(cx, keys::SETTINGS_PROJECT_TITLE)).control(project_link()))
+        .row(feedback_row(cx))
         .row(updates_row(state, handle, cx))
         .row(auto_check_row(state, handle, cx))
         .row(
@@ -263,7 +264,7 @@ pub const PROJECT_LINK_SELECTOR: &str = "about-project";
 
 /// The project page (the package repository), opened in the browser like the app's other links.
 fn project_link() -> impl IntoElement {
-    let url = env!("CARGO_PKG_REPOSITORY");
+    let url = crate::state::PROJECT_PAGE;
     let shown = url.trim_start_matches("https://");
     tagged(
         PROJECT_LINK_SELECTOR,
@@ -273,4 +274,20 @@ fn project_link() -> impl IntoElement {
             .icon(IconName::ExternalLink)
             .on_click(move |_, _, cx| cx.open_url(url)),
     )
+}
+
+pub const FEEDBACK_LINK_SELECTOR: &str = "about-feedback";
+
+/// Feedback at any time, since the prompt stops asking (`state::feedback`).
+fn feedback_row(cx: &App) -> SettingsRow {
+    let url = crate::state::feedback_page();
+    SettingsRow::new(tr(cx, keys::SETTINGS_FEEDBACK_TITLE))
+        .description(tr(cx, keys::SETTINGS_FEEDBACK_DESCRIPTION))
+        .control(tagged(
+            FEEDBACK_LINK_SELECTOR,
+            Button::new(FEEDBACK_LINK_SELECTOR, tr(cx, keys::FEEDBACK_GIVE))
+                .size(ControlSize::Sm)
+                .icon(IconName::ExternalLink)
+                .on_click(move |_, _, cx| cx.open_url(&url)),
+        ))
 }

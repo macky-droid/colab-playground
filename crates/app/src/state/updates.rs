@@ -37,7 +37,7 @@ pub enum UpdateCheck {
     Failed(Error),
 }
 
-fn secs(time: SystemTime) -> u64 {
+pub(super) fn secs(time: SystemTime) -> u64 {
     time.duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()

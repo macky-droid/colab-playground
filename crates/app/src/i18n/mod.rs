@@ -638,6 +638,15 @@ catalog_keys! {
     PROV_RECONCILING => "app.b11.prov_reconciling",
     PROV_RECONCILED => "app.b11.prov_reconciled",
     PROV_NO_ANSWER => "app.b11.prov_no_answer",
+    FEEDBACK_TITLE => "app.b12.feedback_title",
+    FEEDBACK_BODY => "app.b12.feedback_body",
+    FEEDBACK_STAR => "app.b12.feedback_star",
+    FEEDBACK_GIVE => "app.b12.feedback_give",
+    FEEDBACK_NOT_NOW => "app.b12.feedback_not_now",
+    FEEDBACK_DONT_ASK_AGAIN => "app.b12.feedback_dont_ask_again",
+    FEEDBACK_ALSO_IN_ABOUT => "app.b12.feedback_also_in_about",
+    SETTINGS_FEEDBACK_TITLE => "app.b12.settings_feedback_title",
+    SETTINGS_FEEDBACK_DESCRIPTION => "app.b12.settings_feedback_description",
 }
 
 /// A message table: `(key, message)` pairs; `{name}` marks an argument.

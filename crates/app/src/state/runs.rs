@@ -422,6 +422,7 @@ impl AppState {
                 .map(|info| self.plugin_name(info))
                 .unwrap_or(plugin);
             self.toast_done(tr_args(cx, keys::RUN_READY_TOAST, &[("name", &name)]), cx);
+            self.count_ready(cx);
         }
         for spec in forwards {
             self.open_tunnel(spec, false, cx);

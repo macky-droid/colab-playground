@@ -131,6 +131,24 @@ pub struct Settings {
         skip_serializing_if = "Option::is_none"
     )]
     pub update_dismissed: Option<String>,
+    /// Runtimes and deployments that came up: the app asks for a star or feedback only after a
+    /// few.
+    #[serde(default, deserialize_with = "lenient")]
+    pub ready_count: u32,
+    /// How many times the app asked for a star or feedback.
+    #[serde(default, deserialize_with = "lenient")]
+    pub feedback_asked: u32,
+    /// When it last asked (seconds since the Unix epoch, backend clock).
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub feedback_asked_at: Option<u64>,
+    /// The user opened the project page or the issue form from the prompt, so it never asks
+    /// again.
+    #[serde(default, deserialize_with = "lenient")]
+    pub feedback_answered: bool,
 }
 
 /// A switch that is on unless the user turned it off.
