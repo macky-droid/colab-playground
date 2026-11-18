@@ -18,53 +18,37 @@ use gpui::{AppContext, Context};
 use super::{AppState, Load, Op};
 use crate::i18n::{keys, tr, tr_args};
 
-/// Where adding an account stands.
 #[derive(Clone, Debug, PartialEq)]
 pub enum AddPhase {
     /// Explains what happens; nothing has started.
     Intro,
-    /// Asking the CLI for a sign-in page.
     Starting,
     /// The page is open; waiting for the pasted code.
     Code {
-        /// The sign-in page.
         url: String,
     },
-    /// Checking the code.
     Submitting {
-        /// The sign-in page.
         url: String,
     },
     /// It failed; the previous account is active again and the flow has to start over.
     Failed {
-        /// What went wrong.
         error: Error,
     },
 }
 
-/// The account dialog on show.
 #[derive(Clone, Debug)]
 pub enum AccountDialog {
-    /// Adding a Google account.
     Add(AddPhase),
-    /// Confirming a switch, with what it affects.
     Switch {
-        /// The account to switch to.
         to: AccountId,
-        /// Its email.
         email: Option<String>,
         /// What switching affects, and the backend's time when it was asked.
         impact: Load<(SwitchImpact, SystemTime)>,
-        /// Why the switch failed.
         error: Option<Error>,
     },
-    /// Confirming a removal.
     Remove {
-        /// The account.
         id: AccountId,
-        /// Its email.
         email: Option<String>,
-        /// Why removing failed.
         error: Option<Error>,
     },
 }
@@ -72,22 +56,18 @@ pub enum AccountDialog {
 /// Where signing in stands, for the checklist, the switcher and the Accounts page.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SignInStatus {
-    /// Not known yet.
     Checking,
-    /// The CLI has to be installed first.
     NeedsCli,
     /// The OS keyring cannot be reached.
     KeyringUnavailable(Error),
     /// Listing accounts failed otherwise.
     Failed(Error),
-    /// No account is signed in.
     SignedOut,
     /// The CLI is signed in with an account that is not saved here (offer "use this account").
     Unadopted {
         /// Its email, when known.
         email: Option<String>,
     },
-    /// An account is active.
     SignedIn {
         /// Its email, when known.
         email: Option<String>,
@@ -126,29 +106,22 @@ pub fn sign_in_status(probe: &Load<ProbeReport>, accounts: &Load<AccountsView>) 
     }
 }
 
-/// Why an account cannot be removed right now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RemoveBlock {
-    /// It is the active account.
     Active,
     /// Runtimes run on it.
     Running,
 }
 
-/// One row of the Accounts page.
 #[derive(Clone, Debug)]
 pub struct AccountRow {
-    /// The account.
     pub account: Account,
-    /// It is the active one.
     pub active: bool,
     /// Its usage, when fetched.
     pub usage: Option<AccountUsageView>,
-    /// Why Remove is unavailable.
     pub remove_block: Option<RemoveBlock>,
 }
 
-/// The row for `account`.
 pub fn account_row(
     account: &Account,
     active: Option<&AccountId>,
@@ -180,7 +153,6 @@ impl AppState {
         &self.accounts
     }
 
-    /// Where signing in stands.
     pub fn sign_in_status(&self) -> SignInStatus {
         sign_in_status(&self.probe, &self.accounts)
     }
@@ -199,7 +171,6 @@ impl AppState {
         rows
     }
 
-    /// The email of a saved account.
     pub fn email_of(&self, id: &AccountId) -> Option<String> {
         self.accounts
             .ready()?
@@ -215,18 +186,15 @@ impl AppState {
         self.recovered_notice
     }
 
-    /// Hides the rolled-back notice.
     pub fn dismiss_recovered_notice(&mut self, cx: &mut Context<Self>) {
         self.recovered_notice = false;
         cx.notify();
     }
 
-    /// The account dialog on show.
     pub fn dialog(&self) -> Option<&AccountDialog> {
         self.dialog.as_ref()
     }
 
-    /// Lists accounts, then fetches usage.
     pub fn load_accounts(&mut self, cx: &mut Context<Self>) {
         if !self.cli_installed() {
             self.accounts = Load::Failed(Self::not_installed());
@@ -286,7 +254,6 @@ impl AppState {
         }
     }
 
-    /// Asks the CLI for a sign-in page and opens it in the browser.
     pub fn begin_sign_in(&mut self, cx: &mut Context<Self>) {
         if self.login_flow.is_some() || self.is_busy(Op::Login) {
             return;
@@ -379,7 +346,6 @@ impl AppState {
         .detach();
     }
 
-    /// Opens the switch confirmation and asks what switching affects.
     pub fn request_switch(&mut self, to: AccountId, cx: &mut Context<Self>) {
         if let Some(reason) = self.account_change_block() {
             let toast = Toast::new(tr(cx, reason)).severity(Severity::Warning);
@@ -415,7 +381,6 @@ impl AppState {
         cx.notify();
     }
 
-    /// Switches to the account the open dialog names.
     pub fn confirm_switch(&mut self, cx: &mut Context<Self>) {
         let Some(AccountDialog::Switch { to, .. }) = &self.dialog else {
             return;
@@ -443,7 +408,6 @@ impl AppState {
         );
     }
 
-    /// Opens the remove confirmation.
     pub fn request_remove(&mut self, id: AccountId, cx: &mut Context<Self>) {
         let email = self.email_of(&id);
         self.dialog = Some(AccountDialog::Remove {
@@ -454,7 +418,6 @@ impl AppState {
         cx.notify();
     }
 
-    /// Removes the account the open dialog names.
     pub fn confirm_remove(&mut self, cx: &mut Context<Self>) {
         let Some(AccountDialog::Remove { id, email, .. }) = &self.dialog else {
             return;
@@ -491,7 +454,6 @@ impl AppState {
         }
     }
 
-    /// The label of the active account, when one is signed in.
     pub fn active_email(&self) -> Option<String> {
         match self.sign_in_status() {
             SignInStatus::SignedIn { email } => email,

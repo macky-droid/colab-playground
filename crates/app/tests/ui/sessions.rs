@@ -62,7 +62,6 @@ fn events(app: &mut TestApp<'_>) -> Vec<ProvisionEvent> {
     })
 }
 
-/// Opens the dialog on `scenario`, applies `edit` to the form and starts.
 fn provision(
     app: &mut TestApp<'_>,
     edit: impl FnOnce(&mut colab_playground_core::provision::ProvisionSpec),
@@ -231,6 +230,78 @@ fn cancelling_while_a_runtime_exists_leaves_nothing_billing(cx: &mut TestAppCont
     let left = app.mock.runtimes(&CancelToken::new()).expect("listing");
     assert!(left.runtimes.is_empty(), "nothing billed is left: {left:?}");
     assert!(runtime_names(&mut app).is_empty());
+}
+
+fn no_answer_for_a100() -> Options {
+    Options {
+        failures: MockFailures {
+            allocation_hangs: vec![Accelerator::A100],
+            ..MockFailures::default()
+        },
+        ..Options::scenario(MockScenario::single())
+    }
+}
+
+#[gpui::test]
+fn cancelling_a_request_colab_never_answers_ends_it_and_leaves_nothing(cx: &mut TestAppContext) {
+    let mut app = TestApp::with(cx, no_answer_for_a100());
+    on_sessions(&mut app);
+    app.click(NEW_SESSION_SELECTOR);
+    app.update(|state, cx| state.edit_new_session(|spec| spec.accelerator = Accelerator::A100, cx));
+    // Wait 1 is `colab new` waiting for an answer that never comes: cancel there. The mock's
+    // request still gets a VM, with no name, as a real one may after it is killed.
+    app.cancel_switch.arm(1);
+    app.click(NEW_SESSION_START);
+    assert_eq!(phase(&mut app), Some(ProvisionPhase::Cancelled));
+    assert!(!app.read(|state, _| state.is_provisioning()));
+    let events = events(&mut app);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, ProvisionEvent::Reconciling { attempt: 1 })),
+        "{events:?}"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, ProvisionEvent::OrphanDetected { released: true, .. })),
+        "the VM the request got anyway was stopped: {events:?}"
+    );
+    assert!(
+        !events.iter().any(|e| matches!(
+            e,
+            ProvisionEvent::AllocationFailed { .. } | ProvisionEvent::Retrying { .. }
+        )),
+        "a cancel is not a failed attempt: {events:?}"
+    );
+    assert!(app.shown("provision-cancelled"));
+    let left = app.mock.runtimes(&CancelToken::new()).expect("listing");
+    assert!(left.runtimes.is_empty(), "nothing billed is left: {left:?}");
+}
+
+#[gpui::test]
+fn a_request_colab_never_answers_fails_once_without_retrying(cx: &mut TestAppContext) {
+    let mut app = TestApp::with(cx, no_answer_for_a100());
+    provision(&mut app, |spec| {
+        spec.accelerator = Accelerator::A100;
+        spec.max_attempts = 3;
+    });
+    let Some(ProvisionPhase::Failed(error)) = phase(&mut app) else {
+        panic!("expected a failure, got {:?}", phase(&mut app));
+    };
+    assert_eq!(error.kind, ErrorKind::AllocationTimeout);
+    assert!(app.shown("error-provision"), "the failure is explained");
+    let events = events(&mut app);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, ProvisionEvent::Allocating { .. }))
+            .count(),
+        1,
+        "the CLI already retried for about ten minutes: {events:?}"
+    );
+    let left = app.mock.runtimes(&CancelToken::new()).expect("listing");
+    assert!(left.runtimes.is_empty(), "{left:?}");
 }
 
 #[gpui::test]
@@ -775,7 +846,6 @@ fn extend_after_setting_an_auto_stop_again_adds_too(cx: &mut TestAppContext) {
     assert_close(after, Duration::from_secs(4 * 3600), "2 h left + 2 h");
 }
 
-/// The new-session form's scroll position.
 fn form_scroll(app: &mut TestApp<'_>) -> gpui::ScrollHandle {
     app.read(|state, _| state.new_session().map(|s| s.scroll.clone()))
         .expect("the form is open")
@@ -787,7 +857,6 @@ fn open_new_session(app: &mut TestApp<'_>) {
     assert!(app.shown(NEW_SESSION_FORM), "the form is drawn");
 }
 
-/// One wheel turn of `dy` over the middle of `over`, then settles.
 fn wheel(app: &mut TestApp<'_>, over: gpui::Bounds<gpui::Pixels>, dy: f32) {
     app.cx.simulate_event(gpui::ScrollEvent {
         position: over.center(),
@@ -832,7 +901,6 @@ fn the_new_session_form_takes_the_room_the_window_has_and_scrolls_past_it(cx: &m
             assert_eq!(reach, px(0.0), "{width}x{height}: the whole form fits");
         }
     }
-    // The page's own wheel reaches the form, and its scrollbar shows on the form.
     app.resize(880.0, 560.0);
     let form = app.bounds(NEW_SESSION_FORM).expect("the form is drawn");
     wheel(&mut app, form, -120.0);

@@ -21,13 +21,11 @@ use crate::{
     ui::{Inputs, dialogs, overlays, pages, sidebar, tagged, titlebar},
 };
 
-/// Selector of the scrolling page area.
 pub const PAGE_SELECTOR: &str = "page-area";
 
 /// Draw order of the title strip: above Ely's dialog backdrops (priority 0).
 const TITLE_STRIP_PRIORITY: usize = 1;
 
-/// The main window's content.
 pub struct RootView {
     focus: FocusHandle,
     state: Entity<AppState>,
@@ -163,17 +161,14 @@ impl RootView {
         }
     }
 
-    /// The text fields this view owns.
     pub fn inputs(&self) -> &Inputs {
         &self.inputs
     }
 
-    /// The state this view draws.
     pub fn state(&self) -> &Entity<AppState> {
         &self.state
     }
 
-    /// The root focus handle.
     pub fn focus_handle(&self) -> &FocusHandle {
         &self.focus
     }

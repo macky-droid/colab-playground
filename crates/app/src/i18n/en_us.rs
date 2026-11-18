@@ -1,5 +1,3 @@
-//! English (United States).
-
 use super::{Messages, keys::*};
 
 pub(super) const MESSAGES: Messages = &[
@@ -64,6 +62,8 @@ pub(super) const MESSAGES: Messages = &[
     (LANG_EN_US, "English"),
     (LANG_ZH_CN, "简体中文"),
     (LANG_ZH_TW, "繁體中文"),
+    (LANG_JA_JP, "日本語"),
+    (LANG_KO_KR, "한국어"),
     (SETTINGS_APPEARANCE_TITLE, "Appearance"),
     (
         SETTINGS_APPEARANCE_DESCRIPTION,
@@ -434,6 +434,10 @@ pub(super) const MESSAGES: Messages = &[
     (
         ERR_CAPACITY_REFUSED,
         "Colab has no capacity for this right now.",
+    ),
+    (
+        ERR_ALLOCATION_TIMEOUT,
+        "Colab never answered the request for this hardware.",
     ),
     (
         ERR_SSH_BUSY,
@@ -1079,5 +1083,13 @@ pub(super) const MESSAGES: Messages = &[
     (
         SESSIONS_EMPTY_PARTIAL_TITLE,
         "Nothing is running on the accounts that could be listed",
+    ),
+    (
+        PROV_RECONCILING,
+        "Checking whether the cancelled request left a runtime…",
+    ),
+    (
+        PROV_RECONCILED,
+        "Checked whether the cancelled request left a runtime",
     ),
 ];

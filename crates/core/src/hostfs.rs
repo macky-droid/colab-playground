@@ -10,7 +10,6 @@ use crate::error::{Error, ErrorKind, Result};
 use crate::host::{Host, ScriptRequest, tail};
 use crate::paths::HostPath;
 
-/// File helpers bound to a host and its base environment.
 #[derive(Debug, Clone, Copy)]
 pub struct HostFs<'a> {
     host: &'a Host,
@@ -38,7 +37,6 @@ cp -- "$1" "$2" && echo copied"#;
 const REMOVE: &str = r#"rm -f -- "$1""#;
 
 impl<'a> HostFs<'a> {
-    /// Binds helpers to `host` with `env` added to every script.
     pub fn new(host: &'a Host, env: &'a [(String, String)]) -> Self {
         HostFs { host, env }
     }
@@ -87,7 +85,6 @@ impl<'a> HostFs<'a> {
         }
     }
 
-    /// Copies `src` to `dst` if `src` exists. Returns whether it copied.
     pub fn copy_if_exists(
         &self,
         src: &HostPath,

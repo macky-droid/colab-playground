@@ -13,13 +13,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::{CancelToken, Error, ErrorKind, Result, http::HttpClient};
 
-/// This build's version.
 pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The repository URL from the package metadata (the one home of that fact).
 pub const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 
-/// GitHub's API base.
 pub const API_BASE: &str = "https://api.github.com";
 
 /// `(owner, repo)` of a `https://github.com/<owner>/<repo>` URL.
@@ -39,7 +37,6 @@ pub fn repo_slug(repository: &str) -> Option<(String, String)> {
     (parts.next().is_none() && ok(owner) && ok(repo)).then(|| (owner.to_owned(), repo.to_owned()))
 }
 
-/// The API URL of the latest release.
 pub fn latest_release_api(owner: &str, repo: &str) -> String {
     format!("{API_BASE}/repos/{owner}/{repo}/releases/latest")
 }
@@ -81,11 +78,8 @@ pub fn safe_release_page(url: &str, owner: &str, repo: &str) -> String {
 /// A semantic version: `major.minor.patch[-pre][+build]` (build metadata is dropped).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Version {
-    /// Major.
     pub major: u64,
-    /// Minor.
     pub minor: u64,
-    /// Patch.
     pub patch: u64,
     /// Pre-release identifiers (empty for a release).
     pub pre: Vec<String>,
@@ -155,7 +149,6 @@ impl PartialOrd for Version {
 }
 
 impl Ord for Version {
-    /// Semantic-version precedence.
     fn cmp(&self, other: &Self) -> Ordering {
         (self.major, self.minor, self.patch)
             .cmp(&(other.major, other.minor, other.patch))
@@ -183,7 +176,6 @@ fn compare_pre(a: &[String], b: &[String]) -> Ordering {
     a.len().cmp(&b.len())
 }
 
-/// A newer release.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Release {
     /// Its version (without the `v`).
@@ -194,13 +186,11 @@ pub struct Release {
     pub page: String,
 }
 
-/// What a check found.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum UpdateStatus {
     /// No newer release (or none published yet).
     UpToDate,
-    /// A newer release exists.
     Available(Release),
 }
 
@@ -263,7 +253,6 @@ pub fn check(
     }))
 }
 
-/// [`check`] for this repository and build.
 pub fn check_this_app(http: &dyn HttpClient, cancel: &CancelToken) -> Result<UpdateStatus> {
     let (owner, repo) = repo_slug(REPOSITORY).ok_or_else(|| {
         Error::new(ErrorKind::Other)

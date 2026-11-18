@@ -11,7 +11,8 @@ The commands CI runs on each platform are in
   with the mock backend only.
 - `RealBackend` is tested against a fake `colab`, keyring and `ssh` (`crates/core/tests/fake/`).
   Those tests are unix-only: they run on Linux and macOS, not on Windows.
-- No test runs the real `colab` ([DESIGN.md](DESIGN.md), section 2). The ignored, Windows-only
+- No test runs the real `colab` ([hard safety rules](DESIGN.md#hard-safety-rules)). The ignored,
+  Windows-only
   `wsl_smoke` test only round-trips `printf` through WSL:
   `cargo test -p colab-playground-core --test wsl_smoke -- --ignored`.
 
@@ -41,8 +42,13 @@ and Settings → About → Backend must read "Colab CLI".
    "Can't reach the system keyring" means the keyring inside WSL is locked or missing.
 3. **Usage** (free). The balance badge, Overview and Accounts should match the Colab web UI, with
    the burn rate "Not in use"; the refresh button should update them.
-4. **CPU runtime** (first billed step). Sessions → "New session", hardware "CPU only", "Stop and
-   end billing after" 15 minutes, "Start session". Expect "Asking Colab for a runtime…", then
+4. **CPU runtime** (first billed step). First check that a cancel ends a request at once: Sessions →
+   "New session", hardware "CPU only", "Start session", and click "Cancel" while it still says
+   "Asking Colab for a runtime…". Within about 15 seconds expect "Checking whether the cancelled
+   request left a runtime" (or "Stopped that runtime", when Colab answered before the cancel) and
+   "Cancelled. Nothing is left running.", and nothing new in the Colab web UI after a refresh.
+   Then "Change options", "Stop and end billing after" 15 minutes, "Start session". Expect "Asking
+   Colab for a runtime…", then
    "Auto-stop is set on the runtime; it works even if this app is closed." and "`<name>` is ready.".
    The card shows the auto-stop countdown and the Colab web UI lists the runtime. Try "Extend
    by …". Then "Cancel auto-stop", confirm, and "Set auto-stop in …" on the same card: expect

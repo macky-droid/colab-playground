@@ -91,9 +91,9 @@ path = "/content/outputs"  # absolute, no ".."
 en = "Generated files"
 ```
 
-Labels use locale keys such as `en`, `zh-CN`, `zh-TW`. Lookup order: the
-exact locale, then the same language (`zh-TW` falls back to `zh-CN`), then
-`en`. Port 8080 belongs to Colab and is refused.
+Labels use locale keys such as `en`, `ja`, `ko`, `zh-CN`, `zh-TW`. Lookup
+order: the exact locale, then the same language (`zh-TW` falls back to
+`zh-CN`), then `en`. Port 8080 belongs to Colab and is refused.
 
 ### Input types
 

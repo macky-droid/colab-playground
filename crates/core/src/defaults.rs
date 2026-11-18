@@ -1,4 +1,4 @@
-//! User-editable defaults (DESIGN §5: no policy value is hard-coded).
+//! User-editable defaults: no policy value is hard-coded (an invariant in `docs/DESIGN.md`).
 //!
 //! Every default policy value lives in [`Defaults`]. The app persists it in its
 //! settings file and pre-fills the new-session dialog and plugin run forms
@@ -78,7 +78,6 @@ impl Default for Defaults {
 }
 
 impl Defaults {
-    /// The guard policy pre-filled from these defaults.
     pub fn guard_policy(&self) -> GuardPolicy {
         GuardPolicy {
             max_runtime: self.max_runtime,
@@ -88,8 +87,6 @@ impl Defaults {
         }
     }
 
-    /// A provisioning spec for `name` pre-filled from these defaults (every
-    /// field may be changed afterwards).
     pub fn provision_spec(&self, name: impl Into<String>) -> ProvisionSpec {
         ProvisionSpec {
             name: name.into(),
@@ -103,7 +100,6 @@ impl Defaults {
         }
     }
 
-    /// The per-account session cap.
     pub fn session_limit(&self) -> SessionLimit {
         SessionLimit {
             max_concurrent: self.max_concurrent_sessions,
@@ -111,7 +107,6 @@ impl Defaults {
         }
     }
 
-    /// Usage poll interval: active cadence with sessions, idle otherwise.
     pub fn usage_poll_interval(&self, has_sessions: bool) -> Duration {
         if has_sessions {
             self.usage_poll_active

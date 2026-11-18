@@ -134,7 +134,6 @@ fn cu_field(
         .into_any_element()
 }
 
-/// The defaults for new runtimes.
 pub fn defaults_section(state: &AppState, handle: &Entity<AppState>, cx: &App) -> impl IntoElement {
     let d = state.defaults();
     let core = Defaults::default();

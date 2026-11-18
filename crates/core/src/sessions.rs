@@ -19,7 +19,6 @@ use crate::guard::{Concern, GuardPolicy, SpendMeter};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Accelerator {
-    /// CPU runtime.
     #[default]
     None,
     /// NVIDIA T4 (16 GB).
@@ -86,7 +85,6 @@ impl Accelerator {
         }
     }
 
-    /// True for NVIDIA GPUs.
     pub fn is_gpu(self) -> bool {
         matches!(
             self,
@@ -98,7 +96,6 @@ impl Accelerator {
         )
     }
 
-    /// True for TPUs.
     pub fn is_tpu(self) -> bool {
         matches!(self, Accelerator::TpuV5e1 | Accelerator::TpuV6e1)
     }
@@ -137,7 +134,6 @@ pub struct ServerSession {
     /// Local name, `None` for `[?]` (an assignment without local state, e.g.
     /// created in the browser or by another account's state file).
     pub name: Option<String>,
-    /// Server endpoint id.
     pub endpoint: String,
     /// `Hardware:` label as printed (`CPU`, `A100`, …).
     pub hardware: String,
@@ -152,21 +148,16 @@ pub struct ServerSession {
 }
 
 impl ServerSession {
-    /// True for the high-RAM machine shape.
     pub fn high_mem(&self) -> bool {
         self.shape.eq_ignore_ascii_case("High-RAM")
     }
 }
 
-/// Why a session was stopped by the app.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum StopReason {
-    /// The user asked.
     User,
-    /// The app-side guard decided.
     Guard {
-        /// The concern that triggered the stop.
         concern: Concern,
     },
     /// Provisioning rejected or cancelled this runtime.
@@ -175,13 +166,11 @@ pub enum StopReason {
     Vanished,
 }
 
-/// When and why a tracked session ended.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StopRecord {
     /// When the app noticed or performed the stop.
     #[serde(with = "serde_secs")]
     pub at: SystemTime,
-    /// Why.
     pub reason: StopReason,
 }
 
@@ -193,10 +182,8 @@ pub struct WatchdogInfo {
     /// enforces a deadline then.
     #[serde(default, with = "serde_secs::option")]
     pub deadline: Option<SystemTime>,
-    /// Idle rule, if any.
     #[serde(default, with = "crate::clock::serde_dur::option")]
     pub idle_timeout: Option<Duration>,
-    /// The deadline was cancelled by the user.
     #[serde(default)]
     pub cancelled: bool,
     /// The stop is armed on the runtime: the last reply from the VM (start,
@@ -220,37 +207,29 @@ impl WatchdogInfo {
 /// A session the app provisioned (persisted in the ledger).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TrackedSession {
-    /// Session name.
     pub name: String,
-    /// Owning account.
     pub account: AccountId,
     /// Server endpoint, once known.
     #[serde(default)]
     pub endpoint: Option<String>,
-    /// Requested accelerator.
     pub accelerator: Accelerator,
-    /// Requested high-RAM shape.
     pub high_mem: bool,
-    /// Probed GPU name.
     #[serde(default)]
     pub gpu: Option<String>,
     /// Probed GPU memory in MiB.
     #[serde(default)]
     pub vram_mib: Option<u32>,
-    /// Guard policy in force.
     pub policy: GuardPolicy,
     /// Spend integration (its `started_at` is the session start).
     pub spend: SpendMeter,
     /// VM watchdog state, if one was started.
     #[serde(default)]
     pub watchdog: Option<WatchdogInfo>,
-    /// Set once the session ended.
     #[serde(default)]
     pub stopped: Option<StopRecord>,
 }
 
 impl TrackedSession {
-    /// When the session started.
     pub fn started_at(&self) -> SystemTime {
         self.spend.started_at
     }
@@ -279,11 +258,9 @@ impl TrackedSession {
 /// A session as shown in the UI: server view joined with the ledger.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Session {
-    /// What `colab sessions` reported.
     pub server: ServerSession,
     /// Owning account (the active one for listed sessions).
     pub account: Option<AccountId>,
-    /// Ledger entry if the app provisioned it.
     pub tracked: Option<TrackedSession>,
 }
 
@@ -302,7 +279,6 @@ pub struct Ledger {
 }
 
 impl Ledger {
-    /// Loads (or starts) a ledger stored at `path`.
     pub fn load(path: &Path) -> Result<Ledger> {
         let entries = match std::fs::read_to_string(path) {
             Ok(s) if s.trim().is_empty() => Vec::new(),
@@ -337,7 +313,6 @@ impl Ledger {
             .find(|e| &e.account == account && e.name == name && e.stopped.is_none())
     }
 
-    /// Mutable access to the live entry.
     pub fn live_mut(&mut self, account: &AccountId, name: &str) -> Option<&mut TrackedSession> {
         self.entries
             .iter_mut()
@@ -356,7 +331,6 @@ impl Ledger {
         self.save()
     }
 
-    /// Applies `f` to the live entry and saves.
     pub fn update(
         &mut self,
         account: &AccountId,

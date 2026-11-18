@@ -1,7 +1,7 @@
 # Building and running Colab Playground
 
 How to build the app, choose its backend, try it with demo data, and find what it stores.
-What the app does is in the [README](../README.md); why it is built this way is in
+What the app does is in the [README](../README.md); the principles and rules behind it are in
 [DESIGN.md](DESIGN.md).
 
 ## Install a release
@@ -87,7 +87,9 @@ cargo run -p colab-playground -- --mock-scenario signed-out --mock-fail cli-miss
   and a runtime "opened in the browser"; one runtime on the second account.
   `single`: one account, nothing running. `signed-out`: first run, no account.
 - `--mock-fail a,b,…` injects failures: `cli-missing`, `install-fails`, `keyring`, `usage-fails`,
-  `login-invalid-code`, `login-unverified`, `not-entitled` (A100 and H100), `ssh-busy` (the first
+  `login-invalid-code`, `login-unverified`, `not-entitled` (A100 and H100), `no-answer` (Colab
+  never answers a request for an A100: it fails after about ten minutes, and cancelling it shows
+  the cleanup of the runtime the request got anyway), `ssh-busy` (the first
   forward gets HTTP 429), `plugin-fails` (at the download stage), `watchdog-restart-fails` (setting
   an auto-stop again after cancelling it cannot put the stop back on the runtime), `runtimes-fail`
   (runtimes cannot be listed), `update-available` and `update-check-fails` (the update check).

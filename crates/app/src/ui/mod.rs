@@ -29,7 +29,6 @@ pub fn tagged(selector: impl Into<String>, element: impl IntoElement) -> Div {
 /// them through `AppState::set_input`; the root view applies that before drawing.
 #[derive(Clone)]
 pub struct Inputs {
-    /// The pasted authorisation code.
     pub code: Entity<TextInput>,
     /// Settings: path of `colab`.
     pub colab_path: Entity<TextInput>,
@@ -61,7 +60,6 @@ impl Inputs {
         self.fields.get(id).cloned()
     }
 
-    /// The field behind `slot`.
     pub fn slot(&self, slot: &crate::state::InputSlot) -> Option<Entity<TextInput>> {
         use crate::state::InputSlot;
         match slot {

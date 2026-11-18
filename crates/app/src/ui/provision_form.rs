@@ -40,10 +40,8 @@ fn start_runtime() -> Duration {
         .unwrap_or(START_IDLE)
 }
 
-/// Applies an edit to the spec being shown.
 pub type SpecEdit = Rc<dyn Fn(&mut App, &dyn Fn(&mut ProvisionSpec))>;
 
-/// The selector around a field's control.
 pub fn field_selector(field: &str) -> String {
     format!("prov {field}")
 }
@@ -82,8 +80,8 @@ fn row(
         .into_any_element()
 }
 
-/// A limit's row that scrolls fully into view when its switch turns on, once it is laid out
-/// with the value's control, which may wrap onto a new line below the visible part.
+/// Turning a limit on can wrap its value onto a new line below the visible part. The row is
+/// brought into view after layout: bounds read at the click predate the new line.
 #[derive(IntoElement)]
 struct Reveal {
     id: SharedString,
@@ -338,7 +336,6 @@ pub fn render(
         ),
         cx,
     );
-    // A limit's row, which comes into view when its switch turns it on.
     let limit_row = |field: &'static str,
                      on: bool,
                      label: SharedString,

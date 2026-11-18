@@ -13,16 +13,12 @@ use gpui::{Context, ScrollHandle};
 use super::{AppState, InputSlot, Op, Overlay};
 use crate::i18n::{keys, tr_args};
 
-/// Where provisioning stands.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ProvisionPhase {
-    /// The form is being filled in.
     Editing,
     /// Asking Colab for a runtime (see the events).
     Running,
-    /// A runtime is ready.
     Ready(ProvisionOutcome),
-    /// It gave up.
     Failed(Error),
     /// Cancelled; nothing is left running.
     Cancelled,
@@ -47,22 +43,17 @@ impl ProvisionProgress {
         })
     }
 
-    /// The latest event.
     pub fn last(&self) -> Option<&ProvisionEvent> {
         self.events.last()
     }
 }
 
-/// The new-session dialog.
 #[derive(Clone, Debug)]
 pub struct NewSession {
-    /// What to ask for.
     pub spec: ProvisionSpec,
-    /// Where it stands.
     pub phase: ProvisionPhase,
-    /// Progress events.
     pub progress: ProvisionProgress,
-    /// The form's scroll position; each opening starts at the top.
+    /// New on each opening, so the form opens at the top.
     pub scroll: ScrollHandle,
 }
 
@@ -78,7 +69,6 @@ impl AppState {
         self.ops.is_running(Op::Provision)
     }
 
-    /// Opens the new-session dialog pre-filled from `Defaults`, with a generated name.
     pub fn open_new_session(&mut self, cx: &mut Context<Self>) {
         if let Some(session) = &self.new_session
             && session.phase == ProvisionPhase::Running
@@ -114,7 +104,6 @@ impl AppState {
         cx.notify();
     }
 
-    /// Edits the form's spec.
     pub fn edit_new_session(
         &mut self,
         edit: impl FnOnce(&mut ProvisionSpec),
@@ -131,7 +120,6 @@ impl AppState {
         }
     }
 
-    /// Starts provisioning with `name` (the form's name field).
     pub fn start_provision(&mut self, name: String, cx: &mut Context<Self>) {
         let Some(session) = &mut self.new_session else {
             return;
@@ -239,7 +227,6 @@ impl AppState {
 pub struct LimitReached {
     /// `max_concurrent_sessions` (this app's own setting).
     pub limit: u32,
-    /// The active account's email.
     pub email: Option<String>,
     /// Runtimes that count: those this app can address by name (it started them).
     pub counted: Vec<String>,

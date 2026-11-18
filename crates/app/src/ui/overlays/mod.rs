@@ -93,13 +93,10 @@ fn busy_line(id: &'static str, text: SharedString) -> impl IntoElement {
 /// scroll as well.
 const DIALOG_CHROME: Rems = Rems(13.5);
 
-/// The shortest the scrolling content gets, however small the window.
 const MIN_SCROLLED: Rems = Rems(8.0);
 
-/// A dialog's whole content (the dialog has no description, or `DIALOG_CHROME` is short), as
-/// tall as the window allows and scrolling beyond that, with the page's overlay scrollbar and
-/// soft edges where more content continues. A `handle` from the dialog's state lets it bring a
-/// row into view; without one, each opening starts at the top as well.
+/// `DIALOG_CHROME` counts only a title and an action row, so this must be the whole content of
+/// a dialog without a description.
 #[derive(IntoElement)]
 struct Scrolled {
     id: &'static str,

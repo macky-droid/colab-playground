@@ -24,16 +24,13 @@ use crate::{
     ui::{Inputs, tagged},
 };
 
-/// Selector around the language select.
 pub const LANGUAGE_SELECTOR: &str = "settings-language";
 /// Selector around the appearance segmented control. Its segments carry Ely's own selectors
 /// `segment theme.light`, `segment theme.dark` and `segment theme.system`.
 pub const APPEARANCE_SELECTOR: &str = "settings-appearance";
 /// Selector around the settings file row's control (path, copy, open folder).
 pub const FILE_SELECTOR: &str = "settings-file";
-/// Selector of the settings file path.
 pub const FILE_PATH_SELECTOR: &str = "settings-file-path";
-/// Selector around the "Open folder" button.
 pub const OPEN_FOLDER_SELECTOR: &str = "settings-file-open";
 
 /// The label of a language choice in the shown language.
@@ -46,10 +43,11 @@ pub fn language_label(pref: LanguagePref, state: &AppState, cx: &App) -> gpui::S
         LanguagePref::EnUs => tr(cx, keys::LANG_EN_US),
         LanguagePref::ZhCn => tr(cx, keys::LANG_ZH_CN),
         LanguagePref::ZhTw => tr(cx, keys::LANG_ZH_TW),
+        LanguagePref::JaJp => tr(cx, keys::LANG_JA_JP),
+        LanguagePref::KoKr => tr(cx, keys::LANG_KO_KR),
     }
 }
 
-/// The settings page.
 pub fn render(state: &AppState, handle: &Entity<AppState>, inputs: &Inputs, cx: &App) -> Page {
     super::page(Route::Settings, keys::SETTINGS_SUBTITLE, cx)
         .children(
@@ -176,11 +174,9 @@ fn settings_file(path: String, handle: &Entity<AppState>, cx: &App) -> impl Into
     )
 }
 
-/// Selector of "Check for updates".
 pub const UPDATE_CHECK_SELECTOR: &str = "update-check";
 /// Selector of "Open download page" in About.
 pub const UPDATE_OPEN_SELECTOR: &str = "update-open";
-/// Selector of the automatic-check switch.
 pub const UPDATE_AUTO_SELECTOR: &str = "update-auto";
 
 /// The update status, "Check for updates", and "Open download page" when there is a newer
@@ -263,7 +259,6 @@ fn auto_check_row(state: &AppState, handle: &Entity<AppState>, cx: &App) -> Sett
         ))
 }
 
-/// Selector of the project page link.
 pub const PROJECT_LINK_SELECTOR: &str = "about-project";
 
 /// The project page (the package repository), opened in the browser like the app's other links.

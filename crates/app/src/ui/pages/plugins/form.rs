@@ -31,7 +31,6 @@ use crate::{
     ui::{Inputs, error_view, provision_form, tagged},
 };
 
-/// Selector of the start button.
 pub const RUN_START: &str = "run-start";
 /// Selector of a Hugging Face search result: `hf-result <repo>`.
 pub fn hf_result_selector(repo: &str) -> String {

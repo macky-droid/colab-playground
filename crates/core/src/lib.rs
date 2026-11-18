@@ -1,13 +1,7 @@
 //! Colab Playground core: everything except the GUI.
 //!
-//! The UI talks to a [`backend::Backend`]: [`real::RealBackend`] drives the
-//! Google Colab CLI through a [`host::Host`]; [`mock::MockBackend`] is a
-//! deterministic, clock-driven simulation for UI tests and `--mock` runs.
-//!
 //! All process spawning goes through [`host::Host`]. Errors are
 //! machine-readable ([`error::Error`]); no user-facing prose is produced here.
-
-#![warn(missing_docs)]
 
 pub mod accounts;
 pub mod backend;

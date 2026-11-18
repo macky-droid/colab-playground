@@ -15,8 +15,6 @@ use crate::backend;
 /// The shortest duration a defaults field accepts (zero would disable or spin).
 pub const MIN_DURATION: Duration = Duration::from_secs(1);
 
-/// `defaults` made sane: positive durations, attempts within `1..=MAX_ATTEMPTS_CAP`, at least
-/// one session, positive limits.
 pub fn sanitize(mut defaults: Defaults) -> Defaults {
     let positive = |d: Duration| d.max(MIN_DURATION);
     defaults.max_runtime = defaults.max_runtime.map(positive);
@@ -32,7 +30,6 @@ pub fn sanitize(mut defaults: Defaults) -> Defaults {
 }
 
 impl AppState {
-    /// The policy defaults in effect.
     pub fn defaults(&self) -> &Defaults {
         &self.settings.defaults
     }
@@ -53,7 +50,6 @@ impl AppState {
         cx.notify();
     }
 
-    /// Puts every default back to core's value.
     pub fn reset_defaults(&mut self, cx: &mut Context<Self>) {
         self.update_defaults(|defaults| *defaults = Defaults::default(), cx);
     }
@@ -98,7 +94,6 @@ impl AppState {
         self.rebuild_backend(cx);
     }
 
-    /// Says that both CLI paths are needed (or neither).
     pub fn warn_host_paths(&mut self, cx: &mut Context<Self>) {
         let toast = ely_gpui_component::feedback::Toast::new(crate::i18n::tr(
             cx,

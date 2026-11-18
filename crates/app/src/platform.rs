@@ -2,14 +2,18 @@
 //! this crate's `src/` names a target OS. (The one exception outside `src/` is the test gate on
 //! `tests/ui/fonts.rs`, which reads the host's fonts.)
 //!
-//! Ely bundles Latin fonts only (Inter, JetBrains Mono, IBM Plex Sans). Han characters render
-//! through the platform's font fallback; the app sets an explicit fallback list on its root text
-//! style so Simplified text uses an SC face and Traditional text a TC face (system fallback alone
-//! picks by OS locale and can draw Chinese with Japanese glyph shapes). Only families that are
-//! installed are listed: DirectWrite skips a missing family, and gpui's Linux loader is meant to
-//! drop one too, but it propagates loader errors with `?`, so an unknown family may break font
-//! loading there. Text drawn outside the root view (Ely tooltips set their own font family)
-//! gets no list and relies on the platform's fallback alone.
+//! Ely bundles Latin fonts only (Inter, JetBrains Mono, IBM Plex Sans). Han characters, kana
+//! and hangul render through the platform's font fallback; the app sets an explicit fallback list
+//! on its root text style that leads with the shown language's own faces. Han characters are
+//! shared, and the first listed face that has one decides its glyph shapes, so Simplified text
+//! uses an SC face, Traditional text a TC face, Japanese a Japanese face and Korean a Korean face
+//! (system fallback alone picks by OS locale and can draw one language with another's glyph
+//! shapes). The other languages' faces follow, because the language select names every language
+//! in its own script, so kana and hangul still find a face whatever language is shown. Only
+//! families that are installed are listed: DirectWrite skips a missing family, and gpui's Linux
+//! loader is meant to drop one too, but it propagates loader errors with `?`, so an unknown family
+//! may break font loading there. Text drawn outside the root view (Ely tooltips set their own
+//! font family) gets no list and relies on the platform's fallback alone.
 
 use ely_gpui_component::theme::{ActiveTheme, Platform};
 use gpui::{
@@ -35,7 +39,6 @@ pub enum Chrome {
     LinuxServer,
 }
 
-/// What the app's title strip holds for a [`Chrome`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TitleBarLayout {
     /// Ely window controls drawn at the strip's end, in this platform's manner.
@@ -56,7 +59,6 @@ impl Chrome {
         Chrome::LinuxServer,
     ];
 
-    /// The title strip for this chrome.
     pub fn layout(self) -> TitleBarLayout {
         match self {
             Chrome::Windows => TitleBarLayout {
@@ -124,18 +126,27 @@ pub fn traffic_light_position(cx: &App) -> Option<Point<Pixels>> {
 struct CjkFonts {
     simplified: &'static [&'static str],
     traditional: &'static [&'static str],
+    japanese: &'static [&'static str],
+    korean: &'static [&'static str],
 }
 
+/// gpui lists a Windows family by its name in the user's locale where the font has one. The `UI`
+/// faces have the same name in every locale; Malgun Gothic has no `UI` face, so it is listed
+/// under both of its names (a Korean Windows reports 맑은 고딕).
 #[cfg(target_os = "windows")]
 const CJK_FONTS: CjkFonts = CjkFonts {
     simplified: &["Microsoft YaHei UI", "Microsoft YaHei"],
     traditional: &["Microsoft JhengHei UI", "Microsoft JhengHei"],
+    japanese: &["Yu Gothic UI", "Yu Gothic", "Meiryo UI", "Meiryo"],
+    korean: &["Malgun Gothic", "맑은 고딕"],
 };
 
 #[cfg(target_os = "macos")]
 const CJK_FONTS: CjkFonts = CjkFonts {
     simplified: &["PingFang SC", "Hiragino Sans GB", "Heiti SC"],
     traditional: &["PingFang TC", "Heiti TC"],
+    japanese: &["Hiragino Sans", "Hiragino Kaku Gothic ProN"],
+    korean: &["Apple SD Gothic Neo"],
 };
 
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
@@ -147,6 +158,8 @@ const CJK_FONTS: CjkFonts = CjkFonts {
         "WenQuanYi Micro Hei",
     ],
     traditional: &["Noto Sans CJK TC", "Source Han Sans TC", "Noto Sans TC"],
+    japanese: &["Noto Sans CJK JP", "Source Han Sans JP", "Noto Sans JP"],
+    korean: &["Noto Sans CJK KR", "Source Han Sans KR", "Noto Sans KR"],
 };
 
 #[cfg(not(any(
@@ -158,6 +171,8 @@ const CJK_FONTS: CjkFonts = CjkFonts {
 const CJK_FONTS: CjkFonts = CjkFonts {
     simplified: &[],
     traditional: &[],
+    japanese: &[],
+    korean: &[],
 };
 
 /// What the first checklist step checks: WSL on Windows (the CLI runs inside it), the host's
@@ -170,7 +185,6 @@ pub enum EnvironmentKind {
     ShellTools,
 }
 
-/// This OS's first checklist step.
 pub fn environment_kind() -> EnvironmentKind {
     if cfg!(windows) {
         EnvironmentKind::Wsl
@@ -192,14 +206,23 @@ pub fn os_locale() -> Option<String> {
     sys_locale::get_locale()
 }
 
-/// CJK families to try for `language`, best first: Traditional faces lead for `zh-TW`,
-/// Simplified ones otherwise (English UI still shows Chinese names and user data).
+/// CJK families to try for `language`, best first: the language's own faces lead (Simplified
+/// ones for English, whose UI still shows Chinese names and user data), and the rest follow in
+/// the order Simplified, Traditional, Japanese, Korean. Every language gets every family.
 pub fn cjk_font_candidates(language: Language) -> Vec<&'static str> {
-    let (first, second) = match language {
-        Language::ZhTw => (CJK_FONTS.traditional, CJK_FONTS.simplified),
-        Language::EnUs | Language::ZhCn => (CJK_FONTS.simplified, CJK_FONTS.traditional),
+    let CjkFonts {
+        simplified,
+        traditional,
+        japanese,
+        korean,
+    } = CJK_FONTS;
+    let order = match language {
+        Language::EnUs | Language::ZhCn => [simplified, traditional, japanese, korean],
+        Language::ZhTw => [traditional, simplified, japanese, korean],
+        Language::JaJp => [japanese, simplified, traditional, korean],
+        Language::KoKr => [korean, simplified, traditional, japanese],
     };
-    first.iter().chain(second).copied().collect()
+    order.into_iter().flatten().copied().collect()
 }
 
 /// The fallback list for the root text style: the candidates for `language` that appear in
@@ -226,7 +249,7 @@ pub fn font_fallbacks(language: Language, installed: &[String]) -> Option<FontFa
 mod tests {
     use ely_gpui_component::theme::Platform;
 
-    use super::{Chrome, cjk_font_candidates, font_fallbacks};
+    use super::{CJK_FONTS, Chrome, cjk_font_candidates, font_fallbacks};
     use crate::i18n::Language;
 
     #[test]
@@ -253,13 +276,49 @@ mod tests {
     }
 
     #[test]
-    fn traditional_faces_lead_only_for_traditional_chinese() {
-        let tw = cjk_font_candidates(Language::ZhTw);
+    fn each_language_leads_with_its_own_faces() {
+        let leads = [
+            (Language::EnUs, CJK_FONTS.simplified),
+            (Language::ZhCn, CJK_FONTS.simplified),
+            (Language::ZhTw, CJK_FONTS.traditional),
+            (Language::JaJp, CJK_FONTS.japanese),
+            (Language::KoKr, CJK_FONTS.korean),
+        ];
+        for (language, own) in leads {
+            let candidates = cjk_font_candidates(language);
+            assert_eq!(&candidates[..own.len()], own, "{}", language.tag());
+        }
         let cn = cjk_font_candidates(Language::ZhCn);
-        assert_eq!(tw.len(), cn.len());
         assert_eq!(cjk_font_candidates(Language::EnUs), cn);
-        if let (Some(tw_first), Some(cn_first)) = (tw.first(), cn.first()) {
-            assert_ne!(tw_first, cn_first);
+        assert_eq!(
+            cn[CJK_FONTS.simplified.len()..][..CJK_FONTS.traditional.len()],
+            *CJK_FONTS.traditional,
+            "Traditional faces come next for Simplified Chinese and English"
+        );
+    }
+
+    #[test]
+    fn every_language_lists_every_family_once() {
+        let mut all: Vec<&str> = [
+            CJK_FONTS.simplified,
+            CJK_FONTS.traditional,
+            CJK_FONTS.japanese,
+            CJK_FONTS.korean,
+        ]
+        .concat();
+        all.sort_unstable();
+        let unique = all.len();
+        all.dedup();
+        assert_eq!(all.len(), unique, "a family is listed twice");
+        for language in Language::ALL {
+            let mut candidates = cjk_font_candidates(language);
+            candidates.sort_unstable();
+            assert_eq!(
+                candidates,
+                all,
+                "{} misses a face, so some script could go without one",
+                language.tag()
+            );
         }
     }
 

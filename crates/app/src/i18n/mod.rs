@@ -2,13 +2,15 @@
 //!
 //! Ely's `I18n` holds the app's catalogs and the shown locale. Ely's own components read
 //! `ely_gpui_component::i18n::text`, which looks in the app's catalog first and then in Ely's
-//! built-in table for the same locale tag, so registering `en-US`, `zh-CN` and `zh-TW` here keeps
-//! every Ely string translated too. App keys all start with `app.` so they never shadow one of
-//! Ely's (`theme.system`, `select.placeholder`, ...). A missing key panics in Ely, so code names
-//! keys only through the constants in [`keys`], and the tests check that every key resolves in
-//! every locale.
+//! built-in table for the same locale tag, so registering `en-US`, `zh-CN`, `zh-TW`, `ja-JP` and
+//! `ko-KR` here, each a tag Ely has a table for, keeps every Ely string translated too. App keys
+//! all start with `app.` so they never shadow one of Ely's (`theme.system`, `select.placeholder`,
+//! ...). A missing key panics in Ely, so code names keys only through the constants in [`keys`],
+//! and the tests check that every key resolves in every locale.
 
 mod en_us;
+mod ja_jp;
+mod ko_kr;
 mod zh_cn;
 mod zh_tw;
 
@@ -63,6 +65,8 @@ catalog_keys! {
     LANG_EN_US => "app.language.en_us",
     LANG_ZH_CN => "app.language.zh_cn",
     LANG_ZH_TW => "app.language.zh_tw",
+    LANG_JA_JP => "app.language.ja_jp",
+    LANG_KO_KR => "app.language.ko_kr",
     SETTINGS_APPEARANCE_TITLE => "app.settings.appearance.title",
     SETTINGS_APPEARANCE_DESCRIPTION => "app.settings.appearance.description",
     SETTINGS_ABOUT_TITLE => "app.settings.about.title",
@@ -281,6 +285,7 @@ catalog_keys! {
     ERR_AUTH_REQUIRED => "app.err.auth_required",
     ERR_NOT_ENTITLED => "app.err.not_entitled",
     ERR_CAPACITY_REFUSED => "app.err.capacity_refused",
+    ERR_ALLOCATION_TIMEOUT => "app.err.allocation_timeout",
     ERR_SSH_BUSY => "app.err.ssh_busy",
     ERR_SESSION_GONE => "app.err.session_gone",
     ERR_CONNECTION_LOST => "app.err.connection_lost",
@@ -625,32 +630,41 @@ catalog_keys! {
     SUMMARY_INCOMPLETE => "app.b10.summary_incomplete",
     SUMMARY_NOT_COUNTED => "app.b10.summary_not_counted",
     SESSIONS_EMPTY_PARTIAL_TITLE => "app.b10.sessions_empty_partial_title",
+    PROV_RECONCILING => "app.b11.prov_reconciling",
+    PROV_RECONCILED => "app.b11.prov_reconciled",
 }
 
 /// A message table: `(key, message)` pairs; `{name}` marks an argument.
 pub type Messages = &'static [(&'static str, &'static str)];
 
 /// The app's catalogs, `en-US` first (Ely checks every later catalog against the first).
-pub const CATALOGS: [(&str, Messages); 3] = [
+pub const CATALOGS: [(&str, Messages); 5] = [
     ("en-US", en_us::MESSAGES),
     ("zh-CN", zh_cn::MESSAGES),
     ("zh-TW", zh_tw::MESSAGES),
+    ("ja-JP", ja_jp::MESSAGES),
+    ("ko-KR", ko_kr::MESSAGES),
 ];
 
-/// A display language the app ships.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Language {
-    /// English (United States).
     EnUs,
-    /// Simplified Chinese.
     ZhCn,
     /// Traditional Chinese, Taiwan wording.
     ZhTw,
+    JaJp,
+    KoKr,
 }
 
 impl Language {
     /// Every language, in catalog order.
-    pub const ALL: [Language; 3] = [Language::EnUs, Language::ZhCn, Language::ZhTw];
+    pub const ALL: [Language; 5] = [
+        Language::EnUs,
+        Language::ZhCn,
+        Language::ZhTw,
+        Language::JaJp,
+        Language::KoKr,
+    ];
 
     /// The BCP 47 tag Ely's `I18n` knows it by.
     pub fn tag(self) -> &'static str {
@@ -658,6 +672,8 @@ impl Language {
             Language::EnUs => "en-US",
             Language::ZhCn => "zh-CN",
             Language::ZhTw => "zh-TW",
+            Language::JaJp => "ja-JP",
+            Language::KoKr => "ko-KR",
         }
     }
 
@@ -667,12 +683,15 @@ impl Language {
             Language::EnUs => keys::LANG_EN_US,
             Language::ZhCn => keys::LANG_ZH_CN,
             Language::ZhTw => keys::LANG_ZH_TW,
+            Language::JaJp => keys::LANG_JA_JP,
+            Language::KoKr => keys::LANG_KO_KR,
         }
     }
 
-    /// The language for an OS locale such as `zh-Hant-TW`, `zh_HK.UTF-8` or `en-GB`:
-    /// Traditional for a `Hant` script or a TW/HK/MO region, Simplified for any other Chinese,
-    /// English otherwise. An explicit script wins over the region (`zh-Hans-HK` is Simplified).
+    /// The language for an OS locale such as `zh-Hant-TW`, `zh_HK.UTF-8`, `ja_JP.UTF-8` or
+    /// `en-GB`: Japanese for any `ja` locale and Korean for any `ko` one; Traditional Chinese for
+    /// a `Hant` script or a TW/HK/MO region, Simplified for any other Chinese; English otherwise.
+    /// An explicit script wins over the region (`zh-Hans-HK` is Simplified).
     pub fn from_os_locale(locale: &str) -> Language {
         let tag = locale
             .split(['.', '@'])
@@ -680,11 +699,12 @@ impl Language {
             .unwrap_or_default()
             .replace('_', "-");
         let mut parts = tag.split('-').filter(|part| !part.is_empty());
-        let is_chinese = parts
-            .next()
-            .is_some_and(|language| language.eq_ignore_ascii_case("zh"));
-        if !is_chinese {
-            return Language::EnUs;
+        let language = parts.next().unwrap_or_default().to_ascii_lowercase();
+        match language.as_str() {
+            "ja" => return Language::JaJp,
+            "ko" => return Language::KoKr,
+            "zh" => {}
+            _ => return Language::EnUs,
         }
         let (mut script, mut region) = (None, None);
         for part in parts {
@@ -714,10 +734,11 @@ pub fn resolve(pref: LanguagePref, os_locale: Option<&str>) -> Language {
         LanguagePref::EnUs => Language::EnUs,
         LanguagePref::ZhCn => Language::ZhCn,
         LanguagePref::ZhTw => Language::ZhTw,
+        LanguagePref::JaJp => Language::JaJp,
+        LanguagePref::KoKr => Language::KoKr,
     }
 }
 
-/// Ely's `I18n` holding the app's three catalogs, showing `language`.
 pub fn catalog(language: Language) -> I18n {
     CATALOGS
         .iter()
@@ -737,7 +758,6 @@ pub fn set_language(language: Language, cx: &mut App) {
     I18n::set_locale(language.tag(), cx);
 }
 
-/// The shown language.
 pub fn current(cx: &App) -> Language {
     let tag = cx.global::<I18n>().locale().tag;
     Language::ALL
@@ -746,12 +766,10 @@ pub fn current(cx: &App) -> Language {
         .unwrap_or_else(|| panic!("i18n: the app has no catalog for {tag}"))
 }
 
-/// The message for `key` in the shown language.
 pub fn tr(cx: &App, key: &str) -> SharedString {
     cx.global::<I18n>().text(key, &[])
 }
 
-/// The message for `key`, each `{name}` filled from `args`.
 pub fn tr_args(cx: &App, key: &str, args: &[(&str, &str)]) -> SharedString {
     cx.global::<I18n>().text(key, args)
 }
@@ -774,7 +792,6 @@ pub fn tr_lenient(cx: &App, key: &str, args: &[(&str, &str)]) -> SharedString {
     fill_lenient(template(cx, key), args).into()
 }
 
-/// `message` with each `{name}` that has an argument replaced.
 pub fn fill_lenient(message: &str, args: &[(&str, &str)]) -> String {
     let mut out = String::with_capacity(message.len());
     let mut rest = message;
