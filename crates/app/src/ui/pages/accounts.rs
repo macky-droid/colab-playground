@@ -35,7 +35,6 @@ pub const ADD_SELECTOR: &str = "accounts-add";
 pub const ADOPT_SELECTOR: &str = "accounts-adopt";
 /// Selector around the usage refresh button.
 pub const REFRESH_SELECTOR: &str = "accounts-refresh";
-/// Selector of the totals card.
 pub const TOTALS_SELECTOR: &str = "accounts-totals";
 /// Selector of the note shown when a whole usage refresh failed.
 pub const USAGE_ERROR_SELECTOR: &str = "accounts-usage-error";
@@ -49,17 +48,14 @@ pub fn row_selector(email: &str, active: bool) -> String {
     }
 }
 
-/// The selector around a row's Switch button.
 pub fn switch_selector(email: &str) -> String {
     format!("account-switch {email}")
 }
 
-/// The selector around a row's Remove button.
 pub fn remove_selector(email: &str) -> String {
     format!("account-remove {email}")
 }
 
-/// The Accounts page.
 pub fn render(state: &AppState, handle: &Entity<AppState>, cx: &App) -> Page {
     let status = state.sign_in_status();
     let can_add = matches!(

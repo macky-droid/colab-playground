@@ -23,12 +23,10 @@ use crate::accounts::AccountId;
 pub struct HostPath(pub String);
 
 impl HostPath {
-    /// Wraps a host path string.
     pub fn new(p: impl Into<String>) -> Self {
         HostPath(p.into())
     }
 
-    /// Appends a path segment with `/`.
     pub fn join(&self, seg: &str) -> HostPath {
         if self.0.ends_with('/') {
             HostPath(format!("{}{seg}", self.0))
@@ -37,7 +35,6 @@ impl HostPath {
         }
     }
 
-    /// The path as a string.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -57,17 +54,14 @@ impl std::fmt::Display for HostPath {
     }
 }
 
-/// Locations of every file the core reads or writes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DataLayout {
-    /// App-side data directory.
     pub local: PathBuf,
     /// Host-side data directory (inside WSL on Windows).
     pub host: HostPath,
 }
 
 impl DataLayout {
-    /// A layout with explicit directories.
     pub fn new(local: impl Into<PathBuf>, host: HostPath) -> Self {
         DataLayout {
             local: local.into(),

@@ -29,18 +29,15 @@ pub use card::{
     set_auto_stop_selector, stop_selector, switch_selector,
 };
 
-/// Selector of "New session".
 pub const NEW_SESSION_SELECTOR: &str = "sessions-new";
 /// Selector of the provisioning card shown while the dialog is hidden.
 pub const PROVISIONING_SELECTOR: &str = "sessions-provisioning";
-/// Selector of the ended list.
 pub const ENDED_SELECTOR: &str = "sessions-ended";
 /// Selector of the empty state when every account was listed and nothing runs.
 pub const EMPTY_SELECTOR: &str = "sessions-empty";
 /// Selector of the empty state when some accounts could not be listed.
 pub const EMPTY_PARTIAL_SELECTOR: &str = "sessions-empty-partial";
 
-/// The Sessions page.
 pub fn render(state: &AppState, handle: &Entity<AppState>, cx: &App) -> Page {
     let new = handle.clone();
     let refresh = handle.clone();
@@ -259,6 +256,11 @@ fn provisioning(state: &AppState, handle: &Entity<AppState>, cx: &App) -> Option
                     .description(progress::headline(&session.progress, cx)),
                 )
                 .child(progress::render(&session.progress, true, cx))
+                .children(progress::no_answer_note(
+                    &session.progress,
+                    state.backend_now(),
+                    cx,
+                ))
                 .child(
                     div()
                         .flex()

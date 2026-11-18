@@ -555,8 +555,6 @@ def op_history_redact(args):
     if not isinstance(secrets, list) or not all(isinstance(s, str) for s in secrets):
         raise Fail("invalid_input", "secrets must be a JSON list of strings", field="secrets")
     values = [s for s in secrets if len(s) >= MIN_REDACT_LEN]
-    # Decoded JSON strings hold the value as printed and as repr() wrote it
-    # into the env prelude; undecodable lines hold their JSON-escaped forms.
     # Forms a value can take inside a decoded history string: as printed, as
     # repr() wrote it into the env prelude, and JSON-escaped inside printed
     # JSON (the __CPG_RESULT__ line of a poll). Undecodable lines may hold any

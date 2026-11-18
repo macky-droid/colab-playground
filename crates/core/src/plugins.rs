@@ -21,7 +21,6 @@ use crate::sessions::Accelerator;
 
 /// Manifest API version understood by this build.
 pub const API_VERSION: u32 = 1;
-/// Largest accepted `plugin.toml`.
 pub const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
 /// Largest accepted script (it travels inside a `colab exec` payload).
 pub const MAX_SCRIPT_BYTES: u64 = 512 * 1024;
@@ -55,7 +54,6 @@ impl LocalizedText {
             .map(String::as_str)
     }
 
-    /// True without any translation.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -65,28 +63,21 @@ impl LocalizedText {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProvisionDefaults {
-    /// Accelerator.
     #[serde(default)]
     pub accelerator: Option<Accelerator>,
     /// Minimum GPU memory (0 = any).
     #[serde(default)]
     pub min_vram_mib: u32,
-    /// High-RAM shape.
     #[serde(default)]
     pub high_mem: bool,
 }
 
-/// Input widget / value type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum InputKind {
-    /// Free text.
     Text,
-    /// A number.
     Number,
-    /// A checkbox.
     Bool,
-    /// One of `options`.
     Select,
     /// A secret (never written to disk or logs by the host).
     Secret,
@@ -94,13 +85,11 @@ pub enum InputKind {
     HfModel,
 }
 
-/// A form input.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InputSpec {
     /// Id: `[a-z][a-z0-9_-]*`, at most 32 chars. Reaches the script as `PLUGIN_INPUT_<ID>`.
     pub id: String,
-    /// Type.
     #[serde(rename = "type")]
     pub kind: InputKind,
     /// Must be non-empty.
@@ -109,7 +98,6 @@ pub struct InputSpec {
     /// Label (falls back to the id).
     #[serde(default)]
     pub label: LocalizedText,
-    /// Help text.
     #[serde(default)]
     pub help: LocalizedText,
     /// Default value (not allowed for secrets).
@@ -127,7 +115,6 @@ pub struct InputSpec {
 }
 
 impl InputSpec {
-    /// Environment variable name for this input.
     pub fn env_key(&self) -> String {
         env_key(&self.id)
     }
@@ -138,20 +125,16 @@ pub fn env_key(id: &str) -> String {
     format!("PLUGIN_INPUT_{}", id.to_ascii_uppercase().replace('-', "_"))
 }
 
-/// A value for an input.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum InputValue {
-    /// Boolean.
     Bool(bool),
-    /// Number.
     Number(f64),
     /// Text, select choice, secret or repo id.
     Text(String),
 }
 
 impl InputValue {
-    /// The string passed in the environment.
     pub fn to_env(&self) -> String {
         match self {
             InputValue::Bool(b) => if *b { "1" } else { "0" }.to_owned(),
@@ -162,7 +145,6 @@ impl InputValue {
     }
 }
 
-/// What to run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RunSpec {
@@ -177,7 +159,6 @@ pub struct RunSpec {
 pub struct StageSpec {
     /// Id the script reports in `status.json`.
     pub id: String,
-    /// Label.
     #[serde(default)]
     pub label: LocalizedText,
 }
@@ -186,7 +167,6 @@ pub struct StageSpec {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EndpointSpec {
-    /// Id.
     pub id: String,
     /// Number input holding the VM port.
     #[serde(default)]
@@ -203,7 +183,6 @@ pub struct EndpointSpec {
     /// `openai`, `http`, … (lower-case word; informs the endpoint card).
     #[serde(default = "http_kind")]
     pub kind: String,
-    /// Label.
     #[serde(default)]
     pub label: LocalizedText,
 }
@@ -222,12 +201,10 @@ fn http_kind() -> String {
 pub struct KeepSpec {
     /// Absolute path on the VM.
     pub path: String,
-    /// Label.
     #[serde(default)]
     pub label: LocalizedText,
 }
 
-/// Host capabilities a plugin may ask for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
@@ -260,31 +237,23 @@ pub struct Manifest {
     pub api: u32,
     /// Id: `[a-z0-9][a-z0-9-]*`, at most 48 chars (also the directory name).
     pub id: String,
-    /// Version string.
     pub version: String,
     /// Display name (`en` required).
     pub name: LocalizedText,
-    /// Description.
     #[serde(default)]
     pub description: LocalizedText,
-    /// Default hardware.
     #[serde(default)]
     pub provision: ProvisionDefaults,
-    /// Form inputs.
     #[serde(default)]
     pub inputs: Vec<InputSpec>,
-    /// Script.
     pub run: RunSpec,
-    /// Stages.
     #[serde(default)]
     pub stages: Vec<StageSpec>,
-    /// Endpoints.
     #[serde(default)]
     pub endpoints: Vec<EndpointSpec>,
     /// Paths worth keeping (persistence hook).
     #[serde(default)]
     pub keep: Vec<KeepSpec>,
-    /// Requested capabilities.
     #[serde(default)]
     pub needs: Vec<Capability>,
 }
@@ -364,7 +333,6 @@ pub fn check_script_name(script: &str) -> Result<()> {
 }
 
 impl Manifest {
-    /// Parses and validates TOML text.
     pub fn parse(text: &str) -> Result<Manifest> {
         // Check the API version first so newer manifests get a precise error.
         let raw: toml::Table =
@@ -535,7 +503,6 @@ impl Manifest {
         Ok(())
     }
 
-    /// The input with this id.
     pub fn input(&self, id: &str) -> Option<&InputSpec> {
         self.inputs.iter().find(|i| i.id == id)
     }
@@ -650,17 +617,12 @@ pub fn resolve_inputs(
 /// An endpoint with its port resolved from the inputs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedEndpoint {
-    /// Endpoint id.
     pub id: String,
-    /// VM port.
     pub remote_port: u16,
-    /// Base path.
     pub path: String,
-    /// Health path.
     pub health: Option<String>,
     /// Kind (`openai`, `http`, …).
     pub kind: String,
-    /// Label.
     pub label: LocalizedText,
 }
 
@@ -699,7 +661,6 @@ pub fn resolve_endpoints(
         .collect()
 }
 
-/// Where a plugin came from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PluginSource {
@@ -709,33 +670,23 @@ pub enum PluginSource {
     User,
 }
 
-/// A plugin ready to run.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoadedPlugin {
-    /// Its manifest.
     pub manifest: Manifest,
-    /// Script bytes.
     pub script: Vec<u8>,
-    /// Origin.
     pub source: PluginSource,
 }
 
-/// Summary for the plugin list.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PluginInfo {
-    /// Manifest.
     pub manifest: Manifest,
-    /// Origin.
     pub source: PluginSource,
-    /// Enabled flag.
     pub enabled: bool,
 }
 
-/// Where an install candidate came from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PluginOrigin {
-    /// A local folder.
     Folder {
         /// Path as given.
         path: String,
@@ -751,11 +702,8 @@ pub enum PluginOrigin {
 /// script on the user's paid runtime later; nothing runs locally.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PluginPreview {
-    /// Validated manifest.
     pub manifest: Manifest,
-    /// Origin.
     pub origin: PluginOrigin,
-    /// Script size in bytes.
     pub script_bytes: u64,
     /// Version currently installed with the same id, if any.
     pub replaces_version: Option<String>,
@@ -899,7 +847,6 @@ pub fn clone_git(url: &str, staging: &Path, cancel: &CancelToken) -> Result<Path
     Ok(dest)
 }
 
-/// Installed plugins plus enable flags.
 #[derive(Debug)]
 pub struct PluginStore {
     dir: Option<PathBuf>,
@@ -973,7 +920,6 @@ impl PluginStore {
         Ok(store)
     }
 
-    /// All plugins.
     pub fn list(&self) -> Vec<PluginInfo> {
         self.plugins
             .iter()
@@ -985,7 +931,6 @@ impl PluginStore {
             .collect()
     }
 
-    /// A plugin by id.
     pub fn get(&self, id: &str) -> Option<&LoadedPlugin> {
         self.plugins.iter().find(|p| p.manifest.id == id)
     }
@@ -1062,7 +1007,6 @@ impl PluginStore {
         })
     }
 
-    /// Enables or disables a plugin.
     pub fn set_enabled(&mut self, id: &str, enabled: bool) -> Result<()> {
         if self.get(id).is_none() {
             return Err(Error::new(ErrorKind::PluginNotFound).with("plugin", id));
@@ -1114,7 +1058,6 @@ fn write_plugin_files(dir: &Path, manifest: &Manifest, toml: &[u8], script: &[u8
     Ok(())
 }
 
-/// Applies [`redact`] to every string inside a JSON value.
 pub fn redact_json(value: &mut serde_json::Value, secrets: &[String]) {
     match value {
         serde_json::Value::String(s) => *s = redact(s, secrets),
@@ -1158,7 +1101,6 @@ zh-CN = "演示"
 script = "main.py"
 "#;
 
-    /// Appends tables after the minimal manifest.
     fn with(extra: &str) -> String {
         format!("{MINIMAL}\n{extra}")
     }
@@ -1180,6 +1122,13 @@ script = "main.py"
             p.manifest.name.get("zh-TW").map(|s| !s.is_empty()),
             Some(true)
         );
+        for tag in ["ja-JP", "ko-KR"] {
+            assert_ne!(
+                p.manifest.name.get(tag),
+                p.manifest.name.get("en"),
+                "the app asks for {tag}, which the manifest's bare language key answers"
+            );
+        }
         let ep = &p.manifest.endpoints[0];
         assert_eq!(ep.port_input.as_deref(), Some("port"));
     }

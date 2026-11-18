@@ -71,6 +71,11 @@ pub(super) fn render(state: &AppState, handle: &Entity<AppState>, cx: &App) -> P
                         .description(progress::headline(&run.provision, cx)),
                 )
                 .child(progress::render(&run.provision, provisioning, cx))
+                .children(
+                    provisioning
+                        .then(|| progress::no_answer_note(&run.provision, state.backend_now(), cx))
+                        .flatten(),
+                )
                 .w_full(),
         );
     }

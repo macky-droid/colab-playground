@@ -19,7 +19,6 @@ pub const BACKEND_ENV: &str = "COLAB_PLAYGROUND_BACKEND";
 /// How long each simulated step of the interactive mock takes (pacing for `--mock` runs).
 pub const MOCK_STEP_DELAY: Duration = Duration::from_millis(600);
 
-/// The backend the app drives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BackendKind {
     /// Deterministic simulation; never touches WSL, the `colab` CLI or a Google account.
@@ -28,20 +27,13 @@ pub enum BackendKind {
     Real,
 }
 
-/// Why the command line could not be understood.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BackendError {
-    /// Both `--mock` and `--real` were given.
     ConflictingFlags,
-    /// [`BACKEND_ENV`] holds something other than `mock` or `real`.
     InvalidEnv(String),
-    /// `--mock-scenario` names no scenario.
     UnknownScenario(String),
-    /// `--mock-fail` names an unknown failure.
     UnknownFailure(String),
-    /// An argument this program does not know.
     UnknownArgument(String),
-    /// A flag that takes a value was given none.
     MissingValue(&'static str),
     /// A simulation flag without the simulation (it would otherwise start the real backend).
     MockFlagWithoutMock(&'static str),
@@ -108,7 +100,6 @@ impl BackendKind {
         }
     }
 
-    /// Whether this is the simulation.
     pub fn is_mock(self) -> bool {
         self == BackendKind::Mock
     }
@@ -117,15 +108,13 @@ impl BackendKind {
 /// The mock's starting world and injected failures, from `--mock-scenario` and `--mock-fail`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MockFlags {
-    /// The starting world.
     pub scenario: MockScenario,
-    /// Failures switched on from the start.
     pub failures: MockFailures,
 }
 
 impl MockFlags {
     /// Names accepted by `--mock-fail` (comma-separated).
-    pub const FAILURES: [&'static str; 13] = [
+    pub const FAILURES: [&'static str; 14] = [
         "cli-missing",
         "install-fails",
         "keyring",
@@ -133,6 +122,7 @@ impl MockFlags {
         "login-invalid-code",
         "login-unverified",
         "not-entitled",
+        "no-answer",
         "ssh-busy",
         "plugin-fails",
         "watchdog-restart-fails",
@@ -173,6 +163,10 @@ impl MockFlags {
                             colab_playground_core::sessions::Accelerator::H100,
                         ]
                     }
+                    "no-answer" => {
+                        flags.failures.allocation_hangs =
+                            vec![colab_playground_core::sessions::Accelerator::A100]
+                    }
                     "ssh-busy" => flags.failures.ssh_busy_attempts = 1,
                     "plugin-fails" => flags.failures.plugin_fail_stage = Some("download".into()),
                     "update-available" => flags.failures.update_available = true,
@@ -201,7 +195,6 @@ pub fn usage() -> String {
     )
 }
 
-/// Flags that take a value.
 const VALUE_FLAGS: [&str; 2] = ["--mock-scenario", "--mock-fail"];
 
 /// Rejects anything but the known flags, and a value flag without a value. Runs before any
@@ -270,7 +263,6 @@ fn flag_value<S: AsRef<str>>(args: &[S], flag: &str) -> Option<String> {
     None
 }
 
-/// Where the backend comes from.
 #[derive(Clone)]
 pub enum BackendSource {
     /// Build a `RealBackend` from the settings (rebuilt when the WSL distro or `colab` path
@@ -289,7 +281,6 @@ impl BackendSource {
         BackendSource::Mock(Arc::new(MockBackend::new(config)))
     }
 
-    /// Real or mock.
     pub fn flavor(&self) -> Flavor {
         match self {
             BackendSource::Real => Flavor::Real,

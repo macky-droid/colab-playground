@@ -15,7 +15,6 @@ use crate::i18n::{keys, tr, tr_lenient};
 /// Something the app can do about an error right away.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ErrorAction {
-    /// Run the same thing again.
     Retry,
     /// Check the environment again.
     Refresh,
@@ -32,7 +31,6 @@ pub enum ErrorAction {
 }
 
 impl ErrorAction {
-    /// The button's catalog key.
     pub fn label_key(self) -> &'static str {
         match self {
             ErrorAction::Retry => keys::ACTION_RETRY,
@@ -46,14 +44,11 @@ impl ErrorAction {
     }
 }
 
-/// An error in the user's words.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Explained {
-    /// What happened.
     pub message: SharedString,
     /// What to do, when there is no button for it (or to go with the button).
     pub hint: Option<SharedString>,
-    /// A button the app can act on now.
     pub action: Option<ErrorAction>,
     /// Technical detail for a "details" line (untranslated, never secret).
     pub detail: Option<SharedString>,
@@ -67,6 +62,7 @@ pub fn kind_key(kind: ErrorKind) -> Option<&'static str> {
         K::AuthRequired => keys::ERR_AUTH_REQUIRED,
         K::NotEntitled => keys::ERR_NOT_ENTITLED,
         K::CapacityRefused => keys::ERR_CAPACITY_REFUSED,
+        K::AllocationTimeout => keys::ERR_ALLOCATION_TIMEOUT,
         K::SshBusy => keys::ERR_SSH_BUSY,
         K::SessionGone => keys::ERR_SESSION_GONE,
         K::ConnectionLost => keys::ERR_CONNECTION_LOST,
@@ -143,7 +139,6 @@ pub fn next_step(step: NextStep, can_retry: bool) -> (Option<ErrorAction>, Optio
     }
 }
 
-/// `error` in the user's words, in the shown language.
 pub fn explain(error: &Error, can_retry: bool, cx: &App) -> Explained {
     let params: Vec<(&str, &str)> = error
         .params

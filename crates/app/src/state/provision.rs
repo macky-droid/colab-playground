@@ -4,6 +4,8 @@
 //!
 //! The same progress model serves a plugin run that provisions its own session.
 
+use std::time::{Duration, SystemTime};
+
 use colab_playground_core::{
     Error, ErrorKind,
     provision::{ProvisionEvent, ProvisionOutcome, ProvisionSpec},
@@ -13,29 +15,46 @@ use gpui::Context;
 use super::{AppState, InputSlot, Op, Overlay};
 use crate::i18n::{keys, tr_args};
 
-/// Where provisioning stands.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ProvisionPhase {
-    /// The form is being filled in.
     Editing,
     /// Asking Colab for a runtime (see the events).
     Running,
-    /// A runtime is ready.
     Ready(ProvisionOutcome),
-    /// It gave up.
     Failed(Error),
     /// Cancelled; nothing is left running.
     Cancelled,
 }
+
+/// How long a request for a runtime may go unanswered before the progress says so. An answered
+/// request takes up to about 30 s, and Colab's own "unavailable" reply comes at about 30 s too.
+pub const SLOW_ANSWER: Duration = Duration::from_secs(60);
 
 /// What provisioning reported so far, folded into what the progress view shows.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ProvisionProgress {
     /// Every event, in order.
     pub events: Vec<ProvisionEvent>,
+    /// By the backend's clock.
+    pub latest_at: Option<SystemTime>,
 }
 
 impl ProvisionProgress {
+    pub fn push(&mut self, event: ProvisionEvent, at: Option<SystemTime>) {
+        self.events.push(event);
+        self.latest_at = at;
+    }
+
+    /// The CLI retries silently for about ten minutes before it gives up, so this can grow
+    /// that long while the latest event is still `Allocating`.
+    pub fn unanswered_for(&self, now: SystemTime) -> Option<Duration> {
+        if !matches!(self.last(), Some(ProvisionEvent::Allocating { .. })) {
+            return None;
+        }
+        let waited = now.duration_since(self.latest_at?).ok()?;
+        (waited >= SLOW_ANSWER).then_some(waited)
+    }
+
     /// `(attempt, of)` of the latest attempt.
     pub fn attempt(&self) -> Option<(u32, u32)> {
         self.events.iter().rev().find_map(|event| match event {
@@ -47,20 +66,15 @@ impl ProvisionProgress {
         })
     }
 
-    /// The latest event.
     pub fn last(&self) -> Option<&ProvisionEvent> {
         self.events.last()
     }
 }
 
-/// The new-session dialog.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NewSession {
-    /// What to ask for.
     pub spec: ProvisionSpec,
-    /// Where it stands.
     pub phase: ProvisionPhase,
-    /// Progress events.
     pub progress: ProvisionProgress,
 }
 
@@ -76,7 +90,11 @@ impl AppState {
         self.ops.is_running(Op::Provision)
     }
 
-    /// Opens the new-session dialog pre-filled from `Defaults`, with a generated name.
+    /// The mock's clock in demo mode and tests, never the wall clock.
+    pub fn backend_now(&self) -> Option<SystemTime> {
+        self.backend.as_ref().ok().map(|backend| backend.now())
+    }
+
     pub fn open_new_session(&mut self, cx: &mut Context<Self>) {
         if let Some(session) = &self.new_session
             && session.phase == ProvisionPhase::Running
@@ -111,7 +129,6 @@ impl AppState {
         cx.notify();
     }
 
-    /// Edits the form's spec.
     pub fn edit_new_session(
         &mut self,
         edit: impl FnOnce(&mut ProvisionSpec),
@@ -128,7 +145,6 @@ impl AppState {
         }
     }
 
-    /// Starts provisioning with `name` (the form's name field).
     pub fn start_provision(&mut self, name: String, cx: &mut Context<Self>) {
         let Some(session) = &mut self.new_session else {
             return;
@@ -158,8 +174,9 @@ impl AppState {
             cx,
             move |backend, events, cancel| backend.provision(spec, events, cancel),
             |state, event, cx| {
+                let at = state.backend_now();
                 if let Some(session) = &mut state.new_session {
-                    session.progress.events.push(event);
+                    session.progress.push(event, at);
                     cx.notify();
                 }
             },
@@ -236,7 +253,6 @@ impl AppState {
 pub struct LimitReached {
     /// `max_concurrent_sessions` (this app's own setting).
     pub limit: u32,
-    /// The active account's email.
     pub email: Option<String>,
     /// Runtimes that count: those this app can address by name (it started them).
     pub counted: Vec<String>,
@@ -269,5 +285,54 @@ impl AppState {
         self.navigate(crate::route::Route::Settings, cx);
         self.settings_focus = true;
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, SystemTime};
+
+    use colab_playground_core::provision::ProvisionEvent;
+
+    use super::{ProvisionProgress, SLOW_ANSWER};
+
+    fn asking(at: SystemTime) -> ProvisionProgress {
+        let mut progress = ProvisionProgress::default();
+        progress.push(
+            ProvisionEvent::Allocating {
+                attempt: 1,
+                max_attempts: 3,
+            },
+            Some(at),
+        );
+        progress
+    }
+
+    #[test]
+    fn an_unanswered_request_counts_from_the_ask_once_it_is_overdue() {
+        let at = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let progress = asking(at);
+        assert_eq!(progress.unanswered_for(at + Duration::from_secs(30)), None);
+        assert_eq!(progress.unanswered_for(at + SLOW_ANSWER), Some(SLOW_ANSWER));
+        let later = Duration::from_secs(3 * 60 + 20);
+        assert_eq!(progress.unanswered_for(at + later), Some(later));
+        assert_eq!(
+            progress.unanswered_for(at - Duration::from_secs(5)),
+            None,
+            "a clock that went back"
+        );
+    }
+
+    #[test]
+    fn an_answer_or_an_unknown_time_ends_the_count() {
+        let at = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let late = at + Duration::from_secs(600);
+        let mut answered = asking(at);
+        answered.push(ProvisionEvent::Allocated { attempt: 1 }, Some(at));
+        assert_eq!(answered.unanswered_for(late), None, "probing the hardware");
+        let mut untimed = asking(at);
+        untimed.latest_at = None;
+        assert_eq!(untimed.unanswered_for(late), None);
+        assert_eq!(ProvisionProgress::default().unanswered_for(late), None);
     }
 }

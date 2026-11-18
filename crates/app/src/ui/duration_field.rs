@@ -23,7 +23,6 @@ pub struct DurationField {
 }
 
 impl DurationField {
-    /// A field under `id` showing `value`.
     pub fn new(
         id: impl Into<SharedString>,
         value: Duration,
@@ -37,7 +36,6 @@ impl DurationField {
         }
     }
 
-    /// Shows a seconds part too.
     pub fn seconds(mut self) -> Self {
         self.seconds = true;
         self

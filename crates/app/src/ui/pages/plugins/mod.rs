@@ -37,20 +37,16 @@ pub const INSTALL_CHECK: &str = "plugin-check";
 pub fn plugin_selector(id: &str) -> String {
     format!("plugin {id}")
 }
-/// Selector of a plugin's Run button.
 pub fn run_selector(id: &str) -> String {
     format!("plugin-run {id}")
 }
-/// Selector of a plugin's Remove button.
 pub fn remove_selector(id: &str) -> String {
     format!("plugin-remove {id}")
 }
-/// Selector of a plugin's enable switch.
 pub fn enable_selector(id: &str) -> String {
     format!("plugin-enabled {id}")
 }
 
-/// The Plugins page.
 pub fn render(state: &AppState, handle: &Entity<AppState>, inputs: &Inputs, cx: &App) -> Page {
     match state.plugin_view() {
         PluginView::Form if state.run_form().is_some() => form::render(state, handle, inputs, cx),

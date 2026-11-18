@@ -35,7 +35,6 @@ pub const ACCOUNT_HELPER_PY: &str = include_str!("../assets/account_helper.py");
 pub struct AccountId(String);
 
 impl AccountId {
-    /// Validates and wraps an id.
     pub fn new(s: impl Into<String>) -> Result<AccountId> {
         let s = s.into();
         let ok = !s.is_empty()
@@ -60,7 +59,6 @@ impl AccountId {
         AccountId(format!("a{}", &nonce()[..10]))
     }
 
-    /// The id as a string.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -109,21 +107,16 @@ pub struct Account {
     pub id: AccountId,
     /// Verified Google account email.
     pub email: Option<String>,
-    /// When the account was saved.
     #[serde(with = "serde_secs")]
     pub created_at: SystemTime,
-    /// Last metadata change.
     #[serde(with = "serde_secs")]
     pub updated_at: SystemTime,
-    /// Last usage reading, if any.
     #[serde(default)]
     pub usage: Option<UsageSnapshot>,
 }
 
-/// The whole account picture for the UI.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AccountsView {
-    /// Saved accounts.
     pub accounts: Vec<Account>,
     /// The saved account whose token is in the CLI slot.
     pub active: Option<AccountId>,
@@ -138,7 +131,6 @@ pub struct AccountsView {
 }
 
 impl AccountsView {
-    /// The active account's metadata.
     pub fn active_account(&self) -> Option<&Account> {
         let id = self.active.as_ref()?;
         self.accounts.iter().find(|a| &a.id == id)
@@ -160,7 +152,6 @@ pub struct AccountStore {
 }
 
 impl AccountStore {
-    /// Loads (or starts) the store at `path`.
     pub fn load(path: &Path) -> Result<AccountStore> {
         let accounts = match std::fs::read_to_string(path) {
             Ok(s) if s.trim().is_empty() => Vec::new(),
@@ -181,7 +172,6 @@ impl AccountStore {
         })
     }
 
-    /// A store that is never written to disk.
     pub fn in_memory() -> AccountStore {
         AccountStore {
             path: None,
@@ -189,17 +179,14 @@ impl AccountStore {
         }
     }
 
-    /// All accounts.
     pub fn all(&self) -> &[Account] {
         &self.accounts
     }
 
-    /// Ids of all accounts.
     pub fn ids(&self) -> Vec<AccountId> {
         self.accounts.iter().map(|a| a.id.clone()).collect()
     }
 
-    /// Looks up an account.
     pub fn get(&self, id: &AccountId) -> Option<&Account> {
         self.accounts.iter().find(|a| &a.id == id)
     }
@@ -228,7 +215,6 @@ impl AccountStore {
         self.save()
     }
 
-    /// Caches a usage reading.
     pub fn set_usage(&mut self, id: &AccountId, sample: UsageSnapshot) -> Result<()> {
         if let Some(a) = self.accounts.iter_mut().find(|a| &a.id == id) {
             a.usage = Some(sample);
@@ -249,7 +235,6 @@ impl AccountStore {
     }
 }
 
-/// What the helper reports about the CLI slot.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HelperStatus {
     /// The slot holds a credential.
@@ -268,7 +253,6 @@ pub struct HelperStatus {
     pub legacy_token: bool,
 }
 
-/// Runs `account_helper.py` operations through a [`Host`].
 #[derive(Debug, Clone)]
 pub struct Helper {
     host: Host,
@@ -599,7 +583,6 @@ impl Helper {
     }
 }
 
-/// Result of [`Helper::history_redact`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HistoryRedaction {
     /// The history file existed.
@@ -611,7 +594,6 @@ pub struct HistoryRedaction {
 /// A runtime as listed by the CLI's API client (no secrets).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteAssignment {
-    /// Server endpoint id.
     pub endpoint: String,
     /// Parsed accelerator (`None` if the CLI reported something unknown).
     pub accelerator: Option<crate::sessions::Accelerator>,
@@ -619,7 +601,6 @@ pub struct RemoteAssignment {
     pub accelerator_label: String,
     /// `DEFAULT` / `GPU` / `TPU`.
     pub variant: String,
-    /// High-RAM machine shape.
     pub high_mem: bool,
 }
 
@@ -674,7 +655,6 @@ pub fn validate_secret_name(name: &str) -> Result<()> {
     }
 }
 
-/// Classifies a failed `colab whoami` login from its output.
 pub fn classify_login_failure(stdout: &str, stderr: &str) -> Error {
     let all = format!("{stdout}\n{stderr}");
     let kind = if all.contains("invalid_grant")
