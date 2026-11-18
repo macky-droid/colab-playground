@@ -146,6 +146,68 @@ mod reconciliation_tests {
     }
 
     #[test]
+    fn a_session_without_an_endpoint_takes_only_a_listed_one_and_is_never_ended() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = RealConfig::for_app(Defaults::default()).unwrap();
+        config.local_dir = dir.path().to_owned();
+        let backend = RealBackend::new(config).unwrap();
+        let account = AccountId::new("alice").unwrap();
+        backend
+            .inner
+            .st()
+            .ledger
+            .upsert(TrackedSession {
+                name: "reused".into(),
+                account: account.clone(),
+                endpoint: None,
+                accelerator: Accelerator::T4,
+                high_mem: false,
+                gpu: None,
+                vram_mib: None,
+                policy: GuardPolicy::default(),
+                spend: SpendMeter::new(SystemTime::UNIX_EPOCH),
+                watchdog: None,
+                stopped: None,
+            })
+            .unwrap();
+        let listing = |endpoint: &str| {
+            vec![RemoteAssignment {
+                endpoint: endpoint.into(),
+                accelerator: Some(Accelerator::T4),
+                accelerator_label: "T4".into(),
+                variant: "GPU".into(),
+                high_mem: false,
+            }]
+        };
+        let endpoint = |backend: &RealBackend| {
+            let st = backend.inner.st();
+            st.ledger.live(&account, "reused").unwrap().endpoint.clone()
+        };
+
+        // Only the record of an earlier session with this name: nothing to go by.
+        let stale = BTreeMap::from([("a-earlier".into(), "reused".into())]);
+        let sample = backend.inner.reconciliation_sample();
+        let vanished =
+            backend
+                .inner
+                .reconcile(&account, &listing("b-current"), Some(&stale), &sample);
+        assert!(vanished.is_empty());
+        assert_eq!(endpoint(&backend), None);
+
+        // Both records: the listed one is the session's.
+        let both = BTreeMap::from([
+            ("a-earlier".into(), "reused".into()),
+            ("b-current".into(), "reused".into()),
+        ]);
+        let vanished =
+            backend
+                .inner
+                .reconcile(&account, &listing("b-current"), Some(&both), &sample);
+        assert!(vanished.is_empty());
+        assert_eq!(endpoint(&backend).as_deref(), Some("b-current"));
+    }
+
+    #[test]
     fn reused_session_names_do_not_reconcile_the_replacement() {
         let dir = tempfile::tempdir().unwrap();
         let mut config = RealConfig::for_app(Defaults::default()).unwrap();
@@ -677,34 +739,36 @@ impl Inner {
         // A failed save keeps the change in memory and the next save writes it, so the
         // round goes on: a session that ended is still reported.
         for e in live {
-            let endpoint = e.endpoint.clone().or_else(|| {
-                names.and_then(|names| {
+            let listed = |endpoint: &str| list.iter().any(|a| a.endpoint == endpoint);
+            let Some(endpoint) = e.endpoint.clone() else {
+                // The state file may still hold the record of an earlier session with this
+                // name, so only an endpoint the listing confirms is taken from it, and an
+                // unlisted one never ends the session.
+                let confirmed = names.and_then(|names| {
                     names
                         .iter()
-                        .find(|(_, name)| *name == &e.name)
-                        .map(|(ep, _)| ep.clone())
-                })
-            });
-            if let Some(endpoint) = endpoint {
-                if list.iter().any(|a| a.endpoint == endpoint) {
-                    if e.endpoint.is_none() {
-                        let _ = st
-                            .ledger
-                            .update(account, &e.name, |e| e.endpoint = Some(endpoint));
-                    }
-                } else {
-                    let _ = st.ledger.update(account, &e.name, |e| {
-                        e.stopped = Some(StopRecord {
-                            at: self.now(),
-                            reason: StopReason::Vanished,
-                        });
-                    });
-                    vanished.push(RuntimeRef {
-                        account: account.clone(),
-                        endpoint,
-                        name: Some(e.name),
-                    });
+                        .find(|(endpoint, name)| *name == &e.name && listed(endpoint))
+                        .map(|(endpoint, _)| endpoint.clone())
+                });
+                if let Some(endpoint) = confirmed {
+                    let _ = st
+                        .ledger
+                        .update(account, &e.name, |e| e.endpoint = Some(endpoint));
                 }
+                continue;
+            };
+            if !listed(&endpoint) {
+                let _ = st.ledger.update(account, &e.name, |e| {
+                    e.stopped = Some(StopRecord {
+                        at: self.now(),
+                        reason: StopReason::Vanished,
+                    });
+                });
+                vanished.push(RuntimeRef {
+                    account: account.clone(),
+                    endpoint,
+                    name: Some(e.name),
+                });
             }
         }
         vanished
