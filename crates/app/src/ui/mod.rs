@@ -4,6 +4,7 @@
 pub mod dialogs;
 pub mod duration_field;
 pub mod error_view;
+pub mod metrics;
 pub mod overlays;
 pub mod pages;
 pub mod progress;

@@ -14,21 +14,21 @@ use ely_gpui_component::{
     buttons::{Button, ButtonVariant},
     feedback::InlineMessage,
     forms::{Choice, Input, Select, Switch},
-    layout::{Card, CardHeader, Page},
+    layout::{Card, CardHeader, Page, Well},
+    lists::ListItem,
     primitives::{IconName, Severity},
     theme::{ActiveTheme, TextSize},
     typography::{Caption, Paragraph},
 };
 use gpui::{
-    AnyElement, App, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, div,
+    AnyElement, App, Entity, FontWeight, IntoElement, ParentElement, SharedString, Styled, div,
 };
 
 use crate::{
     format,
     i18n::{keys, tr, tr_args},
     state::{AppState, Load, RunForm},
-    ui::{Inputs, error_view, provision_form, tagged},
+    ui::{Inputs, error_view, pages::defaults::MIB_PER_GIB, provision_form, tagged},
 };
 
 pub const RUN_START: &str = "run-start";
@@ -39,15 +39,19 @@ pub fn hf_result_selector(repo: &str) -> String {
 
 /// GPU memory sizes (GiB) Colab hands out for an accelerator, for the quantisation preview
 /// when no minimum is set (an A100 is 40 or 80 GB).
+const VRAM_CHOICES_GIB: &[(Accelerator, &[u32])] = &[
+    (Accelerator::T4, &[15]),
+    (Accelerator::L4, &[22]),
+    (Accelerator::A100, &[40, 80]),
+    (Accelerator::H100, &[80]),
+    (Accelerator::G4, &[96]),
+];
+
 fn vram_choices(accelerator: Accelerator) -> &'static [u32] {
-    match accelerator {
-        Accelerator::T4 => &[15],
-        Accelerator::L4 => &[22],
-        Accelerator::A100 => &[40, 80],
-        Accelerator::H100 => &[80],
-        Accelerator::G4 => &[96],
-        _ => &[],
-    }
+    VRAM_CHOICES_GIB
+        .iter()
+        .find(|(choice, _)| *choice == accelerator)
+        .map_or(&[], |(_, sizes)| sizes)
 }
 
 fn label(input: &InputSpec, tag: &str) -> String {
@@ -261,43 +265,35 @@ fn hf_lookup(
     inputs: &Inputs,
     cx: &App,
 ) -> AnyElement {
-    let theme = cx.theme();
     let (search, query) = (handle.clone(), inputs.hf_query.clone());
     let (list, field) = (handle.clone(), inputs.field(&input.id));
-    let mut lookup = div()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .p_3()
-        .rounded(theme.radius(ely_gpui_component::theme::Radius::Md))
-        .bg(theme.colors.surface)
-        .child(
-            div()
-                .flex()
-                .items_end()
-                .gap_2()
-                .child(div().flex_1().child(Input::new(&inputs.hf_query)))
-                .child(tagged(
-                    "hf-search",
-                    Button::new("hf-search", tr(cx, keys::HF_SEARCH_ACTION))
-                        .icon(IconName::Search)
-                        .on_click(move |_, _, cx| {
-                            let text = query.read(cx).text().to_owned();
-                            search.update(cx, |state, cx| state.search_hf(text, cx))
-                        }),
-                ))
-                .child(tagged(
-                    "hf-list-files",
-                    Button::new("hf-list-files", tr(cx, keys::HF_LIST_FILES))
-                        .variant(ButtonVariant::Ghost)
-                        .on_click(move |_, _, cx| {
-                            if let Some(field) = &field {
-                                let repo = field.read(cx).text().to_owned();
-                                list.update(cx, |state, cx| state.load_hf_files(repo, cx));
-                            }
-                        }),
-                )),
-        );
+    let mut lookup = Well::new().flex().flex_col().gap_2().child(
+        div()
+            .flex()
+            .items_end()
+            .gap_2()
+            .child(div().flex_1().child(Input::new(&inputs.hf_query)))
+            .child(tagged(
+                "hf-search",
+                Button::new("hf-search", tr(cx, keys::HF_SEARCH_ACTION))
+                    .icon(IconName::Search)
+                    .on_click(move |_, _, cx| {
+                        let text = query.read(cx).text().to_owned();
+                        search.update(cx, |state, cx| state.search_hf(text, cx))
+                    }),
+            ))
+            .child(tagged(
+                "hf-list-files",
+                Button::new("hf-list-files", tr(cx, keys::HF_LIST_FILES))
+                    .variant(ButtonVariant::Ghost)
+                    .on_click(move |_, _, cx| {
+                        if let Some(field) = &field {
+                            let repo = field.read(cx).text().to_owned();
+                            list.update(cx, |state, cx| state.load_hf_files(repo, cx));
+                        }
+                    }),
+            )),
+    );
     match &form.hf.results {
         Load::Loading => lookup = lookup.child(Caption::new(tr(cx, keys::HF_SEARCHING))),
         Load::Failed(error) => {
@@ -314,32 +310,23 @@ fn hf_lookup(
                 let (handle, repo, id) = (handle.clone(), model.id.clone(), input.id.clone());
                 tagged(
                     hf_result_selector(&model.id),
-                    div()
-                        .id(SharedString::from(format!("hf-result-{}", model.id)))
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .gap_2()
-                        .px_2()
-                        .py_1()
-                        .rounded(theme.radius(ely_gpui_component::theme::Radius::Sm))
-                        .cursor_pointer()
-                        .hover(|style| style.bg(theme.colors.hover))
-                        .text_size(theme.text_size(TextSize::Sm))
-                        .child(model.id.clone())
-                        .child(Caption::new(tr_args(
-                            cx,
-                            if model.gated {
-                                keys::HF_RESULT_GATED
-                            } else {
-                                keys::HF_RESULT
-                            },
-                            &[("downloads", &format::number(cx, model.downloads as f64, 0))],
-                        )))
-                        .on_click(move |_, _, cx| {
-                            let (id, repo) = (id.clone(), repo.clone());
-                            handle.update(cx, |state, cx| state.choose_hf_repo(id, repo, cx))
-                        }),
+                    ListItem::new(
+                        SharedString::from(format!("hf-result-{}", model.id)),
+                        model.id.clone(),
+                    )
+                    .trailing(Caption::new(tr_args(
+                        cx,
+                        if model.gated {
+                            keys::HF_RESULT_GATED
+                        } else {
+                            keys::HF_RESULT
+                        },
+                        &[("downloads", &format::number(cx, model.downloads as f64, 0))],
+                    )))
+                    .on_click(move |_, _, cx| {
+                        let (id, repo) = (id.clone(), repo.clone());
+                        handle.update(cx, |state, cx| state.choose_hf_repo(id, repo, cx))
+                    }),
                 )
             });
             lookup = lookup.child(div().flex().flex_col().children(rows));
@@ -379,7 +366,7 @@ fn quant_preview(
         Some(mib) => vec![mib],
         None => vram_choices(form.provision.accelerator)
             .iter()
-            .map(|gb| gb * 1024)
+            .map(|gib| gib * MIB_PER_GIB)
             .collect(),
     };
     let ctx = ctx.filter(|n| *n > 0.0).map_or(0, |n| n as u32);

@@ -3,15 +3,22 @@
 
 use std::{rc::Rc, time::Duration};
 
-use ely_gpui_component::{
-    forms::NumberInput,
-    theme::{ActiveTheme, ControlSize},
-};
+use ely_gpui_component::{forms::NumberInput, theme::ActiveTheme};
 use gpui::{App, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window, div};
 
-use crate::i18n::{keys, tr};
+use crate::{
+    i18n::{keys, tr},
+    ui::metrics,
+};
 
 type OnChange = Rc<dyn Fn(Duration, &mut Window, &mut App)>;
+
+const SECS_PER_MINUTE: u64 = 60;
+const MINUTES_PER_HOUR: u64 = 60;
+const SECS_PER_HOUR: u64 = SECS_PER_MINUTE * MINUTES_PER_HOUR;
+const MAX_HOURS: f64 = 999.0;
+const MAX_MINUTES: f64 = (MINUTES_PER_HOUR - 1) as f64;
+const MAX_SECONDS: f64 = (SECS_PER_MINUTE - 1) as f64;
 
 /// Hours and minutes (and seconds with [`DurationField::seconds`]).
 #[derive(IntoElement)]
@@ -45,9 +52,15 @@ impl DurationField {
 impl RenderOnce for DurationField {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
         let total = self.value.as_secs();
-        let (hours, minutes, seconds) = (total / 3600, total / 60 % 60, total % 60);
-        let compose = |h: u64, m: u64, s: u64| Duration::from_secs(h * 3600 + m * 60 + s);
-        let width = cx.theme().control_height(ControlSize::Md) * 4.6;
+        let (hours, minutes, seconds) = (
+            total / SECS_PER_HOUR,
+            total / SECS_PER_MINUTE % MINUTES_PER_HOUR,
+            total % SECS_PER_MINUTE,
+        );
+        let compose = |h: u64, m: u64, s: u64| {
+            Duration::from_secs(h * SECS_PER_HOUR + m * SECS_PER_MINUTE + s)
+        };
+        let width = metrics::duration_part_width(cx.theme());
         let part =
             |name: &str, value: u64, max: f64, unit: &str, set: Box<dyn Fn(u64) -> Duration>| {
                 let on_change = self.on_change.clone();
@@ -72,14 +85,14 @@ impl RenderOnce for DurationField {
             .child(part(
                 "hours",
                 hours,
-                999.0,
+                MAX_HOURS,
                 keys::UNIT_HOURS,
                 Box::new(move |h| compose(h, minutes, seconds)),
             ))
             .child(part(
                 "minutes",
                 minutes,
-                59.0,
+                MAX_MINUTES,
                 keys::UNIT_MINUTES,
                 Box::new(move |m| compose(hours, m, seconds)),
             ));
@@ -87,7 +100,7 @@ impl RenderOnce for DurationField {
             row = row.child(part(
                 "seconds",
                 seconds,
-                59.0,
+                MAX_SECONDS,
                 keys::UNIT_SECONDS,
                 Box::new(move |s| compose(hours, minutes, s)),
             ));
