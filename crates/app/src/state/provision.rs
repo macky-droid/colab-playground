@@ -8,7 +8,7 @@ use colab_playground_core::{
     Error, ErrorKind,
     provision::{ProvisionEvent, ProvisionOutcome, ProvisionSpec},
 };
-use gpui::Context;
+use gpui::{Context, ScrollHandle};
 
 use super::{AppState, InputSlot, Op, Overlay};
 use crate::i18n::{keys, tr_args};
@@ -54,7 +54,7 @@ impl ProvisionProgress {
 }
 
 /// The new-session dialog.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct NewSession {
     /// What to ask for.
     pub spec: ProvisionSpec,
@@ -62,6 +62,8 @@ pub struct NewSession {
     pub phase: ProvisionPhase,
     /// Progress events.
     pub progress: ProvisionProgress,
+    /// The form's scroll position; each opening starts at the top.
+    pub scroll: ScrollHandle,
 }
 
 impl AppState {
@@ -91,6 +93,7 @@ impl AppState {
             spec,
             phase: ProvisionPhase::Editing,
             progress: ProvisionProgress::default(),
+            scroll: ScrollHandle::new(),
         });
         self.overlay = Some(Overlay::NewSession);
         self.run_backend(

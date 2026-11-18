@@ -10,13 +10,14 @@ mod stop;
 
 use ely_gpui_component::{
     buttons::{Button, ButtonVariant},
+    layout::ScrollArea,
     motion::Spinner,
-    theme::IconSize,
+    theme::{ActiveTheme, IconSize},
     typography::Caption,
 };
 use gpui::{
-    AnyElement, App, Entity, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, Window, div, rems,
+    AnyElement, App, Entity, IntoElement, ParentElement, Rems, RenderOnce, ScrollHandle,
+    SharedString, Styled, Window, div,
 };
 
 use crate::{
@@ -25,7 +26,9 @@ use crate::{
 };
 
 pub use forward::{FORWARD_SUBMIT, RESERVED_NOTE};
-pub use new_session::{NEW_SESSION_CANCEL_RUN, NEW_SESSION_LIMIT, NEW_SESSION_START};
+pub use new_session::{
+    NEW_SESSION_CANCEL_RUN, NEW_SESSION_FORM, NEW_SESSION_LIMIT, NEW_SESSION_START,
+};
 pub use plugin::{INSTALL_CONFIRM, REMOVE_CONFIRM};
 pub use quit::{QUIT_CHECKING, QUIT_LEAVE, QUIT_STOP_ALL, QUIT_UNCHECKED};
 pub use stop::{CANCEL_AUTO_STOP_CONFIRM, STOP_CONFIRM};
@@ -84,12 +87,51 @@ fn busy_line(id: &'static str, text: SharedString) -> impl IntoElement {
         .child(Caption::new(text))
 }
 
-/// Tall content scrolls inside the dialog.
-fn scrolled(id: &'static str, content: impl IntoElement) -> impl IntoElement {
-    div()
-        .id(id)
-        .max_h(rems(28.0))
-        .overflow_y_scroll()
-        .pr_2()
-        .child(content)
+/// What a dialog keeps around its scrolling content: the window margin above and below, its
+/// padding, title, action row and the gaps between them (about 209 px). Generous on purpose:
+/// too much only leaves the dialog a little short, too little makes the dialog's own body
+/// scroll as well.
+const DIALOG_CHROME: Rems = Rems(13.5);
+
+/// The shortest the scrolling content gets, however small the window.
+const MIN_SCROLLED: Rems = Rems(8.0);
+
+/// A dialog's whole content, as tall as the window allows and scrolling beyond that, with the
+/// page's overlay scrollbar and soft edges where more content continues. `handle` belongs to
+/// the dialog's state, so the dialog can bring a row into view.
+#[derive(IntoElement)]
+struct Scrolled {
+    id: &'static str,
+    handle: ScrollHandle,
+    content: AnyElement,
+}
+
+fn scrolled(id: &'static str, handle: &ScrollHandle, content: impl IntoElement) -> Scrolled {
+    Scrolled {
+        id,
+        handle: handle.clone(),
+        content: content.into_any_element(),
+    }
+}
+
+impl RenderOnce for Scrolled {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let rem = window.rem_size();
+        let room = (window.viewport_size().height - DIALOG_CHROME.to_pixels(rem))
+            .max(MIN_SCROLLED.to_pixels(rem));
+        // The bar's track takes presses at the right edge, so the content keeps clear of it.
+        let gutter = cx.theme().scrollbar_thickness().to_pixels(rem) * 2.0;
+        tagged(
+            self.id,
+            ScrollArea::new(self.id)
+                .vertical()
+                .shadows()
+                .track_scroll(&self.handle)
+                // A column, so the scrolling body shrinks to the room instead of clipping.
+                .flex()
+                .flex_col()
+                .max_h(room)
+                .child(div().pr(gutter).child(self.content)),
+        )
+    }
 }

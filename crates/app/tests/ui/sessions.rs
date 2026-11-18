@@ -8,7 +8,9 @@ use colab_playground::{
     route::Route,
     state::{EndReason, Overlay, ProvisionPhase},
     ui::{
-        overlays::{FORWARD_SUBMIT, NEW_SESSION_LIMIT, NEW_SESSION_START, RESERVED_NOTE},
+        overlays::{
+            FORWARD_SUBMIT, NEW_SESSION_FORM, NEW_SESSION_LIMIT, NEW_SESSION_START, RESERVED_NOTE,
+        },
         pages::sessions::{NEW_SESSION_SELECTOR, forward_selector, stop_selector},
     },
 };
@@ -22,7 +24,7 @@ use colab_playground_core::{
 };
 use gpui::TestAppContext;
 
-use crate::support::{Options, TestApp};
+use crate::support::{Options, TestApp, click_at};
 
 const STOP_CONFIRM: &str = "stop-confirm";
 
@@ -770,4 +772,118 @@ fn extend_after_setting_an_auto_stop_again_adds_too(cx: &mut TestAppContext) {
     app.click(&extend_selector("a100-7f3a"));
     let after = time_left(&mut app, "a100-7f3a").expect("still an auto-stop");
     assert_close(after, Duration::from_secs(4 * 3600), "2 h left + 2 h");
+}
+
+/// The new-session form's scroll position.
+fn form_scroll(app: &mut TestApp<'_>) -> gpui::ScrollHandle {
+    app.read(|state, _| state.new_session().map(|s| s.scroll.clone()))
+        .expect("the form is open")
+}
+
+fn open_new_session(app: &mut TestApp<'_>) {
+    on_sessions(app);
+    app.click(NEW_SESSION_SELECTOR);
+    assert!(app.shown(NEW_SESSION_FORM), "the form is drawn");
+}
+
+/// One wheel turn of `dy` over the middle of `over`, then settles.
+fn wheel(app: &mut TestApp<'_>, over: gpui::Bounds<gpui::Pixels>, dy: f32) {
+    app.cx.simulate_event(gpui::ScrollEvent {
+        position: over.center(),
+        delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.0), gpui::px(dy))),
+        modifiers: gpui::Modifiers::none(),
+        touch_phase: gpui::TouchPhase::Moved,
+        source: gpui::ScrollSource::Pointer,
+    });
+    app.settle();
+}
+
+#[gpui::test]
+fn the_new_session_form_takes_the_room_the_window_has_and_scrolls_past_it(cx: &mut TestAppContext) {
+    use gpui::px;
+    let mut app = TestApp::with(cx, Options::scenario(MockScenario::single()));
+    open_new_session(&mut app);
+    assert_eq!(
+        form_scroll(&mut app).offset().y,
+        px(0.0),
+        "opens at the top"
+    );
+    for (width, height) in [(880.0, 560.0), (1180.0, 780.0), (1180.0, 1100.0)] {
+        app.resize(width, height);
+        let form = app.bounds(NEW_SESSION_FORM).expect("the form is drawn");
+        let start = app.bounds(NEW_SESSION_START).expect("Start is drawn");
+        let reach = form_scroll(&mut app).max_offset().y;
+        // Only the form scrolls: the dialog's own body would clip it into the gap above
+        // the actions (20 px), and the dialog keeps its 32 px margin to the window.
+        assert!(
+            start.top() - form.bottom() >= px(19.5),
+            "{width}x{height}: the dialog body scrolls too: form ends {:?}, Start at {:?}",
+            form.bottom(),
+            start.top()
+        );
+        assert!(
+            start.bottom() + px(24.0) <= px(height - 32.0) + px(0.5),
+            "{width}x{height}: the dialog overflows the window"
+        );
+        if height < 1000.0 {
+            assert!(reach > px(0.0), "{width}x{height}: the form scrolls");
+        } else {
+            assert_eq!(reach, px(0.0), "{width}x{height}: the whole form fits");
+        }
+    }
+    // The page's own wheel reaches the form, and its scrollbar shows on the form.
+    app.resize(880.0, 560.0);
+    let form = app.bounds(NEW_SESSION_FORM).expect("the form is drawn");
+    wheel(&mut app, form, -120.0);
+    assert!(
+        form_scroll(&mut app).offset().y < px(0.0),
+        "the wheel scrolls it"
+    );
+    let thumb = app.bounds("scrollbar-thumb").expect("a scrollbar shows");
+    assert!(
+        thumb.left() >= form.left()
+            && thumb.right() <= form.right()
+            && thumb.top() >= form.top()
+            && thumb.bottom() <= form.bottom(),
+        "the thumb {thumb:?} is the form's {form:?}"
+    );
+}
+
+#[gpui::test]
+fn turning_on_a_limit_at_the_bottom_of_the_form_scrolls_its_value_into_view(
+    cx: &mut TestAppContext,
+) {
+    use colab_playground::ui::provision_form::field_selector;
+    use gpui::{point, px};
+    let mut app = TestApp::with(cx, Options::scenario(MockScenario::single()));
+    app.resize(880.0, 560.0);
+    open_new_session(&mut app);
+    app.update(|state, cx| state.edit_new_session(|spec| spec.guard.idle_timeout = None, cx));
+    let scroll = form_scroll(&mut app);
+    scroll.set_offset(point(px(0.0), -scroll.max_offset().y));
+    app.settle();
+    let idle = field_selector("idle_timeout");
+    let form = app.bounds(NEW_SESSION_FORM).expect("the form is drawn");
+    let control = app.bounds(&idle).expect("the idle limit is drawn");
+    assert!(control.bottom() <= form.bottom(), "scrolled to the end");
+    let before = scroll.offset().y;
+    // The switch leads its control.
+    click_at(app.cx, point(control.left() + px(10.0), control.center().y));
+    assert!(
+        app.read(|state, _| state
+            .new_session()
+            .map(|s| s.spec.guard.idle_timeout.is_some()))
+            == Some(true),
+        "the click turned the limit on"
+    );
+    let control = app.bounds(&idle).expect("the idle limit is drawn");
+    assert!(
+        scroll.offset().y < before,
+        "the form scrolled on: {before:?} -> {:?}",
+        scroll.offset().y
+    );
+    assert!(
+        control.bottom() <= form.bottom() + px(0.5),
+        "the value {control:?} is inside the form {form:?}"
+    );
 }
