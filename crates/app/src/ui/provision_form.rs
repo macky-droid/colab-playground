@@ -11,10 +11,14 @@ use colab_playground_core::{
 };
 use ely_gpui_component::{
     forms::{Choice, NumberInput, Select, Switch},
+    layout::bring_into_view,
     theme::{ActiveTheme, TextSize},
     typography::Caption,
 };
-use gpui::{AnyElement, App, FontWeight, IntoElement, ParentElement, SharedString, Styled, div};
+use gpui::{
+    AnyElement, App, Axis, FontWeight, IntoElement, ParentElement, RenderOnce, ScrollHandle,
+    SharedString, Styled, Window, canvas, div, prelude::FluentBuilder,
+};
 
 use crate::{
     format,
@@ -76,6 +80,46 @@ fn row(
         .into_any_element()
 }
 
+/// Turning a limit on can wrap its value onto a new line below the visible part. The row is
+/// brought into view after layout: bounds read at the click predate the new line.
+#[derive(IntoElement)]
+struct Reveal {
+    id: SharedString,
+    on: bool,
+    scroll: ScrollHandle,
+    row: AnyElement,
+}
+
+impl RenderOnce for Reveal {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // What the switch showed last frame; it starts as now, so opening the form moves
+        // nothing.
+        let on = self.on;
+        let was = window.use_keyed_state(self.id, cx, |_, _| on);
+        let turned_on = on && !*was.read(cx);
+        if *was.read(cx) != on {
+            was.update(cx, |was, _| *was = on);
+        }
+        let scroll = self.scroll;
+        div().relative().child(self.row).when(turned_on, |row| {
+            row.child(
+                canvas(
+                    move |bounds, window, _| {
+                        if bring_into_view(&scroll, bounds, Axis::Vertical) {
+                            window.request_animation_frame();
+                        }
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full(),
+            )
+        })
+    }
+}
+
 /// A switch, and the value's control while it is on.
 fn optional(
     field: &'static str,
@@ -134,8 +178,15 @@ fn duration_field(
     DurationField::new(id, value, move |v, _, cx| edit(cx, &|spec| set(spec, v))).into_any_element()
 }
 
-/// The options for `spec`; `prefix` keeps element ids apart when two forms exist.
-pub fn render(prefix: &'static str, spec: &ProvisionSpec, edit: SpecEdit, cx: &App) -> AnyElement {
+/// The options for `spec`; `prefix` keeps element ids apart when two forms exist. With
+/// `scroll` (the area the form scrolls in), a limit switched on brings its row into view.
+pub fn render(
+    prefix: &'static str,
+    spec: &ProvisionSpec,
+    edit: SpecEdit,
+    scroll: Option<&ScrollHandle>,
+    cx: &App,
+) -> AnyElement {
     let theme = cx.theme();
     let id = |name: &str| SharedString::from(format!("{prefix}-{name}"));
     let accelerator = {
@@ -285,6 +336,23 @@ pub fn render(prefix: &'static str, spec: &ProvisionSpec, edit: SpecEdit, cx: &A
         ),
         cx,
     );
+    let limit_row = |field: &'static str,
+                     on: bool,
+                     label: SharedString,
+                     hint: Option<SharedString>,
+                     control: AnyElement| {
+        let row = row(field, label, hint, control, cx);
+        match scroll {
+            Some(scroll) => Reveal {
+                id: id(&format!("reveal-{field}")),
+                on,
+                scroll: scroll.clone(),
+                row,
+            }
+            .into_any_element(),
+            None => row,
+        }
+    };
     let mut rows = vec![
         row(
             "accelerator",
@@ -296,12 +364,12 @@ pub fn render(prefix: &'static str, spec: &ProvisionSpec, edit: SpecEdit, cx: &A
         row("high_mem", tr(cx, keys::DEF_HIGH_MEM), None, high_mem, cx),
     ];
     if gpu {
-        rows.push(row(
+        rows.push(limit_row(
             "min_vram",
+            spec.min_vram_mib.is_some(),
             tr(cx, keys::DEF_MIN_VRAM),
             Some(tr(cx, keys::PROV_VRAM_LOTTERY)),
             min_vram,
-            cx,
         ));
     }
     rows.extend([
@@ -319,28 +387,34 @@ pub fn render(prefix: &'static str, spec: &ProvisionSpec, edit: SpecEdit, cx: &A
             exhausted,
             cx,
         ),
-        row(
+        limit_row(
             "max_runtime",
+            guard.max_runtime.is_some(),
             tr(cx, keys::DEF_MAX_RUNTIME),
             Some(tr(cx, keys::DEF_MAX_RUNTIME_HINT)),
             max_runtime,
-            cx,
         ),
-        row(
+        limit_row(
             "max_spend",
+            guard.max_spend_cu.is_some(),
             tr(cx, keys::DEF_MAX_SPEND),
             None,
             max_spend,
-            cx,
         ),
-        row(
+        limit_row(
             "min_balance",
+            guard.min_balance_cu.is_some(),
             tr(cx, keys::DEF_MIN_BALANCE),
             None,
             min_balance,
-            cx,
         ),
-        row("idle_timeout", tr(cx, keys::DEF_IDLE), None, idle, cx),
+        limit_row(
+            "idle_timeout",
+            guard.idle_timeout.is_some(),
+            tr(cx, keys::DEF_IDLE),
+            None,
+            idle,
+        ),
     ]);
     div()
         .flex()

@@ -24,6 +24,7 @@ use crate::{
 };
 
 pub const NEW_SESSION_START: &str = "new-session-start";
+pub const NEW_SESSION_FORM: &str = "new-session-form";
 /// Selector of Cancel while provisioning.
 pub const NEW_SESSION_CANCEL_RUN: &str = "new-session-cancel-run";
 
@@ -65,12 +66,25 @@ pub(super) fn render(
                         )
                         .child(tagged("new-session-name", Input::new(&inputs.session_name))),
                 )
-                .child(provision_form::render("new", &session.spec, edit, cx));
+                .child(provision_form::render(
+                    "new",
+                    &session.spec,
+                    edit,
+                    Some(&session.scroll),
+                    cx,
+                ));
             let (cancel, start) = (tr(cx, keys::ACTION_CANCEL), tr(cx, keys::NEW_START));
             let (go, name) = (handle.clone(), inputs.session_name.clone());
-            dialog
+            // The intro scrolls with the form, so what stays around them has one height in
+            // every language (the gap is the dialog's own).
+            let body = div()
+                .flex()
+                .flex_col()
+                .gap_5()
                 .child(Paragraph::new(tr(cx, keys::NEW_INTRO)))
-                .child(scrolled("new-session-form", form))
+                .child(form);
+            dialog
+                .child(scrolled(NEW_SESSION_FORM, Some(&session.scroll), body))
                 .action({
                     let handle = handle.clone();
                     move |_| cancel_button(cancel, handle)
