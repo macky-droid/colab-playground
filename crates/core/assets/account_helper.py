@@ -25,11 +25,14 @@ to ``colab exec --env``; it is never logged or written to disk.
 Mechanism adapted from github.com/mizorewww/colab-account-changer (MIT).
 """
 
+import contextlib
 import json
+import math
 import os
 import re
 import sys
 import threading
+import time
 
 COLAB_SERVICE = "google-colab-cli"
 COLAB_USER = "oauth_token"
@@ -41,6 +44,7 @@ CCU_INFO_URL = "https://colab.research.google.com/tun/m/ccu-info"
 XSSI_PREFIX = ")]}'\n"
 LEGACY_TOKEN_PATH = os.path.expanduser("~/.config/colab-cli/token.json")
 READ_TIMEOUT_S = 30.0
+SLOT_LOCK_TIMEOUT_S = 10.0
 MARKER = "__CPG_RESULT__ "
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 ENDPOINT_RE = re.compile(r"^[A-Za-z0-9._:-]{1,256}$")
@@ -51,6 +55,95 @@ MAX_SECRET_BYTES = 16384
 CLI_HISTORY_DIR = "~/.config/colab-cli/history"
 SESSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
 MIN_REDACT_LEN = 4
+CCU_KNOWN_KEYS = (
+    "currentBalance",
+    "paidComputeUnitsBalance",
+    "subscriptionComputeUnitsBalance",
+    "freeTokensBalance",
+    "paid_balance",
+    "free_tokens_balance",
+    "computeUnitsBalance",
+    "consumptionRateHourly",
+    "assignmentsCount",
+    "assignments",
+    "freeCcuQuotaInfo",
+    "eligibleGpus",
+    "eligibleAccelerators",
+)
+
+
+def _slot_lock_path():
+    fake = os.environ.get("CPG_FAKE_STATE")
+    if fake:
+        return os.path.join(fake, "slot.lock")
+    base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    return os.path.join(base, "colab-playground", "slot.lock")
+
+
+# Background usage/assignment polls run outside the app's in-process slot lock.
+@contextlib.contextmanager
+def slot_file_lock(blocking=True):
+    path = _slot_lock_path()
+    try:
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    except OSError:
+        yield True
+        return
+    fh = os.fdopen(fd, "r+")
+    acquired = False
+    try:
+        try:
+            import fcntl  # noqa: PLC0415
+
+            deadline = time.monotonic() + SLOT_LOCK_TIMEOUT_S
+            while True:
+                try:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired = True
+                    break
+                except BlockingIOError:
+                    if not blocking:
+                        break
+                    if time.monotonic() >= deadline:
+                        raise Fail("busy", "another process holds the Colab credential slot")
+                    time.sleep(0.05)
+            yield acquired
+        except ImportError:
+            try:
+                import msvcrt  # noqa: PLC0415
+
+                deadline = time.monotonic() + SLOT_LOCK_TIMEOUT_S
+                while True:
+                    try:
+                        fh.seek(0)
+                        msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                        acquired = True
+                        break
+                    except OSError:
+                        if not blocking:
+                            break
+                        if time.monotonic() >= deadline:
+                            raise Fail("busy", "another process holds the Colab credential slot")
+                        time.sleep(0.05)
+                yield acquired
+            except ImportError:
+                yield True
+    finally:
+        if acquired:
+            try:
+                import fcntl  # noqa: PLC0415
+
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            except Exception:  # noqa: BLE001
+                try:
+                    import msvcrt  # noqa: PLC0415
+
+                    fh.seek(0)
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                except Exception:  # noqa: BLE001
+                    pass
+        fh.close()
 
 
 class Fail(Exception):
@@ -71,6 +164,19 @@ def emit(obj):
 # ---------------------------------------------------------------- keyring
 
 
+def _is_plaintext_backend(backend):
+    name = type(backend).__name__
+    module = (type(backend).__module__ or "").lower()
+    if name in ("PlaintextKeyring", "UncryptedFileKeyring") or module.endswith(".plaintext"):
+        return True
+    if "keyrings.alt.file" in module and "crypt" not in name.lower():
+        return True
+    if name == "ChainerBackend":
+        backends = getattr(backend, "backends", None) or []
+        return bool(backends) and _is_plaintext_backend(backends[0])
+    return False
+
+
 def _keyring():
     try:
         import keyring  # noqa: PLC0415
@@ -81,8 +187,16 @@ def _keyring():
     except Exception as exc:  # noqa: BLE001
         raise Fail("keyring_unavailable", "no keyring backend (%s)" % type(exc).__name__)
     module = type(backend).__module__ or ""
-    if module.endswith(".fail") or type(backend).__name__ == "FailKeyring":
+    name = type(backend).__name__
+    if (
+        module.endswith(".fail")
+        or module.endswith(".null")
+        or name in ("FailKeyring", "NullKeyring")
+        or (name == "ChainerBackend" and not (getattr(backend, "backends", None) or []))
+    ):
         raise Fail("keyring_unavailable", "no usable keyring backend")
+    if _is_plaintext_backend(backend) and os.environ.get("COLAB_PLAYGROUND_ALLOW_PLAINTEXT_KEYRING") != "1":
+        raise Fail("keyring_unavailable", "refusing unencrypted PlaintextKeyring backend")
     return keyring
 
 
@@ -273,14 +387,15 @@ def op_adopt(args):
     if len(args) != 1:
         raise Fail("invalid_input", "adopt <id>", field="account")
     user = account_user(args[0])
-    raw = read_slot()
-    if not raw:
-        raise Fail("auth_required", "the CLI has no credential")
-    token_json, email = inspect(raw)
-    kr_set_verified(VAULT_SERVICE, user, token_json)
-    if token_json != raw:
-        kr_set_verified(COLAB_SERVICE, COLAB_USER, token_json)
-    return {"email": email}
+    with slot_file_lock(blocking=True):
+        raw = read_slot()
+        if not raw:
+            raise Fail("auth_required", "the CLI has no credential")
+        token_json, email = inspect(raw)
+        kr_set_verified(VAULT_SERVICE, user, token_json)
+        if token_json != raw:
+            kr_set_verified(COLAB_SERVICE, COLAB_USER, token_json)
+        return {"email": email}
 
 
 def op_use(args):
@@ -288,47 +403,131 @@ def op_use(args):
         raise Fail("invalid_input", "use <id> [known...]", field="account")
     target_id, known = args[0], args[1:]
     target_user = account_user(target_id)
-    if pending_backup() is not None:
-        raise Fail("add_in_progress", "an add-account flow is pending")
-    target_raw = read_account(target_id)
-    if not target_raw:
-        raise Fail("account_not_found", "no saved credential", field="account")
-    original = read_slot()
-    current_id = match_known(original, known) if original else None
-    if original and current_id is None:
-        raise Fail("active_account_not_adopted", "save the current credential first")
-    if current_id == target_id:
-        token_json, email = inspect(original)
-        kr_set_verified(VAULT_SERVICE, target_user, token_json)
+    with slot_file_lock(blocking=True):
+        if pending_backup() is not None:
+            raise Fail("add_in_progress", "an add-account flow is pending")
+        target_raw = read_account(target_id)
+        if not target_raw:
+            raise Fail("account_not_found", "no saved credential", field="account")
+        original = read_slot()
+        current_id = match_known(original, known) if original else None
+        if original and current_id is None:
+            raise Fail("active_account_not_adopted", "save the current credential first")
+        if current_id == target_id:
+            token_json, email = inspect(original)
+            kr_set_verified(VAULT_SERVICE, target_user, token_json)
+            return {"email": email}
+        token_json, email = inspect(target_raw)
+        if token_json != target_raw:
+            kr_set_verified(VAULT_SERVICE, target_user, token_json)
+        if original and current_id:
+            # Keep the outgoing account's (possibly refreshed) credential.
+            kr_set_verified(VAULT_SERVICE, account_user(current_id), original)
+        try:
+            kr_set_verified(COLAB_SERVICE, COLAB_USER, token_json)
+        except BaseException:
+            if original:
+                kr_set(COLAB_SERVICE, COLAB_USER, original)
+            raise
         return {"email": email}
-    token_json, email = inspect(target_raw)
-    if token_json != target_raw:
-        kr_set_verified(VAULT_SERVICE, target_user, token_json)
-    if original and current_id:
-        # Keep the outgoing account's (possibly refreshed) credential.
-        kr_set_verified(VAULT_SERVICE, account_user(current_id), original)
-    try:
-        kr_set_verified(COLAB_SERVICE, COLAB_USER, token_json)
-    except BaseException:
-        if original:
-            kr_set(COLAB_SERVICE, COLAB_USER, original)
-        raise
-    return {"email": email}
 
 
 def op_remove(args):
     if not args:
         raise Fail("invalid_input", "remove <id> [known...]", field="account")
     user = account_user(args[0])
-    raw = read_slot()
-    saved = read_account(args[0])
-    if raw and saved and (raw == saved or same_identity(raw, saved)):
-        # Removing a duplicate of the active credential is fine as long as
-        # another saved account still holds it.
-        if match_known(raw, [k for k in args[1:] if k != args[0]]) is None:
-            raise Fail("invalid_input", "cannot remove the active account", field="account")
-    kr_delete(VAULT_SERVICE, user)
-    return {}
+    with slot_file_lock(blocking=True):
+        raw = read_slot()
+        saved = read_account(args[0])
+        if raw and saved and (raw == saved or same_identity(raw, saved)):
+            # Removing a duplicate of the active credential is fine as long as
+            # another saved account still holds it.
+            if match_known(raw, [k for k in args[1:] if k != args[0]]) is None:
+                raise Fail("invalid_input", "cannot remove the active account", field="account")
+        kr_delete(VAULT_SERVICE, user)
+        return {}
+
+
+def _finite_number(value):
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        f = float(value)
+        return f if math.isfinite(f) else None
+    if isinstance(value, str) and value.strip():
+        try:
+            f = float(value.strip())
+            return f if math.isfinite(f) else None
+        except ValueError:
+            return None
+    return None
+
+
+def _optional_finite(value, key):
+    raw = value.get(key)
+    if raw is None:
+        return None
+    parsed = _finite_number(raw)
+    if parsed is None:
+        raise Fail("parse", "unexpected usage response")
+    return parsed
+
+
+def _first_optional_finite(value, *keys):
+    for key in keys:
+        parsed = _optional_finite(value, key)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def parse_ccu_info(value):
+    if not isinstance(value, dict) or not any(k in value for k in CCU_KNOWN_KEYS):
+        raise Fail("parse", "unexpected usage response")
+
+    # Free-tier responses carry explicit JSON nulls; dict.get(k, fallback)
+    # returns None instead of fallback when k is present with value null.
+    cur = _optional_finite(value, "currentBalance")
+    if cur is not None:
+        balance = cur
+    else:
+        paid = _first_optional_finite(value, "paidComputeUnitsBalance", "paid_balance")
+        extra = _first_optional_finite(
+            value,
+            "subscriptionComputeUnitsBalance",
+            "freeTokensBalance",
+            "free_tokens_balance",
+        )
+        alt = _optional_finite(value, "computeUnitsBalance")
+        if paid is not None or extra is not None:
+            balance = (paid or 0.0) + (extra or 0.0)
+        elif alt is not None:
+            balance = alt
+        elif any(
+            k in value
+            for k in (
+                "freeCcuQuotaInfo",
+                "eligibleGpus",
+                "eligibleAccelerators",
+                "consumptionRateHourly",
+            )
+        ):
+            balance = 0.0
+        else:
+            raise Fail("parse", "unexpected usage response")
+
+    rate = max(0.0, _optional_finite(value, "consumptionRateHourly") or 0.0)
+
+    raw_assignments = _optional_finite(value, "assignmentsCount")
+    if raw_assignments is None:
+        raw_list = value.get("assignments")
+        if raw_list is not None and not isinstance(raw_list, list):
+            raise Fail("parse", "unexpected usage response")
+        assignments = len(raw_list) if isinstance(raw_list, list) else 0
+    else:
+        assignments = max(0, int(raw_assignments))
+
+    return {"balance": balance, "rate": rate, "assignments": assignments}
 
 
 def usage_of(account_id, slot_raw):
@@ -351,12 +550,9 @@ def usage_of(account_id, slot_raw):
         text = text[len(XSSI_PREFIX):]
     try:
         value = json.loads(text)
-        balance = float(value.get("currentBalance", value.get("paidComputeUnitsBalance")))
-        rate = float(value["consumptionRateHourly"])
-        assignments = int(value["assignmentsCount"])
     except Exception:  # noqa: BLE001
         raise Fail("parse", "unexpected usage response")
-    return {"balance": balance, "rate": rate, "assignments": assignments}
+    return parse_ccu_info(value)
 
 
 def op_usage(args):
@@ -387,9 +583,18 @@ def credential_for(account_id, slot_raw):
         raise Fail("account_not_found", "no saved credential", field="account")
     creds, token_json = refreshed(source)
     if token_json != source:
-        if use_slot:
-            kr_set_verified(COLAB_SERVICE, COLAB_USER, token_json)
-        kr_set_verified(VAULT_SERVICE, user, token_json)
+        # Token refresh runs over HTTP without holding the lock: skip caching
+        # if a switch, login or removal ran concurrently.
+        with slot_file_lock(blocking=False) as acquired:
+            if acquired:
+                if read_account(account_id) is not None:
+                    kr_set_verified(VAULT_SERVICE, user, token_json)
+                if use_slot and pending_backup() is None:
+                    current_slot = read_slot()
+                    if current_slot is not None and (
+                        current_slot == slot_raw or same_identity(current_slot, slot_raw)
+                    ):
+                        kr_set_verified(COLAB_SERVICE, COLAB_USER, token_json)
     return creds
 
 
@@ -612,57 +817,60 @@ def op_history_redact(args):
 
 
 def op_begin_add(args):
-    if pending_backup() is not None:
-        raise Fail("add_in_progress", "an add-account flow is already pending")
-    if os.path.exists(LEGACY_TOKEN_PATH):
-        raise Fail("legacy_token_present", "~/.config/colab-cli/token.json exists")
-    original = read_slot()
-    if original:
-        current_id = match_known(original, args)
-        if current_id is None:
-            raise Fail("active_account_not_adopted", "save the current credential first")
-        kr_set_verified(VAULT_SERVICE, account_user(current_id), original)
-        kr_set_verified(VAULT_SERVICE, PENDING_USER, original)
-    else:
-        kr_set_verified(VAULT_SERVICE, PENDING_USER, NO_TOKEN_SENTINEL)
-    kr_delete(COLAB_SERVICE, COLAB_USER)
-    if read_slot() is not None:
-        # Could not clear the slot: undo the backup so nothing is pending.
-        kr_delete(VAULT_SERVICE, PENDING_USER)
-        raise Fail("keyring_unavailable", "could not clear the CLI credential")
-    return {"had_token": bool(original)}
+    with slot_file_lock(blocking=True):
+        if pending_backup() is not None:
+            raise Fail("add_in_progress", "an add-account flow is already pending")
+        if os.path.exists(LEGACY_TOKEN_PATH):
+            raise Fail("legacy_token_present", "~/.config/colab-cli/token.json exists")
+        original = read_slot()
+        if original:
+            current_id = match_known(original, args)
+            if current_id is None:
+                raise Fail("active_account_not_adopted", "save the current credential first")
+            kr_set_verified(VAULT_SERVICE, account_user(current_id), original)
+            kr_set_verified(VAULT_SERVICE, PENDING_USER, original)
+        else:
+            kr_set_verified(VAULT_SERVICE, PENDING_USER, NO_TOKEN_SENTINEL)
+        kr_delete(COLAB_SERVICE, COLAB_USER)
+        if read_slot() is not None:
+            # Could not clear the slot: undo the backup so nothing is pending.
+            kr_delete(VAULT_SERVICE, PENDING_USER)
+            raise Fail("keyring_unavailable", "could not clear the CLI credential")
+        return {"had_token": bool(original)}
 
 
 def op_finish_add(args):
     if len(args) != 1:
         raise Fail("invalid_input", "finish-add <id>", field="account")
     user = account_user(args[0])
-    if pending_backup() is None:
-        raise Fail("invalid_input", "no add-account flow is pending", field="state")
-    raw = read_slot()
-    if not raw:
-        raise Fail("login_cancelled", "login did not create a credential")
-    token_json, email = inspect(raw)
-    kr_set_verified(VAULT_SERVICE, user, token_json)
-    if token_json != raw:
-        kr_set_verified(COLAB_SERVICE, COLAB_USER, token_json)
-    kr_delete(VAULT_SERVICE, PENDING_USER)
-    return {"email": email}
+    with slot_file_lock(blocking=True):
+        if pending_backup() is None:
+            raise Fail("invalid_input", "no add-account flow is pending", field="state")
+        raw = read_slot()
+        if not raw:
+            raise Fail("login_cancelled", "login did not create a credential")
+        token_json, email = inspect(raw)
+        kr_set_verified(VAULT_SERVICE, user, token_json)
+        if token_json != raw:
+            kr_set_verified(COLAB_SERVICE, COLAB_USER, token_json)
+        kr_delete(VAULT_SERVICE, PENDING_USER)
+        return {"email": email}
 
 
 def op_rollback_add(args):
     del args
-    backup = pending_backup()
-    if backup is None:
-        return {"restored": False}
-    if backup == NO_TOKEN_SENTINEL:
-        kr_delete(COLAB_SERVICE, COLAB_USER)
-        if read_slot() is not None:
-            raise Fail("keyring_unavailable", "could not clear the CLI credential")
-    else:
-        kr_set_verified(COLAB_SERVICE, COLAB_USER, backup)
-    kr_delete(VAULT_SERVICE, PENDING_USER)
-    return {"restored": True}
+    with slot_file_lock(blocking=True):
+        backup = pending_backup()
+        if backup is None:
+            return {"restored": False}
+        if backup == NO_TOKEN_SENTINEL:
+            kr_delete(COLAB_SERVICE, COLAB_USER)
+            if read_slot() is not None:
+                raise Fail("keyring_unavailable", "could not clear the CLI credential")
+        else:
+            kr_set_verified(COLAB_SERVICE, COLAB_USER, backup)
+        kr_delete(VAULT_SERVICE, PENDING_USER)
+        return {"restored": True}
 
 
 OPS = {

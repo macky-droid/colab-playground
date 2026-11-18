@@ -174,9 +174,9 @@ impl RateAttribution {
     /// `live` are the app-managed sessions running now. Sessions that appeared
     /// since the previous reading share the rate increase (plus whatever the
     /// sessions that disappeared were estimated at) evenly. Sessions without
-    /// an estimate (first reading, no positive increase) share whatever rate
-    /// is not yet explained, evenly with the unmanaged runtimes
-    /// (`assignments` beyond `live`).
+    /// an estimate share any positive unexplained rate when no unmanaged
+    /// runtime could account for a lagged poll, and stay unestimated (`None`)
+    /// while `ccu-info` still lags behind assignment creation.
     pub fn observe(&mut self, account_rate: f64, assignments: u32, live: &BTreeSet<String>) {
         let rate = account_rate.max(0.0);
         let mut freed = 0.0;
@@ -188,33 +188,55 @@ impl RateAttribution {
                 false
             }
         });
-        let started: Vec<String> = live
-            .iter()
-            .filter(|n| !self.rates.contains_key(*n))
-            .cloned()
-            .collect();
-        let delta_share = match self.last_rate {
-            Some(prev) if !started.is_empty() => {
-                let delta = rate - prev + freed;
-                (delta > 1e-9).then(|| delta / started.len() as f64)
-            }
-            _ => None,
-        };
-        for name in started {
-            self.rates.insert(name, delta_share);
+        for name in live {
+            self.rates.entry(name.clone()).or_insert(None);
         }
-        let unknown: Vec<String> = self
+        let pending: Vec<String> = self
             .rates
             .iter()
             .filter(|(_, r)| r.is_none())
             .map(|(n, _)| n.clone())
             .collect();
-        if !unknown.is_empty() {
+        let unmanaged = (assignments as usize).saturating_sub(live.len());
+        if !pending.is_empty() {
+            let delta_share = match self.last_rate {
+                Some(prev) => {
+                    let delta = rate - prev + freed;
+                    (delta > 1e-9).then(|| delta / pending.len() as f64)
+                }
+                None => None,
+            };
+            if let Some(share) = delta_share {
+                for name in &pending {
+                    self.rates.insert(name.clone(), Some(share));
+                }
+            } else {
+                let known: f64 = self.rates.values().flatten().sum();
+                let unexplained = rate - known;
+                // Colab's ccu-info lags behind assignment creation: keep pending
+                // sessions at None until unexplained burn appears, without claiming
+                // an existing unmanaged runtime's rate on a lagged poll.
+                if unexplained > 1e-9 && (self.last_rate.is_none() || unmanaged == 0) {
+                    let share = unexplained / (pending.len() + unmanaged) as f64;
+                    for name in &pending {
+                        self.rates.insert(name.clone(), Some(share));
+                    }
+                }
+            }
+        } else if !live.is_empty() && rate > 1e-9 {
             let known: f64 = self.rates.values().flatten().sum();
-            let unmanaged = (assignments as usize).saturating_sub(live.len());
-            let share = (rate - known).max(0.0) / (unknown.len() + unmanaged) as f64;
-            for name in unknown {
-                self.rates.insert(name, Some(share));
+            if (unmanaged == 0 && (rate - known).abs() > 1e-6) || known > rate + 1e-6 {
+                if known > 1e-9 {
+                    let scale = rate / known;
+                    for r in self.rates.values_mut().flatten() {
+                        *r *= scale;
+                    }
+                } else {
+                    let share = rate / live.len() as f64;
+                    for r in self.rates.values_mut() {
+                        *r = Some(share);
+                    }
+                }
             }
         }
         self.last_rate = Some(rate);
@@ -423,6 +445,54 @@ mod tests {
         b.observe(5.0, 1, &set(&[]));
         b.observe(5.0, 1, &set(&["late"]));
         assert_eq!(b.rate_of("late"), Some(5.0));
+    }
+
+    #[test]
+    fn lagged_ccu_info_keeps_rate_unknown_then_triggers_max_spend_cu() {
+        use crate::guard::{Concern, Decision, GuardPolicy, Limit, SpendMeter, evaluate};
+
+        let mut attr = RateAttribution::default();
+        let mut meter = SpendMeter::new(t(0));
+        let policy = GuardPolicy {
+            max_spend_cu: Some(9.0),
+            ..GuardPolicy::unlimited()
+        };
+
+        attr.observe(0.0, 0, &set(&[]));
+
+        // Immediate post-provision poll before ccu-info reflects the new runtime.
+        attr.observe(0.0, 1, &set(&["h100-1"]));
+        assert_eq!(attr.rate_of("h100-1"), None);
+        meter.record(t(30), attr.rate_of("h100-1"));
+        assert_eq!(meter.spend(), None);
+        assert_eq!(
+            evaluate(&policy, t(30), None, &meter),
+            Decision::Warn(vec![Concern::UsageUnknown {
+                limit: Limit::Spend
+            }])
+        );
+
+        attr.observe(18.3, 1, &set(&["h100-1"]));
+        assert_eq!(attr.rate_of("h100-1"), Some(18.3));
+        meter.record(t(1800), attr.rate_of("h100-1"));
+        assert!((meter.spend().unwrap() - 9.15).abs() < 1e-6);
+        assert!(evaluate(&policy, t(1800), None, &meter).is_stop());
+
+        attr.observe(18.3, 2, &set(&["h100-1", "a100-2"]));
+        assert_eq!(attr.rate_of("a100-2"), None);
+        attr.observe(30.07, 2, &set(&["h100-1", "a100-2"]));
+        assert!((attr.rate_of("a100-2").unwrap() - 11.77).abs() < 1e-6);
+        assert!((attr.rate_of("h100-1").unwrap() - 18.3).abs() < 1e-6);
+
+        // Existing unmanaged runtime burning 5.0 CU/h: a lagged poll after a
+        // managed session starts (assignments = 2, rate still 5.0) must not
+        // claim the unmanaged runtime's rate.
+        let mut with_unmanaged = RateAttribution::default();
+        with_unmanaged.observe(5.0, 1, &set(&[]));
+        with_unmanaged.observe(5.0, 2, &set(&["m1"]));
+        assert_eq!(with_unmanaged.rate_of("m1"), None);
+        with_unmanaged.observe(16.8, 2, &set(&["m1"]));
+        assert!((with_unmanaged.rate_of("m1").unwrap() - 11.8).abs() < 1e-6);
     }
 
     #[test]

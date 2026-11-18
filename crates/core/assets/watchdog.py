@@ -30,8 +30,8 @@ the deadline before it passes resets the wind-down; cancelling removes it.
 
 Idle means: the heartbeat file (touched by plugins) has not changed for
 ``idle_timeout_s`` *and* no ``nvidia-smi`` sample in that window showed GPU
-utilisation of 5 % or more. On machines without ``nvidia-smi`` only the
-heartbeat counts.
+utilisation of 5 % or more (or 1-minute ``/proc/loadavg`` of 0.25 or more on
+CPU/TPU machines without ``nvidia-smi``).
 """
 
 import argparse
@@ -44,13 +44,15 @@ import time
 import urllib.request
 
 GPU_BUSY_PERCENT = 5
+CPU_BUSY_LOAD = 0.25
 RELEASE_ATTEMPTS = 3
 
 
 class Watchdog:
-    def __init__(self, config_path, hooks=None):
+    def __init__(self, config_path, hooks=None, loadavg_path="/proc/loadavg"):
         self.config_path = config_path
         self.hooks = hooks or []
+        self.loadavg_path = loadavg_path
         self.winddown_for = None
         self.marker = os.path.join(os.path.dirname(os.path.abspath(config_path)), "winddown")
         self.config = {}
@@ -131,6 +133,14 @@ class Watchdog:
             time.sleep(10)
         return False
 
+    def host_load_busy(self):
+        try:
+            with open(self.loadavg_path) as fh:
+                load_1m = float(fh.read().split()[0])
+            return load_1m >= CPU_BUSY_LOAD
+        except (OSError, ValueError, IndexError):
+            return False
+
     def idle_for(self, now):
         heartbeat = self.config.get("heartbeat")
         last = self.started
@@ -140,7 +150,10 @@ class Watchdog:
             except OSError:
                 pass
         util = self.gpu_utilisation()
-        if util is not None and util >= GPU_BUSY_PERCENT:
+        if util is not None:
+            if util >= GPU_BUSY_PERCENT:
+                self.last_gpu_busy = now
+        elif self.host_load_busy():
             self.last_gpu_busy = now
         return now - max(last, self.last_gpu_busy)
 
