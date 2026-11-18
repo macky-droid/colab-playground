@@ -24,8 +24,8 @@ How a change gets from a branch onto `main`. Elsewhere:
 
 ## Automated review comments
 
-Review bots (CodeRabbit, Devin Review) comment on pull requests. Their comments are written by AI
-and can be wrong: a confident claim about GitHub's or a tool's behaviour, or a suggestion that
+Review bots (CodeRabbit, Devin Review, Codex) comment on pull requests. Their comments are written
+by AI and can be wrong: a confident claim about GitHub's or a tool's behaviour, or a suggestion that
 contradicts [DESIGN.md](DESIGN.md). Treat each one as a lead, not a verdict:
 
 - Check it against the code, the docs, or a primary source before acting on it.
