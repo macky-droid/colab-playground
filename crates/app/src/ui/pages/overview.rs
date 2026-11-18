@@ -743,7 +743,7 @@ pub fn unmanaged_warning(
     if unmanaged.is_empty() {
         return None;
     }
-    let title = if unmanaged.iter().any(|(_, _, stale)| *stale) {
+    let title = if unmanaged.iter().all(|(_, _, stale)| *stale) {
         keys::UNMANAGED_LAST_TITLE
     } else {
         keys::UNMANAGED_TITLE
