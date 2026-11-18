@@ -437,6 +437,34 @@ impl Host {
         collect(&mut child, timeout, cancel, &mut |_| LineAction::Continue)
     }
 
+    /// Starts `program` on the local machine and leaves it running on its own: nothing is
+    /// piped, nothing waits for it and nothing kills it, so it outlives this process. Only
+    /// valid for [`Host::Local`]; used to start the app again after an update.
+    pub fn launch_detached(&self, program: &std::path::Path, args: &[String]) -> Result<()> {
+        if *self != Host::Local {
+            return Err(Error::new(ErrorKind::Unsupported)
+                .detail("launch_detached runs on the local machine only"));
+        }
+        let mut cmd = Command::new(program);
+        cmd.args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt as _;
+            // Its own process group and no console: closing a terminal this process was
+            // started from must not take the new one with it.
+            const DETACHED_PROCESS: u32 = 0x0000_0008;
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+            cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+        }
+        // Dropping a `Child` neither waits for nor kills the process.
+        cmd.spawn()
+            .map(drop)
+            .map_err(|e| Error::from(e).with("program", program.display()))
+    }
+
     /// Reports what is available on this host. Spawns real processes; never
     /// call it from tests.
     pub fn probe(&self) -> ProbeReport {

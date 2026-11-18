@@ -4,3 +4,6 @@
 # 部署脚本在 WSL 中直接运行，必须保持 LF
 *.sh text eol=lf
 *.py text eol=lf
+
+# A signature covers these bytes exactly: no line-ending conversion
+crates/core/tests/data/update-openssl/** -text

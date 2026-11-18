@@ -131,6 +131,14 @@ pub struct Settings {
         skip_serializing_if = "Option::is_none"
     )]
     pub update_dismissed: Option<String>,
+    /// A release whose download failed its signature or checksum check. The app never points
+    /// at its files again (a download by hand would skip the check), across restarts too.
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub update_unverified: Option<String>,
 }
 
 /// A switch that is on unless the user turned it off.

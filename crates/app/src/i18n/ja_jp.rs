@@ -1167,7 +1167,7 @@ pub(super) const MESSAGES: Messages = &[
     ),
     (
         UPDATE_NOTICE_BODY,
-        "リリース ページからダウンロードしてください。このアプリがアップデートを自動でダウンロードしたりインストールしたりすることはありません。",
+        "アプリがダウンロードし、プロジェクトが公開したバージョンであることを確認してから、新しいバージョンで再起動できます。",
     ),
     (UPDATE_DISMISS, "今後表示しない"),
     (UPDATE_BADGE, "新バージョン"),
@@ -1211,5 +1211,146 @@ pub(super) const MESSAGES: Messages = &[
     (
         PROV_NO_ANSWER,
         "{time}の間、Colab から応答がありません。さらに時間がかかる要求もあります。今すぐキャンセルすることもできます。",
+    ),
+    (UPDATE_INSTALL, "ダウンロードして再起動"),
+    (UPDATE_WHATS_NEW, "更新内容"),
+    (
+        UPDATE_NOTICE_BODY_MANUAL,
+        "{why}代わりにリリース ページからダウンロードしてください。",
+    ),
+    (
+        UPDATE_AVAILABLE_MANUAL,
+        "バージョン {version} を利用できます。{why}",
+    ),
+    (
+        UPDATE_UNVERIFIED_STATUS,
+        "バージョン {version} を検証できなかったため、インストールしませんでした。このバージョンはそのままです。",
+    ),
+    (
+        UPDATE_WHY_DEVELOPMENT,
+        "このコピーはリリースのダウンロードからインストールされたものではないため、自分では更新しません。",
+    ),
+    (
+        UPDATE_WHY_NO_DOWNLOAD,
+        "このコンピューター向けのリリース ダウンロードがないため、アプリは自分で更新できません。",
+    ),
+    (
+        UPDATE_WHY_NOT_WRITABLE,
+        "アプリが {folder} に書き込めないため、その場所では自分で更新できません。",
+    ),
+    (
+        UPDATE_WHY_TRANSLOCATED,
+        "macOS がこのコピーを一時的な読み取り専用の場所から実行しています。Colab Playground を「アプリケーション」フォルダーに移動して、そこから開くとその場で更新できます。",
+    ),
+    (
+        UPDATE_WHY_NOT_IN_BUNDLE,
+        "アプリがアプリ バンドルの中から実行されていないため、自分で更新できません。",
+    ),
+    (
+        UPDATE_WHY_LAYOUT,
+        "アプリのファイル構成がリリースのダウンロードを展開したときと異なるため、自分で更新できません。",
+    ),
+    (
+        UPDATE_CONFIRM_TITLE,
+        "バージョン {version} に更新しますか？",
+    ),
+    (
+        UPDATE_CONFIRM_BODY,
+        "アプリはバージョン {version} をダウンロードし、プロジェクトが公開したバージョンであることを確認して、このバージョンと置き換えてから再起動します。",
+    ),
+    (
+        UPDATE_CONSEQUENCE_FORWARDS,
+        "開いているポート転送は閉じられます。再起動後にもう一度転送してください。",
+    ),
+    (
+        UPDATE_CONSEQUENCE_BILLING,
+        "アプリの再起動中も、ランタイムは実行と課金を続けます。",
+    ),
+    (
+        UPDATE_CONSEQUENCE_AUTO_STOP,
+        "ランタイムに設定した自動停止はそのまま有効です。ランタイムはアプリなしで自分で停止します。",
+    ),
+    (
+        UPDATE_BLOCKED_PROVISION,
+        "ランタイムを開始しています。準備ができるまで待つかキャンセルしてから更新してください。",
+    ),
+    (
+        UPDATE_BLOCKED_RUN,
+        "デプロイを実行中です。準備ができるまで待つかキャンセルしてから更新してください。",
+    ),
+    (
+        UPDATE_BLOCKED_SIGN_IN,
+        "アカウントを追加しています。完了するかキャンセルしてから更新してください。",
+    ),
+    (
+        UPDATE_BLOCKED_INSTALL,
+        "Colab CLI をインストールしています。完了してから更新してください。",
+    ),
+    (
+        UPDATE_WORKING_TITLE,
+        "バージョン {version} に更新しています",
+    ),
+    (UPDATE_STEP_DOWNLOAD, "ダウンロード"),
+    (UPDATE_STEP_CHECK, "確認"),
+    (UPDATE_STEP_INSTALL, "インストール"),
+    (UPDATE_STEP_RESTART, "再起動"),
+    (UPDATE_PREPARING, "ダウンロードを準備しています…"),
+    (
+        UPDATE_DOWNLOADING,
+        "ダウンロードしています… {received} / {total}",
+    ),
+    (
+        UPDATE_DOWNLOADING_UNSIZED,
+        "ダウンロードしています… {received}",
+    ),
+    (
+        UPDATE_VERIFYING,
+        "ダウンロードがプロジェクトの公開したバージョンであることを確認しています…",
+    ),
+    (UPDATE_INSTALLING, "新しいバージョンに置き換えています…"),
+    (UPDATE_RESTARTING, "再起動しています…"),
+    (
+        UPDATE_RESTART_WAITING,
+        "実行中の処理が終わりしだい再起動します…",
+    ),
+    (UPDATE_CANCELLING, "キャンセルしています…"),
+    (
+        UPDATE_CANCEL_NOTE,
+        "キャンセルしても、このバージョンはそのままです。",
+    ),
+    (UPDATE_FAILED_INSTALL_TITLE, "更新できませんでした"),
+    (
+        UPDATE_UNVERIFIED,
+        "ダウンロードがプロジェクトの公開したバージョンであることを確認できなかったため、インストールしませんでした。このバージョンはそのままで、引き続き使えます。",
+    ),
+    (
+        UPDATE_UNAVAILABLE,
+        "このリリースには、このコンピューター向けのダウンロードがありません。このバージョンはそのままです。",
+    ),
+    (
+        UPDATE_INSTALL_FAILED,
+        "更新に失敗しました：{why}このバージョンはそのままです。",
+    ),
+    (
+        UPDATE_RESTART_FAILED_TITLE,
+        "更新を完了するにはアプリを再起動してください",
+    ),
+    (
+        UPDATE_RESTART_FAILED,
+        "バージョン {version} はインストールされましたが、アプリが起動できませんでした：{why}アプリを終了してもう一度開くと、新しいバージョンを使えます。",
+    ),
+    (UPDATE_QUIT, "終了"),
+    (UPDATE_SIMULATED_TITLE, "更新をシミュレートしました"),
+    (
+        UPDATE_SIMULATED_BODY,
+        "デモデータ：何もダウンロードもインストールもしておらず、アプリはそのまま動いています。",
+    ),
+    (
+        ERR_UPDATE_UNVERIFIED,
+        "アップデートを検証できませんでした。",
+    ),
+    (
+        ERR_UPDATE_UNAVAILABLE,
+        "このリリースには、このコンピューター向けのダウンロードがありません。",
     ),
 ];

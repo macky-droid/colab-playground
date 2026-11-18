@@ -23,6 +23,7 @@ use crate::provision::{ProvisionEvent, ProvisionOutcome, ProvisionSpec};
 use crate::quant::GgufListing;
 use crate::sessions::{Accelerator, StopReason, TrackedSession, WatchdogInfo};
 use crate::tunnel::{TunnelEvent, TunnelId, TunnelInfo, TunnelSpec};
+use crate::updater::{Installed, SelfUpdate, Unsupported, UpdateProgress};
 use crate::usage::{BalancePoint, UsageSnapshot};
 use crate::vm::RunStatus;
 
@@ -367,6 +368,32 @@ pub trait Backend: Send + Sync {
         let _ = cancel;
         Err(Error::new(ErrorKind::Unsupported).detail("this backend cannot check for updates"))
     }
+    /// Whether this copy of the app can replace itself with a newer release, and if not, why.
+    /// Cheap: looks at where the program is and tries to create a file next to it.
+    fn self_update(&self) -> SelfUpdate {
+        SelfUpdate::Unsupported(Unsupported::DevelopmentBuild)
+    }
+    /// Downloads `release`, checks its signature and checksum, and puts it in place of this
+    /// copy; the running process keeps the old version until it is started again
+    /// ([`Backend::relaunch`]). Cancellable until [`UpdateProgress::Installing`]. A failure
+    /// at any step leaves the old version in place and runnable.
+    fn install_update(
+        &self,
+        release: &crate::update::Release,
+        events: Events<UpdateProgress>,
+        cancel: &CancelToken,
+    ) -> Result<Installed> {
+        let _ = (release, events, cancel);
+        Err(Error::new(ErrorKind::Unsupported).detail("this backend cannot install updates"))
+    }
+    /// Starts the version [`Backend::install_update`] put in place, as a separate process; the
+    /// app quits right after.
+    fn relaunch(&self, installed: &Installed) -> Result<()> {
+        let _ = installed;
+        Err(Error::new(ErrorKind::Unsupported).detail("this backend cannot restart the app"))
+    }
+    /// Deletes what an earlier update left beside the app (the replaced version among it).
+    fn remove_update_leftovers(&self) {}
 }
 
 /// `<prefix>-<4 hex>`, unique among `taken`. The prefix is reduced to

@@ -112,6 +112,10 @@ pub enum ErrorKind {
     /// The installed CLI's internals differ from what the helper expects
     /// (its Python client API changed).
     UnsupportedCliVersion,
+    /// A downloaded update failed its signature or checksum check, so it was not installed.
+    UpdateUnverified,
+    /// The release has no download for this computer, or it is gone.
+    UpdateUnavailable,
     /// Anything else; see `detail`.
     Other,
 }
@@ -164,6 +168,8 @@ impl ErrorKind {
             ErrorKind::Io => "io",
             ErrorKind::Timeout => "timeout",
             ErrorKind::UnsupportedCliVersion => "unsupported_cli_version",
+            ErrorKind::UpdateUnverified => "update_unverified",
+            ErrorKind::UpdateUnavailable => "update_unavailable",
             ErrorKind::Other => "other",
         }
     }
@@ -200,7 +206,11 @@ impl ErrorKind {
             K::Http | K::HttpUnavailable | K::GitFailed | K::HealthCheckFailed => {
                 NextStep::CheckNetwork
             }
-            K::PluginExists | K::Cancelled => NextStep::None,
+            // For the update kinds another attempt would fetch the same files; the app offers
+            // what is left itself.
+            K::PluginExists | K::Cancelled | K::UpdateUnverified | K::UpdateUnavailable => {
+                NextStep::None
+            }
             K::Unsupported | K::CommandTooLong | K::Parse | K::Io | K::Other => {
                 NextStep::ReportProblem
             }

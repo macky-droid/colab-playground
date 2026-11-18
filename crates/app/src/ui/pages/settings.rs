@@ -16,12 +16,14 @@ use gpui::{
     StatefulInteractiveElement, Styled, div,
 };
 
+use colab_playground_core::updater::SelfUpdate;
+
 use crate::{
     i18n::{keys, tr, tr_args},
     route::Route,
     settings::LanguagePref,
     state::{AppState, appearance_pref, ely_appearance},
-    ui::{Inputs, tagged},
+    ui::{Inputs, overlays::unsupported_reason, tagged},
 };
 
 pub const LANGUAGE_SELECTOR: &str = "settings-language";
@@ -175,22 +177,45 @@ fn settings_file(path: String, handle: &Entity<AppState>, cx: &App) -> impl Into
 }
 
 pub const UPDATE_CHECK_SELECTOR: &str = "update-check";
-/// Selector of "Open download page" in About.
+/// Selector of "Open download page" in About (a copy that cannot replace itself).
 pub const UPDATE_OPEN_SELECTOR: &str = "update-open";
+/// Selector of "Download and restart" in About.
+pub const UPDATE_INSTALL_SELECTOR: &str = "update-install";
 pub const UPDATE_AUTO_SELECTOR: &str = "update-auto";
 
-/// The update status, "Check for updates", and "Open download page" when there is a newer
-/// release. Selector of the status: `update-status <state>`.
+/// The update status, "Check for updates", and for a newer release "Download and restart" or,
+/// when this copy cannot replace itself, "Open download page" with the reason. Selector of the
+/// status: `update-status <state>`.
 fn updates_row(state: &AppState, handle: &Entity<AppState>, cx: &App) -> SettingsRow {
     use crate::state::UpdateCheck;
     let checking = matches!(state.update_check(), UpdateCheck::Checking);
     let available = state.update_available();
+    let unverified = available
+        .as_ref()
+        .is_some_and(|(version, _)| state.update_unverified(version));
     let (name, status): (&str, SharedString) = match (state.update_check(), &available) {
         (UpdateCheck::Checking, _) => ("checking", tr(cx, keys::UPDATE_CHECKING)),
-        (_, Some((version, _))) => (
-            "available",
-            tr_args(cx, keys::UPDATE_AVAILABLE, &[("version", version)]),
+        (_, Some((version, _))) if unverified => (
+            "unverified",
+            tr_args(cx, keys::UPDATE_UNVERIFIED_STATUS, &[("version", version)]),
         ),
+        (_, Some((version, _))) => match state.self_update() {
+            Some(SelfUpdate::Unsupported(reason)) => (
+                "available-manual",
+                tr_args(
+                    cx,
+                    keys::UPDATE_AVAILABLE_MANUAL,
+                    &[
+                        ("version", version),
+                        ("why", &unsupported_reason(reason, cx)),
+                    ],
+                ),
+            ),
+            _ => (
+                "available",
+                tr_args(cx, keys::UPDATE_AVAILABLE, &[("version", version)]),
+            ),
+        },
         (UpdateCheck::Failed(error), None) => (
             "failed",
             tr_args(
@@ -228,7 +253,17 @@ fn updates_row(state: &AppState, handle: &Entity<AppState>, cx: &App) -> Setting
             .disabled(checking)
             .on_click(move |_, _, cx| check.update(cx, |state, cx| state.check_updates_now(cx))),
         ));
-    if available.is_some() {
+    if available.is_some() && state.can_self_update() {
+        let install = handle.clone();
+        controls = controls.child(tagged(
+            UPDATE_INSTALL_SELECTOR,
+            Button::new(UPDATE_INSTALL_SELECTOR, tr(cx, keys::UPDATE_INSTALL))
+                .size(ControlSize::Sm)
+                .primary()
+                .icon(IconName::Download)
+                .on_click(move |_, _, cx| install.update(cx, |state, cx| state.begin_update(cx))),
+        ));
+    } else if available.is_some() && !unverified && state.self_update().is_some() {
         let open = handle.clone();
         controls = controls.child(tagged(
             UPDATE_OPEN_SELECTOR,

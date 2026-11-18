@@ -38,6 +38,7 @@ use crate::sessions::{
     Accelerator, Ledger, ServerSession, StopReason, StopRecord, TrackedSession, WatchdogInfo,
 };
 use crate::tunnel::{TunnelEvent, TunnelId, TunnelInfo, TunnelSpec, TunnelState};
+use crate::updater::{Installed, SelfUpdate, Unsupported, UpdateProgress};
 use crate::usage::{AccountUsage, Usage, poll_due};
 use crate::vm::{RunState, RunStatus};
 
@@ -90,6 +91,20 @@ pub struct MockFailures {
     pub update_available: bool,
     /// The update check fails (as if GitHub could not be reached).
     pub update_check_fails: bool,
+    /// This copy cannot replace itself: the folder holding it is not writable.
+    pub update_unsupported: bool,
+    /// The update's download fails halfway (as if the connection dropped).
+    pub update_download_fails: bool,
+    /// The downloaded update fails its checksum check, so it is not installed.
+    pub update_unverified: bool,
+    /// Putting the update in place fails; the old version stays.
+    pub update_install_fails: bool,
+    /// A completed update asks to be started again, as a real one does
+    /// (`Installed::relaunch`); `relaunch` then only counts. Off, the update reports that
+    /// nothing was installed, so the interactive demo keeps running.
+    pub update_relaunch: bool,
+    /// Starting the updated version fails.
+    pub update_relaunch_fails: bool,
     /// `switch_impact` cannot list the unmanaged runtimes either.
     pub runtimes_listing_fails: bool,
     /// Accounts (by email) whose runtimes cannot be listed: listings leave their runtimes out
@@ -116,6 +131,12 @@ impl Default for MockFailures {
             watchdog_restart_fails: false,
             update_available: false,
             update_check_fails: false,
+            update_unsupported: false,
+            update_download_fails: false,
+            update_unverified: false,
+            update_install_fails: false,
+            update_relaunch: false,
+            update_relaunch_fails: false,
             runtimes_listing_fails: false,
             unlisted_accounts: vec![],
         }
@@ -340,6 +361,8 @@ struct World {
     pending_add: Option<Option<AccountId>>,
     login_live: bool,
     update_checks: u32,
+    update_installs: u32,
+    update_relaunches: u32,
 }
 
 /// Email of the credential `MockFailures::unadopted_slot` puts in the slot.
@@ -670,6 +693,8 @@ impl MockBackend {
             pending_add: None,
             login_live: false,
             update_checks: 0,
+            update_installs: 0,
+            update_relaunches: 0,
         };
         let off = MockFailures {
             cli_missing: cfg.failures.cli_missing,
@@ -726,6 +751,16 @@ impl MockBackend {
     /// How many update checks were made (the simulation never contacts GitHub).
     pub fn update_checks(&self) -> u32 {
         self.w().update_checks
+    }
+
+    /// How many simulated updates completed (nothing is ever downloaded or replaced).
+    pub fn update_installs(&self) -> u32 {
+        self.w().update_installs
+    }
+
+    /// How many times the app asked to start an updated version (nothing is started).
+    pub fn update_relaunches(&self) -> u32 {
+        self.w().update_relaunches
     }
 
     /// Replaces the failure switches at runtime (UI tests flip them mid-test).
@@ -2011,7 +2046,92 @@ impl Backend for MockBackend {
             },
         ))
     }
+
+    fn self_update(&self) -> SelfUpdate {
+        if self.w().failures.update_unsupported {
+            SelfUpdate::Unsupported(Unsupported::NotWritable {
+                folder: MOCK_APP_FOLDER.to_owned(),
+            })
+        } else {
+            SelfUpdate::Supported
+        }
+    }
+
+    fn install_update(
+        &self,
+        release: &crate::update::Release,
+        events: Events<UpdateProgress>,
+        cancel: &CancelToken,
+    ) -> Result<Installed> {
+        // Never touches the network or a file: each phase is a paced step, and failures come
+        // from the switches.
+        let failures = self.w().failures.clone();
+        if failures.update_unsupported {
+            return Err(Error::new(ErrorKind::Unsupported).detail("simulated: not writable"));
+        }
+        let _ = events.send(UpdateProgress::Preparing);
+        self.step(cancel)?;
+        for step in 0..=MOCK_UPDATE_STEPS {
+            let _ = events.send(UpdateProgress::Downloading {
+                received: MOCK_UPDATE_SIZE * step / MOCK_UPDATE_STEPS,
+                total: Some(MOCK_UPDATE_SIZE),
+            });
+            if failures.update_download_fails && step == MOCK_UPDATE_STEPS / 2 {
+                return Err(Error::new(ErrorKind::Http)
+                    .with("url", &release.page)
+                    .detail("simulated: the connection dropped"));
+            }
+            if step < MOCK_UPDATE_STEPS {
+                self.step(cancel)?;
+            }
+        }
+        let _ = events.send(UpdateProgress::Verifying);
+        self.step(cancel)?;
+        if failures.update_unverified {
+            return Err(Error::new(ErrorKind::UpdateUnverified)
+                .detail("simulated: the download's SHA-256 differs from SHA256SUMS"));
+        }
+        let _ = events.send(UpdateProgress::Installing);
+        // Installing is not cancellable, as in the real backend.
+        self.step(&CancelToken::new())?;
+        if failures.update_install_fails {
+            return Err(Error::new(ErrorKind::Io)
+                .with("path", MOCK_APP_FOLDER)
+                .detail("simulated: access denied"));
+        }
+        self.w().update_installs += 1;
+        Ok(Installed {
+            version: release.version.clone(),
+            relaunch: failures.update_relaunch.then(|| crate::updater::Relaunch {
+                program: std::path::PathBuf::from("colab-playground (simulated)"),
+                args: Vec::new(),
+            }),
+        })
+    }
+
+    fn relaunch(&self, installed: &Installed) -> Result<()> {
+        let _ = installed;
+        let mut w = self.w();
+        w.update_relaunches += 1;
+        if w.failures.update_relaunch_fails {
+            return Err(Error::new(ErrorKind::Io).detail("simulated: the program did not start"));
+        }
+        Ok(())
+    }
 }
+
+/// The folder the simulation says holds the app (named when it "cannot write" there).
+pub const MOCK_APP_FOLDER: &str = if cfg!(windows) {
+    r"C:\Program Files\Colab Playground"
+} else if cfg!(target_os = "macos") {
+    "/Applications"
+} else {
+    "/opt/colab-playground"
+};
+
+/// The simulated download: its size and the steps it takes (long enough to watch).
+const MOCK_UPDATE_SIZE: u64 = 31_457_280;
+const MOCK_UPDATE_STEPS: u64 = 16;
 
 #[cfg(test)]
 mod tests {

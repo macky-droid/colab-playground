@@ -8,17 +8,23 @@ pub mod plugins;
 pub mod sessions;
 pub mod settings;
 
+use colab_playground_core::updater::SelfUpdate;
 use ely_gpui_component::{
+    buttons::{Button, ButtonVariant},
+    feedback::Alert,
     layout::Page,
-    theme::{ActiveTheme, ContainerSize},
+    primitives::Severity,
+    theme::{ActiveTheme, ContainerSize, ControlSize},
 };
-use gpui::{AnyElement, App, Entity, IntoElement, ParentElement, Styled, div};
+use gpui::{
+    AnyElement, App, Context, Entity, IntoElement, ParentElement, SharedString, Styled, div,
+};
 
 use crate::{
-    i18n::tr,
+    i18n::{keys, tr, tr_args},
     route::Route,
     state::AppState,
-    ui::{Inputs, tagged},
+    ui::{Inputs, overlays::unsupported_reason, tagged},
 };
 
 pub fn render(
@@ -50,39 +56,88 @@ pub fn render(
 }
 
 pub const UPDATE_NOTICE_SELECTOR: &str = "update-notice";
+/// "Download and restart" on the banner.
+pub const UPDATE_NOTICE_INSTALL: &str = "update-notice-install";
+/// "What's new" (the release page) on the banner, beside "Download and restart".
+pub const UPDATE_NOTICE_NOTES: &str = "update-notice-notes";
+/// "Open download page" on the banner, when this copy cannot replace itself.
+pub const UPDATE_NOTICE_OPEN: &str = "update-notice-open";
+pub const UPDATE_NOTICE_DISMISS: &str = "update-notice-dismiss";
+
+fn banner_button(
+    id: &'static str,
+    label: SharedString,
+    primary: bool,
+    handle: &Entity<AppState>,
+    act: fn(&mut AppState, &mut Context<AppState>),
+) -> impl IntoElement {
+    let handle = handle.clone();
+    let button = Button::new(id, label)
+        .size(ControlSize::Sm)
+        .on_click(move |_, _, cx| handle.update(cx, act));
+    tagged(
+        id,
+        if primary {
+            button.primary()
+        } else {
+            button.variant(ButtonVariant::Ghost)
+        },
+    )
+}
 
 /// A newer release, announced once per version above every page until dismissed for that
-/// version; it offers the release page (the app downloads nothing itself).
+/// version. It offers "Download and restart" with the release notes beside it, or, when this
+/// copy cannot replace itself, says why and offers the release page.
 fn update_banner(state: &AppState, handle: &Entity<AppState>, cx: &App) -> Option<AnyElement> {
     let (version, _) = state.update_notice()?;
     let theme = cx.theme();
-    let (open, dismiss) = (handle.clone(), handle.clone());
-    let dismissed = version.clone();
-    let actions = div()
-        .flex()
-        .gap_2()
-        .child(tagged(
-            "update-notice-open",
-            ely_gpui_component::buttons::Button::new(
-                "update-notice-open",
-                tr(cx, crate::i18n::keys::UPDATE_OPEN_PAGE),
-            )
-            .size(ely_gpui_component::theme::ControlSize::Sm)
-            .primary()
-            .on_click(move |_, _, cx| open.update(cx, |state, cx| state.open_update_page(cx))),
-        ))
-        .child(tagged(
-            "update-notice-dismiss",
-            ely_gpui_component::buttons::Button::new(
-                "update-notice-dismiss",
-                tr(cx, crate::i18n::keys::UPDATE_DISMISS),
-            )
-            .size(ely_gpui_component::theme::ControlSize::Sm)
-            .variant(ely_gpui_component::buttons::ButtonVariant::Ghost)
-            .on_click(move |_, _, cx| {
-                dismiss.update(cx, |state, cx| state.dismiss_update(dismissed.clone(), cx))
-            }),
+    let body = match state.self_update() {
+        Some(SelfUpdate::Unsupported(reason)) => tr_args(
+            cx,
+            keys::UPDATE_NOTICE_BODY_MANUAL,
+            &[("why", &unsupported_reason(reason, cx))],
+        ),
+        _ => tr(cx, keys::UPDATE_NOTICE_BODY),
+    };
+    let mut actions = div().flex().flex_wrap().gap_2();
+    if state.can_self_update() {
+        actions = actions
+            .child(banner_button(
+                UPDATE_NOTICE_INSTALL,
+                tr(cx, keys::UPDATE_INSTALL),
+                true,
+                handle,
+                AppState::begin_update,
+            ))
+            .child(banner_button(
+                UPDATE_NOTICE_NOTES,
+                tr(cx, keys::UPDATE_WHATS_NEW),
+                false,
+                handle,
+                |state, cx| state.open_update_page(cx),
+            ));
+    } else {
+        actions = actions.child(banner_button(
+            UPDATE_NOTICE_OPEN,
+            tr(cx, keys::UPDATE_OPEN_PAGE),
+            true,
+            handle,
+            |state, cx| state.open_update_page(cx),
         ));
+    }
+    let dismiss = handle.clone();
+    actions = actions.child(tagged(
+        UPDATE_NOTICE_DISMISS,
+        Button::new(UPDATE_NOTICE_DISMISS, tr(cx, keys::UPDATE_DISMISS))
+            .size(ControlSize::Sm)
+            .variant(ButtonVariant::Ghost)
+            .on_click({
+                let version = version.clone();
+                move |_, _, cx| {
+                    dismiss.update(cx, |state, cx| state.dismiss_update(version.clone(), cx))
+                }
+            }),
+    ));
     Some(
         tagged(
             UPDATE_NOTICE_SELECTOR,
@@ -93,16 +148,12 @@ fn update_banner(state: &AppState, handle: &Entity<AppState>, cx: &App) -> Optio
                 .px_6()
                 .pt_4()
                 .child(
-                    ely_gpui_component::feedback::Alert::new(
+                    Alert::new(
                         "update-notice",
-                        ely_gpui_component::primitives::Severity::Info,
-                        crate::i18n::tr_args(
-                            cx,
-                            crate::i18n::keys::UPDATE_NOTICE_TITLE,
-                            &[("version", &version)],
-                        ),
+                        Severity::Info,
+                        tr_args(cx, keys::UPDATE_NOTICE_TITLE, &[("version", &version)]),
                     )
-                    .body(tr(cx, crate::i18n::keys::UPDATE_NOTICE_BODY))
+                    .body(body)
                     .action(actions),
                 ),
         )

@@ -45,6 +45,7 @@ use crate::sessions::{
     Ledger, ServerSession, StopReason, StopRecord, TrackedSession, WatchdogInfo,
 };
 use crate::tunnel::{TunnelCtx, TunnelEvent, TunnelId, TunnelInfo, TunnelManager, TunnelSpec};
+use crate::updater::{self, Installed, SelfUpdate, UpdateProgress};
 use crate::usage::{AccountUsage, poll_due};
 use crate::vm::{self, RunState, RunStatus};
 use crate::watchdog;
@@ -1941,7 +1942,78 @@ impl Backend for RealBackend {
     fn check_for_update(&self, cancel: &CancelToken) -> Result<crate::update::UpdateStatus> {
         crate::update::check_this_app(&*self.inner.cfg.http, cancel)
     }
+
+    fn self_update(&self) -> SelfUpdate {
+        match updater::layout::this_copy() {
+            Ok(_) => SelfUpdate::Supported,
+            Err(reason) => SelfUpdate::Unsupported(reason),
+        }
+    }
+
+    fn install_update(
+        &self,
+        release: &crate::update::Release,
+        events: Events<UpdateProgress>,
+        cancel: &CancelToken,
+    ) -> Result<Installed> {
+        let (install, platform, target) = updater::layout::this_copy().map_err(|reason| {
+            Error::new(ErrorKind::Unsupported)
+                .detail(format!("this copy cannot update itself: {reason:?}"))
+        })?;
+        let (owner, repo) =
+            crate::update::repo_slug(crate::update::REPOSITORY).ok_or_else(|| {
+                Error::new(ErrorKind::Other)
+                    .with("repository", crate::update::REPOSITORY)
+                    .detail("the package repository is not a GitHub URL")
+            })?;
+        // `ditto` and `codesign` run on this computer (scripts run in WSL on Windows).
+        let local = Host::Local;
+        let mac = updater::SystemMacTools {
+            host: &local,
+            cancel,
+        };
+        updater::Update {
+            http: &*self.inner.cfg.http,
+            mac: &mac,
+            install,
+            platform,
+            target,
+            owner: &owner,
+            repo: &repo,
+            release: release.clone(),
+            keys: updater::verify::trusted_keys()?,
+            args: updater::restart_args(),
+        }
+        .run(&events, cancel)
+    }
+
+    fn relaunch(&self, installed: &Installed) -> Result<()> {
+        match &installed.relaunch {
+            Some(relaunch) => Host::Local.launch_detached(&relaunch.program, &relaunch.args),
+            None => Ok(()),
+        }
+    }
+
+    fn remove_update_leftovers(&self) {
+        let Ok((install, ..)) = updater::layout::this_copy() else {
+            return;
+        };
+        let Some(folder) = install.folder() else {
+            return;
+        };
+        // On Windows the replaced program can be deleted only once it has exited, which the
+        // version that started this one does moments after starting it.
+        for _ in 0..LEFTOVER_TRIES {
+            if updater::replace::remove_leftovers(folder) == 0 {
+                return;
+            }
+            std::thread::sleep(LEFTOVER_RETRY);
+        }
+    }
 }
+
+const LEFTOVER_TRIES: u32 = 20;
+const LEFTOVER_RETRY: Duration = Duration::from_millis(500);
 
 impl RealBackend {
     /// Best effort: removes `secrets` from the CLI's history file for

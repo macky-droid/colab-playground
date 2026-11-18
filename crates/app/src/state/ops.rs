@@ -74,6 +74,14 @@ pub enum Op {
     StopAll,
     /// Checking GitHub for a newer release.
     UpdateCheck,
+    /// Finding out whether this copy can replace itself.
+    UpdateSupport,
+    /// Deleting what an earlier update left beside the app.
+    UpdateCleanup,
+    /// Downloading, checking and installing an update.
+    UpdateInstall,
+    /// Starting the installed version.
+    UpdateRestart,
 }
 
 impl Op {
@@ -94,6 +102,24 @@ impl Op {
                 | Op::Adopt
                 | Op::Rebuild
                 | Op::StopAll
+        )
+    }
+
+    /// Whether a restart after an update waits for this call to return. Only calls that read
+    /// and change nothing may be cut off by quitting; the rest (a stop, a sign-in, a guard
+    /// round that may stop a runtime, writing a file) finish first.
+    pub fn delays_restart(self) -> bool {
+        !matches!(
+            self,
+            Op::UpdateCheck
+                | Op::UpdateSupport
+                | Op::UpdateCleanup
+                | Op::UpdateInstall
+                | Op::UpdateRestart
+                | Op::SessionName
+                | Op::RunTemplate
+                | Op::Plugins
+                | Op::HfFiles(_)
         )
     }
 }
@@ -127,6 +153,10 @@ impl Ops {
 
     pub(crate) fn pausing_poll(&self) -> bool {
         self.running.keys().any(|op| op.pauses_polling())
+    }
+
+    pub(crate) fn delaying_restart(&self) -> bool {
+        self.running.keys().any(|op| op.delays_restart())
     }
 
     pub(crate) fn cancel(&self, op: Op) {
@@ -199,6 +229,8 @@ impl AppState {
                 done(state, result, cx);
                 // What this call found may settle a quit prompt waiting on the check.
                 state.settle_waiting_quit(cx);
+                // An installed update restarts once no call it waits for is running.
+                state.settle_pending_restart(cx);
                 cx.notify();
             })
             .ok();
@@ -257,6 +289,7 @@ impl AppState {
                 state.ops.finish(op);
                 log::debug!("ops: {op:?} finished ({})", outcome(&result));
                 done(state, result, cx);
+                state.settle_pending_restart(cx);
                 cx.notify();
             })
             .ok();

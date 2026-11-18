@@ -224,6 +224,14 @@ impl AppState {
 
     /// One poller wake: refreshes when nothing would be disturbed and core says it is due.
     fn poll_tick(&mut self, cx: &mut Context<Self>) {
+        if matches!(
+            self.update_prompt().map(|prompt| &prompt.phase),
+            Some(super::UpdatePhase::Restarting)
+        ) {
+            // About to restart into an update: start nothing new it would have to wait for.
+            self.settle_pending_restart(cx);
+            return;
+        }
         if self.is_provisioning() || self.ops.is_running(Op::PluginRun) {
             // A provisioning progress shows how long Colab has not answered.
             cx.notify();

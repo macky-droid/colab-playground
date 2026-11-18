@@ -129,6 +129,15 @@ impl AppState {
             // Already quitting.
             return;
         }
+        if self.update_committed() {
+            // The new version is being put in place, or the app is about to restart into it:
+            // stopping halfway could leave no program where the app was.
+            return;
+        }
+        if self.is_busy(Op::UpdateInstall) {
+            // A download in progress is simply abandoned; nothing was changed yet.
+            self.ops.cancel(Op::UpdateInstall);
+        }
         if matches!(self.overlay, Some(Overlay::Quit(_))) {
             // Already asking (maybe mid "Stop all"): keep that prompt as it is.
             return;
@@ -169,6 +178,12 @@ impl AppState {
     }
 
     pub fn quit_leaving_running(&mut self, cx: &mut Context<Self>) {
+        self.approve_quit(cx);
+    }
+
+    /// Quits so the version an update installed can take over. The user confirmed what that
+    /// affects in the update dialog, so the quit prompt is not asked again.
+    pub(super) fn quit_for_restart(&mut self, cx: &mut Context<Self>) {
         self.approve_quit(cx);
     }
 

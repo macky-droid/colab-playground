@@ -23,6 +23,7 @@ pub mod real;
 pub mod sessions;
 pub mod tunnel;
 pub mod update;
+pub mod updater;
 pub mod usage;
 pub mod vm;
 pub mod watchdog;

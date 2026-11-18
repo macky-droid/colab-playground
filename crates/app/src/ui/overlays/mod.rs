@@ -1,5 +1,6 @@
 //! Dialogs other than the account ones: stop and end billing, new session (with its live
-//! progress), forward a port, install or remove a plugin, and quitting while runtimes bill.
+//! progress), forward a port, install or remove a plugin, quitting while runtimes bill, and
+//! updating the app.
 //! Every button carries a selector (`overlay-cancel` for the dismissing one).
 
 mod forward;
@@ -7,6 +8,7 @@ mod new_session;
 mod plugin;
 mod quit;
 mod stop;
+mod update;
 
 use ely_gpui_component::{
     buttons::{Button, ButtonVariant},
@@ -32,6 +34,10 @@ pub use new_session::{
 pub use plugin::{INSTALL_CONFIRM, REMOVE_CONFIRM};
 pub use quit::{QUIT_CHECKING, QUIT_LEAVE, QUIT_STOP_ALL, QUIT_UNCHECKED};
 pub use stop::{CANCEL_AUTO_STOP_CONFIRM, STOP_CONFIRM};
+pub use update::{
+    ProgressLine, UPDATE_CANCEL, UPDATE_CONFIRM, UPDATE_OPEN_PAGE, UPDATE_QUIT, UPDATE_RETRY,
+    progress_line, unsupported_reason,
+};
 
 /// The open overlay, if any (an account dialog takes precedence).
 pub fn render(
@@ -51,6 +57,7 @@ pub fn render(
         Overlay::InstallPlugin(prompt) => plugin::install(prompt, state, handle, cx),
         Overlay::RemovePlugin(prompt) => plugin::remove(prompt, state, handle, cx),
         Overlay::Quit(prompt) => quit::render(prompt, state, handle, cx),
+        Overlay::Update(prompt) => update::render(prompt, state, handle, cx),
     })
 }
 

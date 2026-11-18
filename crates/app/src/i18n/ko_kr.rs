@@ -1086,7 +1086,7 @@ pub(super) const MESSAGES: Messages = &[
     ),
     (
         UPDATE_NOTICE_BODY,
-        "릴리스 페이지에서 다운로드하십시오. 이 앱은 업데이트를 직접 다운로드하거나 설치하지 않습니다.",
+        "앱이 새 버전을 다운로드하고, 프로젝트가 게시한 버전인지 확인한 뒤 새 버전으로 다시 시작할 수 있습니다.",
     ),
     (UPDATE_DISMISS, "다시 표시 안 함"),
     (UPDATE_BADGE, "새 버전"),
@@ -1127,5 +1127,128 @@ pub(super) const MESSAGES: Messages = &[
     (
         PROV_NO_ANSWER,
         "{time} 동안 Colab이 응답하지 않았습니다. 더 오래 걸리는 요청도 있으며, 지금 취소할 수도 있습니다.",
+    ),
+    (UPDATE_INSTALL, "다운로드 후 다시 시작"),
+    (UPDATE_WHATS_NEW, "변경 사항"),
+    (
+        UPDATE_NOTICE_BODY_MANUAL,
+        "{why} 대신 릴리스 페이지에서 다운로드하세요.",
+    ),
+    (
+        UPDATE_AVAILABLE_MANUAL,
+        "새 버전을 사용할 수 있습니다: {version}. {why}",
+    ),
+    (
+        UPDATE_UNVERIFIED_STATUS,
+        "버전 {version}을(를) 검증하지 못해 설치하지 않았습니다. 현재 버전은 그대로입니다.",
+    ),
+    (
+        UPDATE_WHY_DEVELOPMENT,
+        "이 사본은 릴리스 다운로드로 설치되지 않았으므로 스스로 업데이트하지 않습니다.",
+    ),
+    (
+        UPDATE_WHY_NO_DOWNLOAD,
+        "이 컴퓨터용 릴리스 다운로드가 없으므로 앱이 스스로 업데이트할 수 없습니다.",
+    ),
+    (
+        UPDATE_WHY_NOT_WRITABLE,
+        "앱이 {folder}에 쓸 수 없으므로 그 위치에서 스스로 업데이트할 수 없습니다.",
+    ),
+    (
+        UPDATE_WHY_TRANSLOCATED,
+        "macOS가 이 사본을 임시 읽기 전용 위치에서 실행하고 있습니다. Colab Playground를 응용 프로그램 폴더로 옮기고 거기에서 열면 그 자리에서 업데이트할 수 있습니다.",
+    ),
+    (
+        UPDATE_WHY_NOT_IN_BUNDLE,
+        "앱이 앱 번들 안에서 실행되고 있지 않으므로 스스로 업데이트할 수 없습니다.",
+    ),
+    (
+        UPDATE_WHY_LAYOUT,
+        "앱 파일의 배치가 릴리스 다운로드를 풀었을 때와 다르므로 스스로 업데이트할 수 없습니다.",
+    ),
+    (UPDATE_CONFIRM_TITLE, "버전 {version}(으)로 업데이트할까요?"),
+    (
+        UPDATE_CONFIRM_BODY,
+        "앱이 버전 {version}을(를) 다운로드하고, 프로젝트가 게시한 버전인지 확인한 뒤, 현재 버전을 바꾸고 다시 시작합니다.",
+    ),
+    (
+        UPDATE_CONSEQUENCE_FORWARDS,
+        "열려 있는 포트 포워딩이 닫힙니다. 다시 시작한 후 다시 포워딩하세요.",
+    ),
+    (
+        UPDATE_CONSEQUENCE_BILLING,
+        "앱이 다시 시작하는 동안에도 런타임은 계속 실행되고 요금이 청구됩니다.",
+    ),
+    (
+        UPDATE_CONSEQUENCE_AUTO_STOP,
+        "런타임에 설정한 자동 중지는 계속 작동합니다. 런타임이 앱 없이 스스로 중지합니다.",
+    ),
+    (
+        UPDATE_BLOCKED_PROVISION,
+        "런타임을 시작하는 중입니다. 준비될 때까지 기다리거나 취소한 후 업데이트하세요.",
+    ),
+    (
+        UPDATE_BLOCKED_RUN,
+        "배포가 진행 중입니다. 준비될 때까지 기다리거나 취소한 후 업데이트하세요.",
+    ),
+    (
+        UPDATE_BLOCKED_SIGN_IN,
+        "계정을 추가하는 중입니다. 먼저 완료하거나 취소한 후 업데이트하세요.",
+    ),
+    (
+        UPDATE_BLOCKED_INSTALL,
+        "Colab CLI를 설치하는 중입니다. 설치가 끝난 후 업데이트하세요.",
+    ),
+    (UPDATE_WORKING_TITLE, "버전 {version}(으)로 업데이트하는 중"),
+    (UPDATE_STEP_DOWNLOAD, "다운로드"),
+    (UPDATE_STEP_CHECK, "확인"),
+    (UPDATE_STEP_INSTALL, "설치"),
+    (UPDATE_STEP_RESTART, "다시 시작"),
+    (UPDATE_PREPARING, "다운로드를 준비하는 중…"),
+    (UPDATE_DOWNLOADING, "다운로드하는 중… {received} / {total}"),
+    (UPDATE_DOWNLOADING_UNSIZED, "다운로드하는 중… {received}"),
+    (
+        UPDATE_VERIFYING,
+        "다운로드한 파일이 프로젝트가 게시한 버전인지 확인하는 중…",
+    ),
+    (UPDATE_INSTALLING, "새 버전으로 바꾸는 중…"),
+    (UPDATE_RESTARTING, "다시 시작하는 중…"),
+    (
+        UPDATE_RESTART_WAITING,
+        "진행 중인 작업이 끝나는 대로 다시 시작합니다…",
+    ),
+    (UPDATE_CANCELLING, "취소하는 중…"),
+    (UPDATE_CANCEL_NOTE, "취소해도 현재 버전은 그대로입니다."),
+    (UPDATE_FAILED_INSTALL_TITLE, "업데이트하지 못했습니다"),
+    (
+        UPDATE_UNVERIFIED,
+        "다운로드한 파일이 프로젝트가 게시한 버전인지 검증하지 못해 설치하지 않았습니다. 현재 버전은 그대로이며 계속 사용할 수 있습니다.",
+    ),
+    (
+        UPDATE_UNAVAILABLE,
+        "이 릴리스에는 이 컴퓨터용 다운로드가 없습니다. 현재 버전은 그대로입니다.",
+    ),
+    (
+        UPDATE_INSTALL_FAILED,
+        "업데이트하지 못했습니다: {why} 현재 버전은 그대로입니다.",
+    ),
+    (
+        UPDATE_RESTART_FAILED_TITLE,
+        "업데이트를 마치려면 앱을 다시 시작하세요",
+    ),
+    (
+        UPDATE_RESTART_FAILED,
+        "버전 {version}이(가) 설치되었지만 앱이 시작하지 못했습니다: {why} 앱을 종료하고 다시 열면 새 버전을 사용할 수 있습니다.",
+    ),
+    (UPDATE_QUIT, "종료"),
+    (UPDATE_SIMULATED_TITLE, "업데이트를 시뮬레이션했습니다"),
+    (
+        UPDATE_SIMULATED_BODY,
+        "데모 데이터: 아무것도 다운로드하거나 설치하지 않았으며 앱은 계속 실행됩니다.",
+    ),
+    (ERR_UPDATE_UNVERIFIED, "업데이트를 검증하지 못했습니다."),
+    (
+        ERR_UPDATE_UNAVAILABLE,
+        "이 릴리스에는 이 컴퓨터용 다운로드가 없습니다.",
     ),
 ];
