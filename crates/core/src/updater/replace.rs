@@ -122,19 +122,8 @@ pub fn unpack_linux(archive: &Path, root: &str, stage: &Path) -> Result<PathBuf>
         )));
     }
     let program = out.join(LINUX_PROGRAM);
-    make_executable(&program)?;
+    crate::host::make_executable(&program).map_err(|e| io_error(e, &program))?;
     Ok(program)
-}
-
-#[cfg(unix)]
-fn make_executable(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt as _;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).map_err(|e| io_error(e, path))
-}
-
-#[cfg(not(unix))]
-fn make_executable(_: &Path) -> Result<()> {
-    Ok(())
 }
 
 /// Linux: renames `new` over `binary`. A rename within a folder is atomic: the path always

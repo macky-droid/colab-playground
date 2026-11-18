@@ -2050,7 +2050,7 @@ impl Backend for MockBackend {
     fn self_update(&self) -> SelfUpdate {
         if self.w().failures.update_unsupported {
             SelfUpdate::Unsupported(Unsupported::NotWritable {
-                folder: MOCK_APP_FOLDER.to_owned(),
+                folder: mock_app_folder().to_owned(),
             })
         } else {
             SelfUpdate::Supported
@@ -2096,7 +2096,7 @@ impl Backend for MockBackend {
         self.step(&CancelToken::new())?;
         if failures.update_install_fails {
             return Err(Error::new(ErrorKind::Io)
-                .with("path", MOCK_APP_FOLDER)
+                .with("path", mock_app_folder())
                 .detail("simulated: access denied"));
         }
         self.w().update_installs += 1;
@@ -2121,13 +2121,13 @@ impl Backend for MockBackend {
 }
 
 /// The folder the simulation says holds the app (named when it "cannot write" there).
-pub const MOCK_APP_FOLDER: &str = if cfg!(windows) {
-    r"C:\Program Files\Colab Playground"
-} else if cfg!(target_os = "macos") {
-    "/Applications"
-} else {
-    "/opt/colab-playground"
-};
+pub fn mock_app_folder() -> &'static str {
+    match crate::host::Platform::current() {
+        Some(crate::host::Platform::Windows) => r"C:\Program Files\Colab Playground",
+        Some(crate::host::Platform::MacOs) => "/Applications",
+        _ => "/opt/colab-playground",
+    }
+}
 
 /// The simulated download: its size and the steps it takes (long enough to watch).
 const MOCK_UPDATE_SIZE: u64 = 31_457_280;

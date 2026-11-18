@@ -1,7 +1,8 @@
 //! Where the running copy is, what an update replaces, and why a copy cannot update itself.
 //!
 //! Every platform's rules are ordinary functions over paths, compiled and tested on every
-//! operating system; only [`Platform::current`] and [`release_target`] look at the build.
+//! operating system; which one applies comes from [`crate::host`], which owns what differs per
+//! operating system.
 
 use std::path::{Path, PathBuf};
 
@@ -12,57 +13,16 @@ use serde::{Deserialize, Serialize};
 /// with a download would replace something the user or a package manager put there.
 pub const RELEASE_BUILD: Option<&str> = option_env!("COLAB_PLAYGROUND_RELEASE_BUILD");
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Platform {
-    Windows,
-    Linux,
-    MacOs,
-}
+pub use crate::host::{Platform, release_target};
 
-impl Platform {
-    pub fn current() -> Option<Platform> {
-        if cfg!(windows) {
-            Some(Platform::Windows)
-        } else if cfg!(target_os = "macos") {
-            Some(Platform::MacOs)
-        } else if cfg!(target_os = "linux") {
-            Some(Platform::Linux)
-        } else {
-            None
-        }
-    }
-
-    /// The extension of this platform's download, as the release workflow names it.
-    fn extension(self) -> &'static str {
-        match self {
-            Platform::Windows => ".exe",
-            Platform::Linux => ".tar.gz",
-            Platform::MacOs => ".zip",
-        }
-    }
-}
-
-/// The target triple of the release download built for this system and processor, if the
-/// release workflow builds one.
-pub fn release_target() -> Option<&'static str> {
-    if cfg!(all(windows, target_arch = "x86_64", target_env = "msvc")) {
-        Some("x86_64-pc-windows-msvc")
-    } else if cfg!(all(
-        target_os = "linux",
-        target_arch = "x86_64",
-        target_env = "gnu"
-    )) {
-        Some("x86_64-unknown-linux-gnu")
-    } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        Some("aarch64-apple-darwin")
-    } else {
-        None
-    }
-}
-
-/// The release file for `target`.
+/// The release file for `target`, as the release workflow names it.
 pub fn asset_name(target: &str, platform: Platform) -> String {
-    format!("colab-playground-{target}{}", platform.extension())
+    let extension = match platform {
+        Platform::Windows => ".exe",
+        Platform::Linux => ".tar.gz",
+        Platform::MacOs => ".zip",
+    };
+    format!("colab-playground-{target}{extension}")
 }
 
 /// The folder at the top of the Linux and macOS archives.
@@ -213,14 +173,7 @@ pub fn this_copy() -> Result<(Install, Platform, &'static str), Unsupported> {
     let (Some(platform), Some(target)) = (Platform::current(), release_target()) else {
         return Err(Unsupported::NoDownload);
     };
-    let exe = std::env::current_exe().map_err(|_| Unsupported::UnexpectedLayout)?;
-    // The real path, so a symlink is not replaced in place of the file it points at. Not on
-    // Windows, where it would add the `\\?\` prefix to every path shown.
-    let exe = if cfg!(unix) {
-        std::fs::canonicalize(&exe).unwrap_or(exe)
-    } else {
-        exe
-    };
+    let exe = crate::host::current_program().map_err(|_| Unsupported::UnexpectedLayout)?;
     locate(platform, &exe, &probe_writable).map(|install| (install, platform, target))
 }
 

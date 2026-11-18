@@ -19,7 +19,7 @@ use colab_playground::{
 };
 use colab_playground_core::{
     backend::Backend,
-    mock::{MOCK_APP_FOLDER, MockFailures},
+    mock::{MockFailures, mock_app_folder},
     update::{self, Version},
     updater::{SelfUpdate, Unsupported, UpdateProgress},
 };
@@ -472,7 +472,7 @@ fn a_copy_that_cannot_replace_itself_says_why_and_offers_the_download_page(
     assert_eq!(
         app.read(|state, _| state.self_update().cloned()),
         Some(SelfUpdate::Unsupported(Unsupported::NotWritable {
-            folder: MOCK_APP_FOLDER.to_owned()
+            folder: mock_app_folder().to_owned()
         }))
     );
     assert!(app.shown(UPDATE_NOTICE_OPEN));
