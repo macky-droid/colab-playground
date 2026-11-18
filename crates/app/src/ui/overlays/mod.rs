@@ -150,11 +150,14 @@ impl RenderOnce for Scrolled {
                     div()
                         .id(self.id)
                         .min_h_0()
+                        .flex()
+                        .flex_col()
                         .overflow_y_scroll()
                         .overflow_x_hidden()
                         .track_scroll(&handle)
-                        .pr(padding)
-                        .child(self.content),
+                        // A scroll box measures its children at any width; held to its own,
+                        // text wraps when laid out as it does when drawn, and the height fits.
+                        .child(div().w_full().min_w_0().pr(padding).child(self.content)),
                 )
                 .child(ScrollShadow::new(&handle))
                 .child(deferred(Scrollbar::new(
