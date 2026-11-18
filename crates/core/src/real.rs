@@ -931,6 +931,13 @@ impl Inner {
         {
             stopped_by_cli = true;
         }
+        // Without an endpoint nothing can be released and no listing can show the runtime
+        // gone, so the session stays live until reconciliation can tell that it has ended.
+        if target.endpoint.is_empty() {
+            return Err(
+                Error::new(ErrorKind::OrphanSuspected).detail("the session's runtime is not known")
+            );
+        }
         let helper = self.helper()?;
         if !stopped_by_cli {
             match helper.unassign(&target.account, &target.endpoint, &nc) {

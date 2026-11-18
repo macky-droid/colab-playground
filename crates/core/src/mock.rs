@@ -849,6 +849,12 @@ impl MockBackend {
     }
 
     fn stop_inner(&self, target: &RuntimeRef, reason: StopReason) -> Result<()> {
+        // Like the real backend: without an endpoint it cannot tell that the runtime is gone.
+        if target.endpoint.is_empty() {
+            return Err(
+                Error::new(ErrorKind::OrphanSuspected).detail("the session's runtime is not known")
+            );
+        }
         let now = self.now_();
         let mut w = self.w();
         w.settle(now);
@@ -2203,6 +2209,41 @@ mod tests {
         let views = m.refresh_usage(&[], &nc()).unwrap();
         assert!(m.w().ledger.live(&active, "t4-91c2").is_none());
         assert!(verified(&views, &active));
+    }
+
+    #[test]
+    fn a_guard_stop_without_an_endpoint_suspects_an_orphan_and_keeps_the_session() {
+        let (m, clock) = mock(MockScenario::demo());
+        let (account, endpoint, limit) = {
+            let mut w = m.w();
+            let account = w.active.clone().unwrap();
+            let entry = w.ledger.live(&account, "t4-91c2").unwrap().clone();
+            let endpoint = entry.endpoint.unwrap();
+            w.ledger
+                .update(&account, "t4-91c2", |e| e.endpoint = None)
+                .unwrap();
+            let runtime = w
+                .runtimes
+                .iter_mut()
+                .find(|r| r.endpoint == endpoint)
+                .unwrap();
+            runtime.name = None;
+            (account, endpoint, entry.policy.max_runtime.unwrap())
+        };
+        clock.advance(limit);
+        let report = m.guard_poll(&nc()).unwrap();
+        let decision = report
+            .decisions
+            .iter()
+            .find(|d| d.session.name.as_deref() == Some("t4-91c2"))
+            .unwrap();
+        assert!(matches!(decision.decision, Decision::Stop(_)));
+        assert!(!decision.stopped);
+        let error = decision.error.as_ref().unwrap();
+        assert!(error.is(ErrorKind::OrphanSuspected), "{error:?}");
+        assert!(m.w().ledger.live(&account, "t4-91c2").is_some());
+        let listed = m.runtimes(&nc()).unwrap().runtimes;
+        assert!(listed.iter().any(|r| r.id.endpoint == endpoint));
     }
 
     #[test]
