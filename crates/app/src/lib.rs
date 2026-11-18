@@ -8,10 +8,8 @@
 //! (probe, accounts, usage), the open account dialog and the toast host. `AppState::init`
 //! creates it and publishes it as a global ([`state::AppState::global`]); views read it in
 //! `render` and change it only through its methods, which call `cx.notify()` so every observing
-//! view re-renders. The root view ([`ui::root::RootView`]) observes it and draws the shell
-//! (title strip, sidebar, page, dialogs, toasts); pages are plain functions of the state, and
-//! the few text fields they need are entities the root view owns ([`ui::Inputs`]). Backend
-//! calls block, so once the window is up the UI thread makes none (the one exception is
+//! view re-renders.
+//! Backend calls block, so once the window is up the UI thread makes none (the one exception is
 //! startup, where `backend::build` constructs the backend and pushes the saved `Defaults`;
 //! a rebuild after a host change runs in the background): `AppState::run_backend` runs the call on the
 //! background executor with a `CancelToken` and applies the result on the foreground; at most

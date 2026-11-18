@@ -39,7 +39,6 @@ pub enum Chrome {
     LinuxServer,
 }
 
-/// What the app's title strip holds for a [`Chrome`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TitleBarLayout {
     /// Ely window controls drawn at the strip's end, in this platform's manner.
@@ -60,7 +59,6 @@ impl Chrome {
         Chrome::LinuxServer,
     ];
 
-    /// The title strip for this chrome.
     pub fn layout(self) -> TitleBarLayout {
         match self {
             Chrome::Windows => TitleBarLayout {
@@ -187,7 +185,6 @@ pub enum EnvironmentKind {
     ShellTools,
 }
 
-/// This OS's first checklist step.
 pub fn environment_kind() -> EnvironmentKind {
     if cfg!(windows) {
         EnvironmentKind::Wsl

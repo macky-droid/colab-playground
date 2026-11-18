@@ -15,16 +15,12 @@ use gpui::Context;
 use super::{AppState, InputSlot, Op, Overlay};
 use crate::i18n::{keys, tr_args};
 
-/// Where provisioning stands.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ProvisionPhase {
-    /// The form is being filled in.
     Editing,
     /// Asking Colab for a runtime (see the events).
     Running,
-    /// A runtime is ready.
     Ready(ProvisionOutcome),
-    /// It gave up.
     Failed(Error),
     /// Cancelled; nothing is left running.
     Cancelled,
@@ -39,19 +35,18 @@ pub const SLOW_ANSWER: Duration = Duration::from_secs(60);
 pub struct ProvisionProgress {
     /// Every event, in order.
     pub events: Vec<ProvisionEvent>,
-    /// When the latest event arrived, by the backend's clock.
+    /// By the backend's clock.
     pub latest_at: Option<SystemTime>,
 }
 
 impl ProvisionProgress {
-    /// Adds `event`, which arrived at `at`.
     pub fn push(&mut self, event: ProvisionEvent, at: Option<SystemTime>) {
         self.events.push(event);
         self.latest_at = at;
     }
 
-    /// How long Colab has left the request for a runtime unanswered at `now`, once that is
-    /// past [`SLOW_ANSWER`]. The CLI retries silently for about ten minutes before it gives up.
+    /// The CLI retries silently for about ten minutes before it gives up, so this can grow
+    /// that long while the latest event is still `Allocating`.
     pub fn unanswered_for(&self, now: SystemTime) -> Option<Duration> {
         if !matches!(self.last(), Some(ProvisionEvent::Allocating { .. })) {
             return None;
@@ -71,20 +66,15 @@ impl ProvisionProgress {
         })
     }
 
-    /// The latest event.
     pub fn last(&self) -> Option<&ProvisionEvent> {
         self.events.last()
     }
 }
 
-/// The new-session dialog.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NewSession {
-    /// What to ask for.
     pub spec: ProvisionSpec,
-    /// Where it stands.
     pub phase: ProvisionPhase,
-    /// Progress events.
     pub progress: ProvisionProgress,
 }
 
@@ -100,12 +90,11 @@ impl AppState {
         self.ops.is_running(Op::Provision)
     }
 
-    /// The backend's time now (the mock's clock in demo mode and tests).
+    /// The mock's clock in demo mode and tests, never the wall clock.
     pub fn backend_now(&self) -> Option<SystemTime> {
         self.backend.as_ref().ok().map(|backend| backend.now())
     }
 
-    /// Opens the new-session dialog pre-filled from `Defaults`, with a generated name.
     pub fn open_new_session(&mut self, cx: &mut Context<Self>) {
         if let Some(session) = &self.new_session
             && session.phase == ProvisionPhase::Running
@@ -140,7 +129,6 @@ impl AppState {
         cx.notify();
     }
 
-    /// Edits the form's spec.
     pub fn edit_new_session(
         &mut self,
         edit: impl FnOnce(&mut ProvisionSpec),
@@ -157,7 +145,6 @@ impl AppState {
         }
     }
 
-    /// Starts provisioning with `name` (the form's name field).
     pub fn start_provision(&mut self, name: String, cx: &mut Context<Self>) {
         let Some(session) = &mut self.new_session else {
             return;
@@ -266,7 +253,6 @@ impl AppState {
 pub struct LimitReached {
     /// `max_concurrent_sessions` (this app's own setting).
     pub limit: u32,
-    /// The active account's email.
     pub email: Option<String>,
     /// Runtimes that count: those this app can address by name (it started them).
     pub counted: Vec<String>,

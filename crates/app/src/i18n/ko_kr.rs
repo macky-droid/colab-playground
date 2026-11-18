@@ -1,5 +1,3 @@
-//! Korean.
-
 use super::{Messages, keys::*};
 
 pub(super) const MESSAGES: Messages = &[

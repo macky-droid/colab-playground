@@ -8,7 +8,6 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-/// Result alias used throughout the crate.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// What went wrong, independent of language.
@@ -169,7 +168,6 @@ impl ErrorKind {
         }
     }
 
-    /// The step the UI should suggest for this kind of error.
     pub fn default_next_step(self) -> NextStep {
         use ErrorKind as K;
         match self {
@@ -232,33 +230,25 @@ pub enum NextStep {
     SwitchAccount,
     /// Add or adopt an account.
     AddAccount,
-    /// Sign in again.
     SignInAgain,
     /// Unlock or configure the OS keyring.
     UnlockKeyring,
-    /// Pick another accelerator.
     ChooseOtherAccelerator,
     /// Stop a running session first.
     StopASession,
-    /// Choose another local port.
     ChooseOtherPort,
     /// Close the other ssh connection to this runtime.
     CloseOtherConnection,
-    /// Install the Colab CLI.
     InstallCli,
-    /// Install WSL.
     InstallWsl,
     /// Update Colab Playground (the CLI changed underneath it).
     UpdateApp,
-    /// Fix the form input.
     CheckInput,
-    /// Check the network connection.
     CheckNetwork,
     /// Refresh the view; the thing is gone.
     Refresh,
     /// Review the runtime list (a VM may still be billing).
     ReviewRuntimes,
-    /// Open the log.
     ViewLog,
     /// Unexpected; report it.
     ReportProblem,
@@ -273,7 +263,6 @@ impl fmt::Display for ErrorKind {
 /// An error with a machine-readable kind, named parameters and a log detail.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, thiserror::Error)]
 pub struct Error {
-    /// What went wrong.
     pub kind: ErrorKind,
     /// Named values for the localised message (e.g. `port` → `"8080"`).
     pub params: BTreeMap<String, String>,
@@ -284,7 +273,6 @@ pub struct Error {
 }
 
 impl Error {
-    /// Creates an error with no parameters and no detail.
     pub fn new(kind: ErrorKind) -> Self {
         Error {
             kind,
@@ -294,19 +282,16 @@ impl Error {
         }
     }
 
-    /// Adds a named parameter (builder style).
     pub fn with(mut self, key: &str, value: impl ToString) -> Self {
         self.params.insert(key.to_owned(), value.to_string());
         self
     }
 
-    /// Sets the technical detail (builder style).
     pub fn detail(mut self, detail: impl Into<String>) -> Self {
         self.detail = detail.into();
         self
     }
 
-    /// Overrides the suggested next step (builder style).
     pub fn next(mut self, step: NextStep) -> Self {
         self.next_step = step;
         self
@@ -326,17 +311,14 @@ impl Error {
             .detail(detail)
     }
 
-    /// Shorthand for [`ErrorKind::Cancelled`].
     pub fn cancelled() -> Self {
         Error::new(ErrorKind::Cancelled)
     }
 
-    /// Looks up a parameter.
     pub fn param(&self, key: &str) -> Option<&str> {
         self.params.get(key).map(String::as_str)
     }
 
-    /// True when the error is of the given kind.
     pub fn is(&self, kind: ErrorKind) -> bool {
         self.kind == kind
     }

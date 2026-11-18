@@ -26,18 +26,13 @@ use crate::{
     route::Route,
 };
 
-/// How many Hugging Face search results are shown.
 pub const HF_RESULTS: u32 = 8;
 
-/// What the Plugins page shows.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PluginView {
-    /// The installed list.
     #[default]
     List,
-    /// The run form.
     Form,
-    /// The current run.
     Run,
 }
 
@@ -46,18 +41,13 @@ pub enum PluginView {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HfLookup {
     pub(crate) generation: u64,
-    /// Search results for the last query.
     pub results: Load<Vec<HfModel>>,
-    /// The repo whose files are listed.
     pub repo: Option<String>,
-    /// Its GGUF files.
     pub files: Load<GgufListing>,
 }
 
-/// The run form.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RunForm {
-    /// Plugin id.
     pub plugin: String,
     /// Non-text values (number, bool, select) by input id.
     pub values: std::collections::BTreeMap<String, InputValue>,
@@ -67,29 +57,21 @@ pub struct RunForm {
     pub existing: Option<String>,
     /// Stop a session provisioned for this run when the run fails.
     pub stop_on_failure: bool,
-    /// Hugging Face lookups.
     pub hf: HfLookup,
-    /// Why the last start failed.
     pub error: Option<Error>,
 }
 
-/// Where a run stands.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RunPhase {
     /// Provisioning or running.
     Running,
-    /// Ready, with endpoints.
     Ready(Box<PluginRunOutcome>),
-    /// Failed.
     Failed(Error),
-    /// Cancelled.
     Cancelled,
 }
 
-/// A plugin run.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PluginRun {
-    /// Plugin id.
     pub plugin: String,
     /// It provisions its own session.
     pub provisions: bool,
@@ -99,13 +81,10 @@ pub struct PluginRun {
     pub provision: ProvisionProgress,
     /// Session it runs on, once known.
     pub session: Option<String>,
-    /// Account the session belongs to.
     pub account: Option<AccountId>,
-    /// The script's last status.
     pub status: Option<RunStatus>,
     /// Log lines (secrets already redacted by core).
     pub log: Vec<String>,
-    /// Where it stands.
     pub phase: RunPhase,
 }
 
@@ -123,12 +102,10 @@ impl PluginRun {
 }
 
 impl AppState {
-    /// What the Plugins page shows.
     pub fn plugin_view(&self) -> PluginView {
         self.plugin_view
     }
 
-    /// The run form, while open.
     pub fn run_form(&self) -> Option<&RunForm> {
         self.run_form.as_ref()
     }
@@ -138,13 +115,11 @@ impl AppState {
         self.plugin_run.as_ref()
     }
 
-    /// Back to the plugin list.
     pub fn show_plugin_list(&mut self, cx: &mut Context<Self>) {
         self.plugin_view = PluginView::List;
         cx.notify();
     }
 
-    /// Shows the current run.
     pub fn show_plugin_run(&mut self, cx: &mut Context<Self>) {
         if self.plugin_run.is_some() {
             self.plugin_view = PluginView::Run;
@@ -152,7 +127,6 @@ impl AppState {
         }
     }
 
-    /// Opens the run form for `plugin`, pre-filled from its manifest and `Defaults`.
     pub fn open_run_form(&mut self, plugin: String, cx: &mut Context<Self>) {
         self.navigate(Route::Plugins, cx);
         let work_plugin = plugin.clone();
@@ -222,7 +196,6 @@ impl AppState {
         }
     }
 
-    /// Closes the form.
     pub fn close_run_form(&mut self, cx: &mut Context<Self>) {
         self.run_form = None;
         self.plugin_view = PluginView::List;
@@ -255,7 +228,6 @@ impl AppState {
         cx.notify();
     }
 
-    /// Picks a repo for the `hf-model` input `field` and lists its files.
     pub fn choose_hf_repo(&mut self, field: String, repo: String, cx: &mut Context<Self>) {
         self.set_input(InputSlot::Field(field), repo.clone());
         self.load_hf_files(repo, cx);
@@ -463,7 +435,6 @@ impl AppState {
         cx.notify();
     }
 
-    /// Whether a run is under way.
     pub fn is_running_plugin(&self) -> bool {
         self.ops.is_running(Op::PluginRun)
     }
@@ -524,7 +495,6 @@ impl AppState {
     }
 }
 
-/// The first required input left empty.
 fn missing_required(
     info: &PluginInfo,
     inputs: &std::collections::BTreeMap<String, InputValue>,

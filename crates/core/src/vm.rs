@@ -28,7 +28,6 @@ except Exception as _e:
 print("__CPG_RESULT__ " + json.dumps(_r))
 "#;
 
-/// Parses the reply of [`PROBE_HARDWARE`].
 pub fn parse_hardware(v: &serde_json::Value) -> Hardware {
     Hardware {
         gpu: v.get("gpu").and_then(|g| g.as_str()).map(str::to_owned),
@@ -39,9 +38,7 @@ pub fn parse_hardware(v: &serde_json::Value) -> Hardware {
     }
 }
 
-/// Env var naming the run id for the plugin snippets.
 pub const ENV_RUN_ID: &str = "CPG_RUN_ID";
-/// Env var naming the script file for [`plugin_launch_snippet`].
 pub const ENV_SCRIPT_NAME: &str = "CPG_SCRIPT_NAME";
 /// Env var with the log byte offset for [`plugin_poll_snippet`].
 pub const ENV_LOG_OFFSET: &str = "CPG_LOG_OFFSET";
@@ -51,7 +48,6 @@ pub const ENV_LOG_OFFSET: &str = "CPG_LOG_OFFSET";
 /// from the CLI's local history of executed cells).
 pub const ENV_SECRET_KEYS: &str = "CPG_SECRET_KEYS";
 
-/// Run directory of a plugin run on the VM.
 pub fn run_dir(run_id: &str) -> String {
     format!("{VM_BASE}/runs/{run_id}")
 }
@@ -159,25 +155,21 @@ print("__CPG_RESULT__ " + json.dumps({{"signalled": _ok}}))
     )
 }
 
-/// State reported in `status.json`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum RunState {
     /// No `status.json` yet.
     #[default]
     Starting,
-    /// Working.
     Running,
     /// Done; endpoints may be tunnelled.
     Ready,
-    /// Gave up.
     Failed,
 }
 
 /// Parsed `status.json` (all text is untrusted plugin output; display only).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RunStatus {
-    /// State.
     pub state: RunState,
     /// Current stage id (should match a manifest stage).
     #[serde(default)]
@@ -193,12 +185,10 @@ pub struct RunStatus {
     pub outputs: serde_json::Map<String, serde_json::Value>,
 }
 
-/// One poll of a plugin run.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RunPoll {
     /// `status.json` content, if present and valid.
     pub status: Option<RunStatus>,
-    /// The script process is alive.
     pub alive: bool,
     /// New log text since the previous offset.
     pub log: String,
@@ -206,7 +196,6 @@ pub struct RunPoll {
     pub offset: u64,
 }
 
-/// Parses the reply of [`plugin_poll_snippet`].
 pub fn parse_poll(v: &serde_json::Value) -> Result<RunPoll> {
     let status = match v.get("status") {
         None | Some(serde_json::Value::Null) => None,

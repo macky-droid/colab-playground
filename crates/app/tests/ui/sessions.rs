@@ -61,7 +61,6 @@ fn events(app: &mut TestApp<'_>) -> Vec<ProvisionEvent> {
     })
 }
 
-/// Opens the dialog on `scenario`, applies `edit` to the form and starts.
 fn provision(
     app: &mut TestApp<'_>,
     edit: impl FnOnce(&mut colab_playground_core::provision::ProvisionSpec),
@@ -304,8 +303,8 @@ fn a_request_colab_never_answers_fails_once_without_retrying(cx: &mut TestAppCon
     assert!(left.runtimes.is_empty(), "{left:?}");
 }
 
-/// What [`progress::no_answer_note`] draws for `progress` at `now`. A headless backend call
-/// runs to completion in one go, so a request still waiting cannot be caught in the app itself.
+/// A headless backend call runs to completion in one go, so a request still waiting cannot be
+/// caught in the app itself: the note is drawn on its own.
 struct NoAnswerNote {
     progress: ProvisionProgress,
     now: SystemTime,

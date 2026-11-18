@@ -1,5 +1,5 @@
 //! Overview: the first-run checklist until everything is set up, then the compute-unit
-//! summary. Batch 2 adds the quick-deploy cards below.
+//! summary.
 
 use std::rc::Rc;
 
@@ -33,7 +33,6 @@ use crate::{
     ui::{error_view, tagged},
 };
 
-/// Selector of the checklist card.
 pub const CHECKLIST_SELECTOR: &str = "overview-checklist";
 /// Selector of the summary card shown once set up.
 pub const SUMMARY_SELECTOR: &str = "overview-summary";
@@ -41,17 +40,13 @@ pub const SUMMARY_SELECTOR: &str = "overview-summary";
 pub const RUNTIMES_INCOMPLETE_SELECTOR: &str = "summary runtimes-incomplete";
 /// Selector of the line naming the accounts a runtime count leaves out.
 pub const RUNTIMES_UNCOUNTED_SELECTOR: &str = "summary runtimes-uncounted";
-/// Selector around the Install button.
 pub const INSTALL_SELECTOR: &str = "install-start";
 /// Selector around the Cancel button of a running install.
 pub const INSTALL_CANCEL_SELECTOR: &str = "install-cancel";
-/// Selector of the install log.
 pub const INSTALL_LOG_SELECTOR: &str = "install-log";
 /// Selector around the sign-in button of the checklist.
 pub const SIGN_IN_SELECTOR: &str = "checklist-sign-in";
-/// Selector around "Check again".
 pub const CHECK_AGAIN_SELECTOR: &str = "checklist-check-again";
-/// Selector around the quick-deploy cards.
 pub const QUICK_DEPLOY_SELECTOR: &str = "overview-quick-deploy";
 
 /// The selector of a checklist step, with its state: `step <name> <state>`.
@@ -72,7 +67,6 @@ pub fn step_selector(step: EnvironmentStep, state: &StepState) -> String {
     format!("step {name} {state}")
 }
 
-/// The Overview page.
 pub fn render(state: &AppState, handle: &Entity<AppState>, cx: &App) -> Page {
     let mut page = super::page(Route::Overview, keys::OVERVIEW_SUBTITLE, cx);
     if let Some(error) = state.backend_error() {

@@ -22,9 +22,7 @@ use crate::{
     ui::{error_view, tagged},
 };
 
-/// Selector of the Install button.
 pub const INSTALL_CONFIRM: &str = "plugin-install-confirm";
-/// Selector of the Remove button.
 pub const REMOVE_CONFIRM: &str = "plugin-remove-confirm";
 
 fn fact(label: SharedString, value: SharedString, cx: &App) -> impl IntoElement {

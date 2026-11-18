@@ -16,33 +16,24 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 /// Environment variable that replaces the config directory (tests point it at a tempdir).
 pub const CONFIG_DIR_ENV: &str = "COLAB_PLAYGROUND_CONFIG_DIR";
-/// The app's folder under the OS config dir.
 pub const APP_DIR_NAME: &str = "colab-playground";
-/// The settings file inside the config directory.
 pub const SETTINGS_FILE: &str = "settings.json";
-/// Where an unreadable settings file is moved.
 pub const CORRUPT_SUFFIX: &str = ".corrupt";
 
 /// The language the user picked; `System` resolves through the OS locale.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum LanguagePref {
-    /// Follow the operating system's language.
     #[default]
     #[serde(rename = "system")]
     System,
-    /// English (United States).
     #[serde(rename = "en-US")]
     EnUs,
-    /// Simplified Chinese.
     #[serde(rename = "zh-CN")]
     ZhCn,
-    /// Traditional Chinese (Taiwan).
     #[serde(rename = "zh-TW")]
     ZhTw,
-    /// Japanese.
     #[serde(rename = "ja-JP")]
     JaJp,
-    /// Korean.
     #[serde(rename = "ko-KR")]
     KoKr,
 }
@@ -70,32 +61,26 @@ impl LanguagePref {
         }
     }
 
-    /// The choice with this [`Self::value`].
     pub fn from_value(value: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|pref| pref.value() == value)
     }
 }
 
-/// Light, dark, or as the operating system is.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AppearancePref {
     /// Follow the operating system, including live changes.
     #[default]
     System,
-    /// Always light.
     Light,
-    /// Always dark.
     Dark,
 }
 
 /// Everything the user can set. Add fields with `#[serde(default, deserialize_with = "lenient")]`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Settings {
-    /// Display language.
     #[serde(default, deserialize_with = "lenient")]
     pub language: LanguagePref,
-    /// Light, dark or system appearance.
     #[serde(default, deserialize_with = "lenient")]
     pub appearance: AppearancePref,
     /// Policy defaults for new runtimes (core's `Defaults`; pushed to the backend). Read field by
@@ -140,7 +125,6 @@ pub struct Settings {
         skip_serializing_if = "Option::is_none"
     )]
     pub update_latest: Option<String>,
-    /// The release whose notice the user dismissed.
     #[serde(
         default,
         deserialize_with = "lenient",
@@ -250,30 +234,23 @@ impl Settings {
     }
 }
 
-/// What loading found.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LoadOutcome {
     /// No config directory could be determined; nothing is read or saved.
     NoConfigDir,
-    /// No settings file yet.
     Missing,
-    /// The file was read.
     Loaded,
     /// The file could not be read or parsed; defaults are in use.
     Corrupt {
-        /// What went wrong.
         error: String,
         /// Where the bad file was moved, if moving it worked.
         backup: Option<PathBuf>,
     },
 }
 
-/// Settings plus how they were obtained.
 #[derive(Clone, Debug)]
 pub struct Loaded {
-    /// The settings to use.
     pub settings: Settings,
-    /// How they were obtained.
     pub outcome: LoadOutcome,
     /// `defaults` fields that held invalid values and went back to their default.
     pub reset_defaults: Vec<String>,
@@ -310,7 +287,6 @@ pub fn folder_url(dir: &Path) -> Result<String, String> {
         .map_err(|()| format!("{} cannot be written as a URL", absolute.display()))
 }
 
-/// Reads and writes `settings.json` in one directory.
 #[derive(Clone, Debug)]
 pub struct SettingsStore {
     dir: Option<PathBuf>,
@@ -322,12 +298,10 @@ impl SettingsStore {
         Self { dir }
     }
 
-    /// The config directory, if any.
     pub fn dir(&self) -> Option<&Path> {
         self.dir.as_deref()
     }
 
-    /// The settings file, if there is a config directory.
     pub fn file(&self) -> Option<PathBuf> {
         self.dir.as_ref().map(|dir| dir.join(SETTINGS_FILE))
     }

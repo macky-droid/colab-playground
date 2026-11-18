@@ -20,9 +20,7 @@ use crate::{
     ui::tagged,
 };
 
-/// Selector of "Stop all and quit".
 pub const QUIT_STOP_ALL: &str = "quit-stop-all";
-/// Selector of "Leave running and quit".
 pub const QUIT_LEAVE: &str = "quit-leave";
 /// Selector of the line saying the app is still checking what runs.
 pub const QUIT_CHECKING: &str = "quit-checking";

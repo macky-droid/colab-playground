@@ -28,7 +28,6 @@ use crate::{
     ui::{Inputs, error_view, tagged},
 };
 
-/// The open account dialog, if any.
 pub fn render(
     state: &AppState,
     handle: &Entity<AppState>,
