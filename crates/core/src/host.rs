@@ -425,7 +425,8 @@ impl Host {
                 let _ = pipe.write_all(&bytes);
             });
         }
-        Ok(HostChild::start(self.clone(), child, stdin))
+        let wsl = matches!(self, Host::Wsl { .. });
+        Ok(HostChild::start(self.clone(), child, stdin, wsl))
     }
 
     /// Runs `program` directly (no shell) on the local machine. Only valid for
@@ -454,7 +455,7 @@ impl Host {
             }
             _ => Error::from(e),
         })?;
-        let mut child = HostChild::start(Host::Local, child, None);
+        let mut child = HostChild::start(Host::Local, child, None, false);
         child.direct = true;
         collect(&mut child, timeout, cancel, &mut |_| LineAction::Continue)
     }
@@ -477,7 +478,7 @@ impl Host {
             };
             match spawn_invocation(&inv, Stdio::null()) {
                 Ok(child) => {
-                    let mut child = HostChild::start(Host::Local, child, None);
+                    let mut child = HostChild::start(Host::Local, child, None, true);
                     child.direct = true;
                     match collect(
                         &mut child,
@@ -487,17 +488,16 @@ impl Host {
                     ) {
                         Ok(out) => {
                             report.wsl_installed = true;
-                            report.wsl_distros = out
-                                .stdout
-                                .lines()
-                                .map(|l| {
-                                    l.trim_matches(|c: char| c.is_whitespace() || c == '\0')
-                                        .to_owned()
-                                })
-                                .filter(|l| !l.is_empty())
-                                .collect();
-                            if !out.success() {
-                                report.errors.push(format!("wsl -l failed: {}", out.stderr));
+                            // Without a usable WSL (no distribution, or only the inbox
+                            // stub that offers `--install`) `wsl -l` fails and prints
+                            // a message or its usage on stdout, which is not a distro list.
+                            if out.success() {
+                                report.wsl_distros = parse_wsl_distros(&out.stdout);
+                            } else {
+                                report.errors.push(format!(
+                                    "wsl -l failed: {}",
+                                    tail(&format!("{}\n{}", out.stdout, out.stderr), 400)
+                                ));
                             }
                         }
                         Err(e) => report.errors.push(e.to_string()),
@@ -519,6 +519,15 @@ impl Host {
         }
         report
     }
+}
+
+fn parse_wsl_distros(stdout: &str) -> Vec<String> {
+    stdout
+        .lines()
+        .map(|l| l.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}'))
+        .filter(|l| !l.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Probe script: prints `CPG key=value` lines.
@@ -786,14 +795,15 @@ impl std::fmt::Debug for HostChild {
 }
 
 impl HostChild {
-    fn start(host: Host, mut child: Child, stdin: Option<ChildStdin>) -> HostChild {
+    /// `wsl` marks output that passes through `wsl.exe`, which may be UTF-16LE.
+    fn start(host: Host, mut child: Child, stdin: Option<ChildStdin>, wsl: bool) -> HostChild {
         let (tx, rx) = mpsc::channel();
         let pgid = Arc::new(Mutex::new(None));
         if let Some(out) = child.stdout.take() {
-            spawn_reader(out, Stream::Stdout, tx.clone(), pgid.clone());
+            spawn_reader(out, Stream::Stdout, wsl, tx.clone(), pgid.clone());
         }
         if let Some(err) = child.stderr.take() {
-            spawn_reader(err, Stream::Stderr, tx, pgid.clone());
+            spawn_reader(err, Stream::Stderr, wsl, tx, pgid.clone());
         }
         HostChild {
             host,
@@ -884,20 +894,105 @@ impl Drop for HostChild {
     }
 }
 
+/// Splits a byte stream into lines of text.
+///
+/// `wsl.exe` writes its own messages (usage, errors, `-l`) in UTF-16LE whenever it
+/// ignores `WSL_UTF8`: the inbox stub on Windows without WSL and older WSL builds do.
+/// Linux programs behind it write UTF-8, which never contains NUL, so a NUL in a
+/// high-byte position of the first bytes marks a UTF-16LE stream.
+struct LineDecoder {
+    utf16: Option<bool>,
+    pending: Vec<u8>,
+}
+
+impl LineDecoder {
+    fn new(detect_utf16: bool) -> Self {
+        LineDecoder {
+            utf16: if detect_utf16 { None } else { Some(false) },
+            pending: Vec::new(),
+        }
+    }
+
+    fn push(&mut self, bytes: &[u8], out: &mut Vec<String>) {
+        self.pending.extend_from_slice(bytes);
+        if self.utf16.is_none() {
+            self.utf16 = detect_utf16(&self.pending);
+        }
+        match self.utf16 {
+            Some(false) => {
+                while let Some(pos) = self.pending.iter().position(|&b| b == b'\n') {
+                    let line: Vec<u8> = self.pending.drain(..=pos).collect();
+                    out.push(decode_line(&line[..line.len() - 1], false));
+                }
+            }
+            Some(true) => {
+                while let Some(unit) = self
+                    .pending
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .position(|u| *u == [b'\n', 0])
+                {
+                    let line: Vec<u8> = self.pending.drain(..unit * 2 + 2).collect();
+                    out.push(decode_line(&line[..line.len() - 2], true));
+                }
+            }
+            None => {}
+        }
+    }
+
+    fn finish(self) -> Option<String> {
+        if self.pending.is_empty() {
+            return None;
+        }
+        Some(decode_line(&self.pending, self.utf16.unwrap_or(false)))
+    }
+}
+
+/// `None` until the bytes so far tell. A UTF-16LE line break is `0A 00` at an even
+/// offset and arrives in one write, so a `\n` at an odd offset or at the end of what
+/// was read is UTF-8.
+fn detect_utf16(p: &[u8]) -> Option<bool> {
+    if p.starts_with(&[0xff, 0xfe]) || p.iter().skip(1).step_by(2).any(|&b| b == 0) {
+        return Some(true);
+    }
+    p.iter()
+        .enumerate()
+        .any(|(i, &b)| b == b'\n' && (i % 2 == 1 || i + 1 == p.len()))
+        .then_some(false)
+}
+
+fn decode_line(bytes: &[u8], utf16: bool) -> String {
+    let mut text = if utf16 {
+        let units: Vec<u16> = bytes
+            .chunks(2)
+            .map(|u| u16::from_le_bytes([u[0], u.get(1).copied().unwrap_or(0)]))
+            .collect();
+        String::from_utf16_lossy(&units)
+    } else {
+        String::from_utf8_lossy(bytes).into_owned()
+    };
+    if text.starts_with('\u{feff}') {
+        text.remove(0);
+    }
+    if text.ends_with('\r') {
+        text.pop();
+    }
+    text
+}
+
 fn spawn_reader<R: Read + Send + 'static>(
     mut r: R,
     stream: Stream,
+    wsl: bool,
     tx: Sender<Line>,
     pgid: Arc<Mutex<Option<u32>>>,
 ) {
     thread::spawn(move || {
         let mut buf = [0u8; 8192];
-        let mut pending: Vec<u8> = Vec::new();
-        let emit = |bytes: &[u8]| -> bool {
-            let mut text = String::from_utf8_lossy(bytes).into_owned();
-            if text.ends_with('\r') {
-                text.pop();
-            }
+        let mut decoder = LineDecoder::new(wsl);
+        let mut lines = Vec::new();
+        let emit = |text: String| -> bool {
             if stream == Stream::Stderr
                 && let Some(id) = text.strip_prefix(PGID_MARKER)
             {
@@ -912,18 +1007,17 @@ fn spawn_reader<R: Read + Send + 'static>(
             match r.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    pending.extend_from_slice(&buf[..n]);
-                    while let Some(pos) = pending.iter().position(|&b| b == b'\n') {
-                        let line: Vec<u8> = pending.drain(..=pos).collect();
-                        if !emit(&line[..line.len() - 1]) {
+                    decoder.push(&buf[..n], &mut lines);
+                    for text in lines.drain(..) {
+                        if !emit(text) {
                             return;
                         }
                     }
                 }
             }
         }
-        if !pending.is_empty() {
-            emit(&pending);
+        if let Some(text) = decoder.finish() {
+            emit(text);
         }
     });
 }
@@ -1164,6 +1258,62 @@ mod tests {
         );
     }
 
+    fn utf16le(s: &str) -> Vec<u8> {
+        s.encode_utf16().flat_map(u16::to_le_bytes).collect()
+    }
+
+    fn decode_all(detect_utf16: bool, bytes: &[u8], chunk: usize) -> Vec<String> {
+        let mut decoder = LineDecoder::new(detect_utf16);
+        let mut lines = Vec::new();
+        for part in bytes.chunks(chunk) {
+            decoder.push(part, &mut lines);
+        }
+        lines.extend(decoder.finish());
+        lines
+    }
+
+    #[test]
+    fn wsl_utf16_output_is_decoded() {
+        let text = "版权所有(c) Microsoft Corporation。保留所有权利。\r\n用法: wsl.exe [Argument]\r\n\r\n    --install <Options>";
+        let want = [
+            "版权所有(c) Microsoft Corporation。保留所有权利。",
+            "用法: wsl.exe [Argument]",
+            "",
+            "    --install <Options>",
+        ];
+        for chunk in [1, 2, 3, 7, 4096] {
+            assert_eq!(
+                decode_all(true, &utf16le(text), chunk),
+                want,
+                "chunk {chunk}"
+            );
+        }
+        let mut with_bom = vec![0xff, 0xfe];
+        with_bom.extend(utf16le("Ubuntu\r\n"));
+        assert_eq!(decode_all(true, &with_bom, 4096), ["Ubuntu"]);
+    }
+
+    #[test]
+    fn utf8_output_is_unchanged() {
+        let text = "中文 ✓ héllo\r\nsecond\nlast";
+        let want = ["中文 ✓ héllo", "second", "last"];
+        for detect in [true, false] {
+            for chunk in [1, 5, 4096] {
+                assert_eq!(decode_all(detect, text.as_bytes(), chunk), want);
+            }
+        }
+        // Local output is never treated as UTF-16, whatever it contains.
+        assert!(decode_all(false, &utf16le("ab\n"), 4096)[0].contains('\0'));
+    }
+
+    #[test]
+    fn wsl_distro_list_parsing() {
+        assert_eq!(
+            parse_wsl_distros("\u{feff}Ubuntu-24.04\n  Debian \n\n"),
+            ["Ubuntu-24.04", "Debian"]
+        );
+    }
+
     #[test]
     fn tail_respects_char_boundaries() {
         assert_eq!(tail("abc", 10), "abc");
@@ -1189,7 +1339,7 @@ mod tests {
             no_window: false,
         };
         let child = spawn_invocation(&inv, Stdio::piped()).unwrap();
-        let mut child = HostChild::start(Host::Local, child, None);
+        let mut child = HostChild::start(Host::Local, child, None, false);
         let mut pipe = child.child.stdin.take().unwrap();
         pipe.write_all("from stdin ✓\n".as_bytes()).unwrap();
         drop(pipe);
