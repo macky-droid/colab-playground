@@ -46,6 +46,8 @@ pub fn language_label(pref: LanguagePref, state: &AppState, cx: &App) -> gpui::S
         LanguagePref::EnUs => tr(cx, keys::LANG_EN_US),
         LanguagePref::ZhCn => tr(cx, keys::LANG_ZH_CN),
         LanguagePref::ZhTw => tr(cx, keys::LANG_ZH_TW),
+        LanguagePref::JaJp => tr(cx, keys::LANG_JA_JP),
+        LanguagePref::KoKr => tr(cx, keys::LANG_KO_KR),
     }
 }
 

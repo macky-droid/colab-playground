@@ -1180,6 +1180,13 @@ script = "main.py"
             p.manifest.name.get("zh-TW").map(|s| !s.is_empty()),
             Some(true)
         );
+        for tag in ["ja-JP", "ko-KR"] {
+            assert_ne!(
+                p.manifest.name.get(tag),
+                p.manifest.name.get("en"),
+                "the app asks for {tag}, which the manifest's bare language key answers"
+            );
+        }
         let ep = &p.manifest.endpoints[0];
         assert_eq!(ep.port_input.as_deref(), Some("port"));
     }

@@ -41,7 +41,7 @@ Goals
   Platform-specific code is isolated behind `cfg` and one `Host` abstraction.
 - UI built from [Ely GPUI Components](https://github.com/ELY-Open-Source/Ely-GPUI-Components).
   Never hand-roll a widget Ely already ships. Layout glue with `div()` is fine.
-- English, 简体中文, 繁體中文. Light, dark and follow-system appearance.
+- English, 简体中文, 繁體中文, 日本語, 한국어. Light, dark and follow-system appearance.
 - Colab core: CLI install, accounts (login / switch / remove), sessions (create with hardware
   targeting + retry, list, stop), port forwarding, cost guards.
 - Plugins: everything beyond the Colab core is a plugin. `llama-cpp` is bundled.
@@ -265,7 +265,7 @@ user's machine**: they declare a script that runs on the Colab VM and the ports 
 api = 1
 id = "llama-cpp"
 version = "0.1.0"
-[name]         en = "llama.cpp server"   zh-CN = "…"   zh-TW = "…"
+[name]         en = "llama.cpp server"   zh-CN = "…"   zh-TW = "…"   ja = "…"   ko = "…"
 [description]  en = "…"
 [provision]    accelerator = "A100"  min_vram_mib = 0  high_mem = false   # defaults, user-editable
 [[inputs]]     id = "repo"  type = "hf-model"  required = true   [inputs.label] en = "Model repo"
@@ -332,15 +332,16 @@ failure. It is the default in debug builds and the only backend used by UI tests
 - Plugins: installed list, install from folder / Git URL, run form generated from the manifest,
   run view (stages, log, outputs) and endpoint cards (URL, copy, health, tunnel toggle).
 - Accounts: list with usage, add (opens browser, paste code), switch, remove.
-- Settings: language (System / English / 简体中文 / 繁體中文), appearance (System / Light / Dark),
-  WSL distro, `colab` path, and **Defaults**. Persisted as JSON in the OS config dir.
+- Settings: language (System / English / 简体中文 / 繁體中文 / 日本語 / 한국어), appearance
+  (System / Light / Dark), WSL distro, `colab` path, and **Defaults**. Persisted as JSON in the
+  OS config dir.
 - **No policy value is hard-coded.** Every default lives in one serde `Defaults` struct in core
   (max runtime 2 h, spend cap, balance floor, idle timeout, `max_concurrent_sessions` 2,
   provisioning attempts 3, retry delay, `on_exhausted` = stop, usage poll intervals, default
   accelerator). Settings edits them; the new-session dialog and every plugin run form are
   pre-filled from them and can override each value for that one action.
 - i18n: Ely's `I18n` global plus the app's own catalog. A unit test asserts identical key sets
-  for `en-US`, `zh-CN`, `zh-TW`. No user-visible literal outside the catalog.
+  for `en-US`, `zh-CN`, `zh-TW`, `ja-JP`, `ko-KR`. No user-visible literal outside the catalog.
 - Theme: Ely `Theme::set_mode`; System follows the window appearance and its changes.
 - All colours, radii and sizes come from `cx.theme()`.
 
