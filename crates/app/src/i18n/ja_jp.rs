@@ -1076,10 +1076,6 @@ pub(super) const MESSAGES: Messages = &[
         "このアプリ以外で開始したランタイムは、自動停止なしで課金が続きます：",
     ),
     (SWITCH_UNMANAGED_ITEM, "{name}"),
-    (
-        SWITCH_UNMANAGED_MORE,
-        "ほかに一覧表示できなかったもの {count} 件",
-    ),
     (RUNTIME_SET_AUTO_STOP, "{time}後に自動停止を設定"),
     (AUTO_STOP_SET, "{time}後に自動停止するよう設定しました"),
     (CANCEL_AUTO_STOP_TITLE, "自動停止をキャンセルしますか？"),

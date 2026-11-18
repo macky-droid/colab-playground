@@ -44,15 +44,16 @@ fn on_sessions(app: &mut TestApp<'_>) {
     assert_eq!(app.route(), Route::Sessions);
 }
 
-/// Opens the switch dialog from ada (active) to lin; the unmanaged count it was given.
-fn ask_to_switch(app: &mut TestApp<'_>) -> Option<u32> {
+/// Opens the switch dialog from ada (active) to lin; how many unmanaged runtimes it was
+/// given, if they could be listed.
+fn ask_to_switch(app: &mut TestApp<'_>) -> Option<usize> {
     app.click(Route::Accounts.nav_selector());
     app.click(&switch_selector("lin@example.com"));
     match app.read(|state, _| state.dialog().cloned()) {
         Some(AccountDialog::Switch {
             impact: Load::Ready((impact, _)),
             ..
-        }) => impact.unmanaged_count,
+        }) => impact.unmanaged_left_running.map(|listed| listed.len()),
         other => panic!("expected the switch dialog with its impact, got {other:?}"),
     }
 }
@@ -217,21 +218,21 @@ fn switching_never_says_nothing_is_running_when_the_runtimes_are_unknown(cx: &mu
 }
 
 #[gpui::test]
-fn switching_never_takes_a_usage_reading_of_zero_for_nothing_running(cx: &mut TestAppContext) {
+fn switching_never_lets_usage_stand_in_for_runtimes_it_could_not_list(cx: &mut TestAppContext) {
     let options = Options {
         failures: MockFailures {
             unlisted_accounts: vec!["ada@example.com".into()],
             ..MockFailures::default()
         },
-        ..Options::scenario(two_accounts_nothing_running())
+        ..Options::default()
     };
     let mut app = TestApp::with(cx, options);
     let read = app.read(|state, _| state.usage_summary().known);
-    assert_eq!(read, 2, "usage was read and shows no runtime");
-    assert_eq!(
-        ask_to_switch(&mut app),
-        None,
-        "the reading is not a listing"
+    assert_eq!(read, 2, "usage was read");
+    assert_eq!(ask_to_switch(&mut app), None, "the reading is not a list");
+    assert!(
+        app.shown("switch-impact"),
+        "the managed sessions are listed"
     );
     assert!(app.shown(SWITCH_UNMANAGED_UNKNOWN_SELECTOR));
     assert!(!app.shown(SWITCH_NOTHING_SELECTOR));

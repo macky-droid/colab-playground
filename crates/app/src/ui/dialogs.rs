@@ -278,11 +278,14 @@ fn switch(
 /// What switching affects: tunnels that close and runtimes that keep billing.
 fn impact_list(impact: &SwitchImpact, now: SystemTime, state: &AppState, cx: &App) -> AnyElement {
     let theme = cx.theme();
-    // "Nothing is running" needs a known count of zero: an unknown one may hide a runtime
-    // that keeps billing.
+    // "Nothing is running" needs a list that came back empty: runtimes that could not be
+    // listed may still be billing.
     if impact.tunnels_closing.is_empty()
         && impact.sessions_left_running.is_empty()
-        && impact.unmanaged_count == Some(0)
+        && impact
+            .unmanaged_left_running
+            .as_ref()
+            .is_some_and(Vec::is_empty)
     {
         return tagged(
             SWITCH_NOTHING_SELECTOR,
@@ -340,7 +343,7 @@ fn impact_list(impact: &SwitchImpact, now: SystemTime, state: &AppState, cx: &Ap
                 })
             }));
     }
-    let Some(unmanaged_count) = impact.unmanaged_count else {
+    let Some(unmanaged) = &impact.unmanaged_left_running else {
         return tagged(
             "switch-impact",
             list.child(tagged(
@@ -350,11 +353,11 @@ fn impact_list(impact: &SwitchImpact, now: SystemTime, state: &AppState, cx: &Ap
         )
         .into_any_element();
     };
-    if unmanaged_count > 0 {
+    if !unmanaged.is_empty() {
         // Runtimes opened in the browser or elsewhere keep billing with no automatic stop.
         list = list
             .child(Paragraph::new(tr(cx, keys::SWITCH_UNMANAGED)))
-            .children(impact.unmanaged_left_running.iter().map(|runtime| {
+            .children(unmanaged.iter().map(|runtime| {
                 let label = state
                     .runtime(runtime)
                     .map(crate::state::runtime_label)
@@ -366,14 +369,6 @@ fn impact_list(impact: &SwitchImpact, now: SystemTime, state: &AppState, cx: &Ap
                     &[("name", &label)],
                 ))
             }));
-        let listed = impact.unmanaged_left_running.len() as u32;
-        if unmanaged_count > listed {
-            list = list.child(item(tr_args(
-                cx,
-                keys::SWITCH_UNMANAGED_MORE,
-                &[("count", &(unmanaged_count - listed).to_string())],
-            )));
-        }
     }
     tagged("switch-impact", list).into_any_element()
 }

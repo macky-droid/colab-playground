@@ -835,7 +835,6 @@ pub(super) const MESSAGES: Messages = &[
         "非本應用程式啟動的執行階段會繼續計費，且不會自動停止：",
     ),
     (SWITCH_UNMANAGED_ITEM, "{name}"),
-    (SWITCH_UNMANAGED_MORE, "另有 {count} 個無法列出"),
     (RUNTIME_SET_AUTO_STOP, "設定 {time}後自動停止"),
     (AUTO_STOP_SET, "已設定 {time}後自動停止"),
     (CANCEL_AUTO_STOP_TITLE, "取消自動停止？"),

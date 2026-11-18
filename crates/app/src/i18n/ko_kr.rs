@@ -995,10 +995,6 @@ pub(super) const MESSAGES: Messages = &[
         "이 앱에서 시작하지 않은 런타임은 자동 중지 없이 계속 과금됩니다:",
     ),
     (SWITCH_UNMANAGED_ITEM, "{name}"),
-    (
-        SWITCH_UNMANAGED_MORE,
-        "목록을 가져오지 못한 런타임 {count}개 더",
-    ),
     (RUNTIME_SET_AUTO_STOP, "{time} 후 자동 중지 설정"),
     (
         AUTO_STOP_SET,

@@ -815,7 +815,6 @@ pub(super) const MESSAGES: Messages = &[
         "非本应用启动的运行时会继续计费，且不会自动停止：",
     ),
     (SWITCH_UNMANAGED_ITEM, "{name}"),
-    (SWITCH_UNMANAGED_MORE, "另有 {count} 个无法列出"),
     (RUNTIME_SET_AUTO_STOP, "设置 {time}后自动停止"),
     (AUTO_STOP_SET, "已设置 {time}后自动停止"),
     (CANCEL_AUTO_STOP_TITLE, "取消自动停止？"),

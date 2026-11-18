@@ -983,10 +983,6 @@ pub(super) const MESSAGES: Messages = &[
         "Runtimes not started by this app keep billing, with no automatic stop:",
     ),
     (SWITCH_UNMANAGED_ITEM, "{name}"),
-    (
-        SWITCH_UNMANAGED_MORE,
-        "{count} more that could not be listed",
-    ),
     (RUNTIME_SET_AUTO_STOP, "Set auto-stop in {time}"),
     (AUTO_STOP_SET, "Auto-stop set for {time} from now"),
     (CANCEL_AUTO_STOP_TITLE, "Cancel auto-stop?"),

@@ -599,7 +599,6 @@ catalog_keys! {
     RUN_LIMIT_HINT => "app.b3.run_limit_hint",
     SWITCH_UNMANAGED => "app.b3.switch_unmanaged",
     SWITCH_UNMANAGED_ITEM => "app.b3.switch_unmanaged_item",
-    SWITCH_UNMANAGED_MORE => "app.b3.switch_unmanaged_more",
     UNIT_HOURS => "app.b3.unit_hours",
     UNIT_MINUTES => "app.b3.unit_minutes",
     UNIT_SECONDS => "app.b3.unit_seconds",
