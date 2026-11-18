@@ -1,5 +1,5 @@
 //! Overview: the first-run checklist until everything is set up, then the compute-unit
-//! summary. Batch 2 adds the quick-deploy cards below.
+//! summary.
 
 use std::rc::Rc;
 
