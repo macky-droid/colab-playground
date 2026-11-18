@@ -56,22 +56,39 @@ impl Numbers {
         }
     }
 
-    /// Macro arguments are tokens, not syntax. A literal right after `.` is a tuple index.
+    /// Macro arguments are tokens, not syntax. A literal after a lone `.` is a tuple index;
+    /// after `..` it ends a range.
     fn tokens(&mut self, tokens: TokenStream) {
-        let mut after_dot = false;
+        let mut dots = 0;
         for token in tokens {
+            let tuple_index = dots == 1;
             match &token {
                 TokenTree::Group(group) => self.tokens(group.stream()),
-                TokenTree::Literal(literal) if !after_dot => match Lit::new(literal.clone()) {
+                TokenTree::Literal(literal) if !tuple_index => match Lit::new(literal.clone()) {
                     Lit::Int(lit) => self.int(&lit),
                     Lit::Float(lit) => self.float(&lit),
                     _ => {}
                 },
                 _ => {}
             }
-            after_dot = matches!(&token, TokenTree::Punct(punct) if punct.as_char() == '.');
+            dots = match &token {
+                TokenTree::Punct(punct) if punct.as_char() == '.' => dots + 1,
+                _ => 0,
+            };
         }
     }
+}
+
+/// The bare numbers in `source`, each as `file:line: number`.
+fn bare_numbers(file: &str, source: &str) -> Vec<String> {
+    let ast =
+        syn::parse_file(source).unwrap_or_else(|error| panic!("{file} does not parse: {error}"));
+    let mut numbers = Numbers {
+        file: file.to_owned(),
+        hits: Vec::new(),
+    };
+    numbers.visit_file(&ast);
+    numbers.hits
 }
 
 impl<'ast> Visit<'ast> for Numbers {
@@ -104,8 +121,6 @@ fn ui_code_names_its_numbers() {
     for path in sources(&root.join("src/ui")) {
         let source = fs::read_to_string(&path)
             .unwrap_or_else(|error| panic!("{} is unreadable: {error}", path.display()));
-        let ast = syn::parse_file(&source)
-            .unwrap_or_else(|error| panic!("{} does not parse: {error}", path.display()));
         let file = path
             .strip_prefix(root)
             .expect("under the crate")
@@ -113,12 +128,7 @@ fn ui_code_names_its_numbers() {
             .map(|part| part.as_os_str().to_string_lossy())
             .collect::<Vec<_>>()
             .join("/");
-        let mut numbers = Numbers {
-            file,
-            hits: Vec::new(),
-        };
-        numbers.visit_file(&ast);
-        hits.extend(numbers.hits);
+        hits.extend(bare_numbers(&file, &source));
     }
     assert!(
         hits.is_empty(),
@@ -127,4 +137,13 @@ fn ui_code_names_its_numbers() {
          `ui::metrics`.\n{}",
         hits.join("\n")
     );
+}
+
+#[test]
+fn in_a_macro_the_ends_of_a_range_are_numbers_and_a_tuple_index_is_not() {
+    let found = |body: &str| bare_numbers("probe.rs", &format!("fn probe() {{ {body} }}"));
+    assert_eq!(found("vec![0..24];"), ["probe.rs:1: 24"]);
+    assert_eq!(found("vec![0..=24];"), ["probe.rs:1: 24"]);
+    assert_eq!(found("vec![tuple.2];"), [""; 0]);
+    assert_eq!(found("vec![nested.2.3];"), [""; 0]);
 }
