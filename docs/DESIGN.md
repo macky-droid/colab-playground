@@ -51,7 +51,7 @@ Goals
 
 Non-goals (v1)
 
-- Installers, code signing, installing updates in place, plugin marketplace/registry.
+- Installers, OS code signing and notarisation, plugin marketplace/registry.
 - Native-code or WASM plugins. Plugins are declarative (manifest + scripts that run on the VM).
 - A browser/WASM build. GPUI draws to a canvas with no DOM or accessibility tree there, the
   process-spawning backend cannot exist in WASM, and it would double the toolchain. UI tests use
@@ -100,6 +100,10 @@ Properties the code must keep. A change that breaks one is wrong even if every t
 - **Unknown usage is never treated as zero.** A failed fetch marks the data stale.
 - **The number of sessions the app creates is capped**, so a retry loop cannot fan out into many
   billed VMs.
+- **The app replaces itself only when the user asks, and only with a download whose signature
+  and checksum check out**, against the keys compiled into it. A failure at any step leaves the
+  running version in place and runnable, and a download that failed the check is never offered
+  for installing by hand.
 - **The default of every setting lives in one place**, is editable in Settings and can be
   overridden for one action. Nothing hard-codes it where it is used.
 - **No user-visible literal outside the i18n catalog**, and every locale has the same keys.

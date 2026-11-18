@@ -8,43 +8,64 @@ What the app does is in the [README](../README.md); the principles and rules beh
 
 Download the file for your computer from the
 [latest release](https://github.com/scarletkc/colab-playground/releases/latest); there is no
-installer. When the app's update check finds a newer version it opens that version's release page,
-where you download it the same way and replace the old file or app (settings and data stay where
-they are, see [Where things are stored](#where-things-are-stored)).
+installer. Later versions install from inside the app (see [Updates](#updates)); settings and data
+stay where they are (see [Where things are stored](#where-things-are-stored)).
 
-- **Windows x64:** `colab-playground-<version>-x86_64-pc-windows-msvc.exe` is the whole app; run it.
-  It is not code-signed, so SmartScreen may say "Windows protected your PC": click **More info**,
-  then **Run anyway**.
-- **Linux x64:** unpack `colab-playground-<version>-x86_64-unknown-linux-gnu.tar.gz`
-  (`tar -xzf <file>`) and run `colab-playground` in the folder it creates. It needs glibc 2.35 or
-  newer (for example Ubuntu 22.04 or Debian 12 and later) and libraries a desktop installation
-  already has: libxcb, libxkbcommon and libxkbcommon-x11.
-- **macOS 11 or later on Apple silicon:** unzip `colab-playground-<version>-aarch64-apple-darwin.zip`
-  and move `Colab Playground.app` to Applications. It is not notarised by Apple, so macOS refuses
-  the first launch: try to open it once, then open System Settings → Privacy & Security and, under
-  Security, click **Open Anyway** (offered for about an hour after the attempt) and enter your login
-  password. After that it opens normally.
+- **Windows x64:** `colab-playground-x86_64-pc-windows-msvc.exe` is the whole app; run it. It is
+  not code-signed, so SmartScreen may say "Windows protected your PC": click **More info**, then
+  **Run anyway**.
+- **Linux x64:** unpack `colab-playground-x86_64-unknown-linux-gnu.tar.gz` (`tar -xzf <file>`) and
+  run `colab-playground` in the folder it creates. It needs glibc 2.35 or newer (for example
+  Ubuntu 22.04 or Debian 12 and later) and libraries a desktop installation already has: libxcb,
+  libxkbcommon and libxkbcommon-x11.
+- **macOS 11 or later on Apple silicon:** unzip `colab-playground-aarch64-apple-darwin.zip` and
+  move `Colab Playground.app` to Applications (opened where it was unzipped, it cannot update
+  itself). It is not notarised by Apple, so macOS refuses the first launch: try to open it once,
+  then open System Settings → Privacy & Security and, under Security, click **Open Anyway**
+  (offered for about an hour after the attempt) and enter your login password. After that it opens
+  normally.
 - `SHA256SUMS` in the same release lists the SHA-256 of each file; compare it with the output of
   `sha256sum <file>` (Linux), `shasum -a 256 <file>` (macOS) or `Get-FileHash <file>` (PowerShell).
+  `SHA256SUMS.sig` is the project's signature of that list, which the app checks before it
+  installs an update ([what it covers](RELEASING.md#the-update-signature)).
 
 A download is a release build: it uses the real Colab CLI (see [Build and run](#build-and-run)), so
 the real-mode requirements below apply.
 
 ## Updates
 
-The app checks GitHub for a newer release and never downloads or installs one itself.
+The app checks GitHub for a newer release, and installs it when you ask.
 
-- **Automatic:** shortly after start-up, then at most once a day while the app runs. The time of the
-  last check is kept in the settings file, so restarting does not check again within the day. Turn
-  it off in Settings → About → "Check for updates automatically".
+- **Automatic check:** shortly after start-up, then at most once a day while the app runs. The time
+  of the last check is kept in the settings file, so restarting does not check again within the
+  day. Turn it off in Settings → About → "Check for updates automatically".
 - **By hand:** Settings → About → "Check for updates".
-- **What is sent:** one request for this repository's latest release. It carries the app's version
-  and nothing about you or your computer.
 - **When a newer version exists:** a notice appears once for that version, and the Settings entry
-  stays marked until you have updated. "Open download page" opens that release on GitHub, where you
-  download it as in [Install a release](#install-a-release).
+  stays marked until you have updated. "Download and restart", on the notice and in Settings →
+  About, first says what a restart affects: open port forwards close, runtimes keep running and
+  billing, and an auto-stop set on a runtime keeps working. It then downloads the version, checks
+  it, puts it in place of the running one and restarts; the steps are shown as they happen, and
+  Cancel works until the new version is being put in place. It waits while a runtime is being
+  started, a deployment runs, an account is being added or the CLI is being installed. "What's
+  new" opens the release page.
+- **The check before installing:** the download must match `SHA256SUMS` in the release, and
+  `SHA256SUMS` must carry the project's signature for that release (see
+  [The update signature](RELEASING.md#the-update-signature)). If anything fails, this version stays
+  as it is and keeps working. A download that fails the check is not installed, and the app does
+  not offer that version's download page either.
+- **When the app cannot update itself** it says why and offers "Open download page" instead, where
+  you download the new version as in [Install a release](#install-a-release) and replace the old
+  file or app. That happens when the app cannot write to its folder (for example
+  `C:\Program Files`), when macOS runs it from where it was unzipped (move it to Applications), for
+  a build that is not a release download (such as `cargo run`), and when its files are not laid out
+  as the download leaves them.
+- **What is sent:** the check is one request for this repository's latest release. Installing
+  downloads `SHA256SUMS`, `SHA256SUMS.sig` and the file for your computer from that release. Each
+  request carries the app's version and nothing about you or your computer.
+- On Windows the replaced program is deleted the next time the app starts.
 - A check that fails is reported in Settings → About (and in a message when you started it by hand).
-- Demo data never contacts GitHub.
+- Demo data never contacts GitHub: it simulates the download, the check and the installation, and
+  replaces nothing.
 
 ## Requirements
 
@@ -93,7 +114,10 @@ cargo run -p colab-playground -- --mock-scenario signed-out --mock-fail cli-miss
   got anyway), `ssh-busy` (the first
   forward gets HTTP 429), `plugin-fails` (at the download stage), `watchdog-restart-fails` (setting
   an auto-stop again after cancelling it cannot put the stop back on the runtime), `runtimes-fail`
-  (runtimes cannot be listed), `update-available` and `update-check-fails` (the update check).
+  (runtimes cannot be listed), `update-available` and `update-check-fails` (the update check),
+  `update-unsupported` (this copy cannot update itself), `update-download-fails`,
+  `update-unverified` (the download fails its check) and `update-install-fails` (installing an
+  update; add `update-available`).
 - Both accept `--flag value` or `--flag=value` and apply only when the mock is selected (add
   `--mock` to a release build). A simulated A100 has 40 GB first and 80 GB on the next attempt:
   set a minimum GPU memory of 70 GB to watch the retry. Git plugin installs are not simulated.

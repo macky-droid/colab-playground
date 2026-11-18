@@ -3,9 +3,9 @@
 //! One GET to the GitHub API for the latest release of this repository (the generic
 //! `colab-playground/<version>` User-Agent of [`crate::http`] is all it sends). Releases are
 //! tagged `v<version>`; versions compare by semantic-version rules (a pre-release is older than
-//! its release, build metadata is ignored) and only a strictly newer one is an update. Nothing is
-//! downloaded or installed: the result carries the release page to open in the browser, which is
-//! always a page under this repository's releases.
+//! its release, build metadata is ignored) and only a strictly newer one is an update. The check
+//! downloads nothing; the result carries the release page, always a page under this repository's
+//! releases, and the tag that [`crate::updater`] installs from.
 
 use std::cmp::Ordering;
 

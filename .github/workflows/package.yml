@@ -1,5 +1,6 @@
 # Builds the portable downloads (no installers) and either attaches them to a release or, in a
-# dry run, keeps them as workflow artifacts. Both paths run the same build and archive steps.
+# dry run, keeps them as workflow artifacts. Both paths run the same build and archive steps; a
+# release also signs SHA256SUMS, which the app checks before it installs an update.
 # How it fits into a release: docs/RELEASING.md.
 name: Package
 
@@ -11,6 +12,10 @@ on:
         description: Release tag (v<version>) to build, attach the files to and publish.
         type: string
         required: true
+    secrets:
+      UPDATE_SIGNING_KEY:
+        description: The Ed25519 private key (PEM) that signs SHA256SUMS. A release fails without it.
+        required: false
   # By hand: empty tag = dry run; a tag = rebuild that release's files and attach them.
   workflow_dispatch:
     inputs:
@@ -97,9 +102,16 @@ jobs:
             exit 1
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
-          echo "BASE=colab-playground-$version-$BUILD_TARGET" >> "$GITHUB_ENV"
+          # No version in the names: the Windows exe is the app itself and keeps its name when
+          # the app updates in place, and the folder the Linux archive unpacks stays where it
+          # is. The release tag says which version the files are.
+          echo "BASE=colab-playground-$BUILD_TARGET" >> "$GITHUB_ENV"
 
       - name: Build
+        env:
+          # Marks the binary as a release download, the only kind that replaces itself with a
+          # newer release (crates/core/src/updater/layout.rs).
+          COLAB_PLAYGROUND_RELEASE_BUILD: "1"
         run: cargo build --release --locked -p colab-playground --target "$BUILD_TARGET"
 
       - name: Package (Windows, bare exe)
@@ -230,9 +242,73 @@ jobs:
           fi
           sha256sum colab-playground-* > SHA256SUMS
           cat SHA256SUMS
+      # The app installs an update only if this signature, by a key compiled into it, covers
+      # the tag and SHA256SUMS (docs/RELEASING.md). Only a release signs: a dry run never uses
+      # the key, and a release without it fails here, so no unsigned release is published.
+      - name: No signature on a dry run
+        if: inputs.tag == ''
+        run: >-
+          echo "::notice::Dry run: SHA256SUMS is not signed. A release signs it with the
+          UPDATE_SIGNING_KEY secret (docs/RELEASING.md)."
+      # The keys the released app trusts, from the tagged commit.
+      - name: Check out the trusted update keys
+        if: inputs.tag != ''
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+          sparse-checkout: crates/core/update-keys.txt
+          sparse-checkout-cone-mode: false
+          path: source
+      - name: Sign SHA256SUMS
+        if: inputs.tag != ''
+        working-directory: dist
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+          KEYS: ${{ github.workspace }}/source/crates/core/update-keys.txt
+        run: |
+          if [ -z "$UPDATE_SIGNING_KEY" ]; then
+            echo "::error::The UPDATE_SIGNING_KEY secret is not set, so the release cannot be signed and is not published (docs/RELEASING.md, One-time repository settings)"
+            exit 1
+          fi
+          umask 077
+          key="$RUNNER_TEMP/update-signing-key.pem"
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$UPDATE_SIGNING_KEY" > "$key"
+          # What is signed: a line naming the release, then SHA256SUMS. The app rebuilds it
+          # from the tag it downloads from, so older signed files cannot pass for this release.
+          signed="$RUNNER_TEMP/signed"
+          { printf 'colab-playground %s\n' "$TAG"; cat SHA256SUMS; } > "$signed"
+          openssl pkeyutl -sign -rawin -inkey "$key" -in "$signed" -out SHA256SUMS.sig
+          # The signature must verify with a key the released app trusts, or no installed copy
+          # could accept this release. Each key is raw base64; the prefix makes it a DER
+          # public key OpenSSL reads.
+          verified=""
+          while read -r line || [ -n "$line" ]; do
+            line=$(printf '%s' "${line%%#*}" | tr -d '[:space:]')
+            [ -z "$line" ] && continue
+            { printf '\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00'; printf '%s' "$line" | base64 -d; } \
+              > "$RUNNER_TEMP/public.der"
+            if openssl pkeyutl -verify -pubin -keyform DER -inkey "$RUNNER_TEMP/public.der" \
+                -rawin -in "$signed" -sigfile SHA256SUMS.sig > /dev/null; then
+              verified=yes
+            fi
+          done < "$KEYS"
+          if [ -z "$verified" ]; then
+            echo "::error::The signature matches no key in crates/core/update-keys.txt at $TAG: UPDATE_SIGNING_KEY is not a key the app trusts"
+            exit 1
+          fi
+          ls -l SHA256SUMS.sig
       - uses: actions/upload-artifact@v7
         with:
           path: dist/SHA256SUMS
+          archive: false
+          if-no-files-found: error
+          overwrite: true
+      - if: inputs.tag != ''
+        uses: actions/upload-artifact@v7
+        with:
+          path: dist/SHA256SUMS.sig
           archive: false
           if-no-files-found: error
           overwrite: true
@@ -260,8 +336,12 @@ jobs:
           ls -l
           sha256sum -c SHA256SUMS
           count=$(find . -maxdepth 1 -type f | wc -l)
-          if [ "$count" -ne 4 ]; then
-            echo "::error::Expected 3 files and SHA256SUMS, found $count files"
+          if [ "$count" -ne 5 ]; then
+            echo "::error::Expected 3 files, SHA256SUMS and SHA256SUMS.sig, found $count files"
+            exit 1
+          fi
+          if [ ! -s SHA256SUMS.sig ]; then
+            echo "::error::SHA256SUMS.sig is missing or empty"
             exit 1
           fi
       - name: Upload the files
