@@ -95,8 +95,9 @@ does, and what Package checks before anything is attached:
 
 Each commit on `main` is a squash-merged pull request, and its subject is the pull request's title:
 **write the title as a conventional commit**, because it becomes one changelog line. Neither the
-commits inside the pull request nor the commit body appear in the changelog. The scope (`app`,
-`core`) is printed in bold before the line, and each line links to its commit.
+commits inside the pull request nor the commit body appear in the changelog, except the text of a
+`BREAKING CHANGE:` footer (see **Breaking change** below). The scope (`app`, `core`) is printed in
+bold before the line, and each line links to its commit.
 
 **Footers** (`BREAKING CHANGE:`, `Release-As:`) belong at the end of the squash commit's message.
 When merging, check the message GitHub proposes (it lists the pull request's commits) and put the
