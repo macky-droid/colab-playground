@@ -145,6 +145,10 @@ struct AccountSwitcher {
 }
 
 impl RenderOnce for AccountSwitcher {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "no Ely menu trigger is laid out like a `NavItem`; see `AccountSwitcher`"
+    )]
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = cx.theme();
         let colors = &theme.colors;
@@ -163,7 +167,6 @@ impl RenderOnce for AccountSwitcher {
             .h(theme.control_height(ControlSize::Md))
             .rounded(theme.radius(Radius::Md))
             .border_1()
-            .border_color(gpui::transparent_black())
             .text_size(theme.text_size(TextSize::Sm))
             .text_color(muted)
             .cursor_pointer()

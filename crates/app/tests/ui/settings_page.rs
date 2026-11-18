@@ -1,9 +1,9 @@
 use colab_playground::{
-    app::WINDOW_MIN_SIZE,
     i18n::{Language, keys},
     route::Route,
     settings::{AppearancePref, LanguagePref},
     ui::{
+        metrics::WINDOW_MIN_SIZE,
         pages::settings::{
             APPEARANCE_SELECTOR, FILE_PATH_SELECTOR, FILE_SELECTOR, LANGUAGE_SELECTOR,
             OPEN_FOLDER_SELECTOR,
@@ -258,8 +258,8 @@ fn the_settings_file_path_fits_the_row_at_the_minimum_window_size(cx: &mut TestA
         ..Options::default()
     };
     let mut app = open_settings(cx, options);
-    for (width, height) in [crate::support::WINDOW, WINDOW_MIN_SIZE] {
-        app.resize(width, height);
+    for window in [crate::support::WINDOW, WINDOW_MIN_SIZE] {
+        app.resize(window);
         let page = app.bounds(PAGE_SELECTOR).expect("the page area");
         let control = app
             .bounds(FILE_SELECTOR)
@@ -270,7 +270,7 @@ fn the_settings_file_path_fits_the_row_at_the_minimum_window_size(cx: &mut TestA
             .expect("the open-folder button");
         assert!(
             control.right() <= page.right(),
-            "at {width}x{height} the control ends at {:?}, past the page's {:?}",
+            "at {window:?} the control ends at {:?}, past the page's {:?}",
             control.right(),
             page.right()
         );
