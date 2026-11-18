@@ -21,7 +21,8 @@ The commands CI runs on each platform are in
 The UI tests draw nothing, so how a screen looks is checked in screenshots of the running app.
 On Windows, `scripts/screenshot.ps1` takes them without your mouse or keyboard: it starts a copy
 of the debug build on the mock backend with its own config folder, sends clicks, wheel turns,
-keys and text to that window alone, and saves what it draws.
+keys and text to that window alone, and saves what it draws. It never acts on a Colab Playground
+it did not start.
 
 ```powershell
 $id = ./scripts/screenshot.ps1 -Start -AppArgs '--mock-scenario', 'single'
@@ -33,6 +34,9 @@ $id = ./scripts/screenshot.ps1 -Start -AppArgs '--mock-scenario', 'single'
 Coordinates are pixels of the saved PNG, so read them off the last screenshot. `-SettingsJson`
 starts the app in dark mode or another language; `Get-Help ./scripts/screenshot.ps1 -Detailed`
 lists the rest.
+
+On macOS and Linux, start a debug build on the mock backend with its own config folder
+([USAGE.md](USAGE.md#demo-data)) and capture its window with the system's screenshot tool.
 
 ## Manual smoke checklist (real mode)
 

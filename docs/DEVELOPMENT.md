@@ -33,9 +33,9 @@ The code is the source of truth for what the app does.
    the `main` ruleset requires a pull request
    ([RELEASING.md](RELEASING.md#one-time-repository-settings)).
 3. If the change touches the interface, confirm it by looking at screenshots of the running app;
-   the UI tests run headless and draw nothing. Take them with the screenshot script
-   ([TESTING.md](TESTING.md#screenshots)), in the states the change is about, such as the
-   smallest window, the longest translation or dark mode.
+   the UI tests run headless and draw nothing. Take them as [TESTING.md](TESTING.md#screenshots)
+   describes, in the states the change is about, such as the smallest window, the longest
+   translation or dark mode.
 4. Wait for the three CI jobs to pass on a branch that is up to date with `main`. No approving
    review is needed.
 5. Merge with **Squash and merge**, the only method the repository allows. The pull request's

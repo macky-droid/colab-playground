@@ -4,14 +4,17 @@ Starts Colab Playground on the mock backend, drives its window and saves screens
 touching your mouse or keyboard. Windows only.
 
 .DESCRIPTION
--Start builds the debug app, copies it to a temporary folder (so cargo can still rebuild it) and
-runs the copy with --mock and its own config folder. It prints the process id, which every other
-call takes as -Id.
+-Start builds the debug app, copies it to a temporary folder of its own (so cargo can still
+rebuild it) and runs the copy with --mock and its own config folder. It prints the process id,
+which every other call takes as -Id.
 
 Each later call acts on that window alone, by posting window messages, in this order: -Size,
 -Click, -Hover, -Wheel, -Type, -Key, then waits -WaitMs and saves -Out. Coordinates are pixels
 of the saved PNG, so read them off the last screenshot. -Stop ends the app and deletes its
 temporary folder.
+
+A process -Start did not launch, such as your own Colab Playground, is refused: nothing is sent
+to it and it is never stopped.
 
 .EXAMPLE
 $id = ./scripts/screenshot.ps1 -Start -AppArgs '--mock-scenario', 'single'
@@ -36,13 +39,13 @@ param(
   [Parameter(ParameterSetName = 'Drive', Mandatory)]
   [Parameter(ParameterSetName = 'Stop', Mandatory)] [int]$Id,
   # Window content size in logical pixels: width, height (the app keeps at least 880, 560).
-  [Parameter(ParameterSetName = 'Drive')] [int[]]$Size,
+  [Parameter(ParameterSetName = 'Drive')] [ValidateCount(2, 2)] [int[]]$Size,
   # A left click: x, y.
-  [Parameter(ParameterSetName = 'Drive')] [int[]]$Click,
+  [Parameter(ParameterSetName = 'Drive')] [ValidateCount(2, 2)] [int[]]$Click,
   # Move the pointer there and leave it: x, y.
-  [Parameter(ParameterSetName = 'Drive')] [int[]]$Hover,
+  [Parameter(ParameterSetName = 'Drive')] [ValidateCount(2, 2)] [int[]]$Hover,
   # Wheel turns over a point: x, y, notches (positive scrolls down).
-  [Parameter(ParameterSetName = 'Drive')] [int[]]$Wheel,
+  [Parameter(ParameterSetName = 'Drive')] [ValidateCount(3, 3)] [int[]]$Wheel,
   # Text typed into the focused field.
   [Parameter(ParameterSetName = 'Drive')] [string]$Type,
   # A key pressed in the window, such as Escape to close a dialog.
@@ -62,6 +65,20 @@ param(
 $ErrorActionPreference = 'Stop'
 $runs = Join-Path ([IO.Path]::GetTempPath()) 'colab-playground-screenshots'
 
+# A copy -Start launched runs as <runs>\<its folder>\colab-playground.exe. Anything else, such
+# as your own Colab Playground, could be signed in to a real account.
+function Get-RunFolder([System.Diagnostics.Process]$process) {
+  $exe = $process.Path
+  if ($exe) {
+    $folder = [IO.Path]::GetDirectoryName($exe)
+    if ([IO.Path]::GetFileName($exe) -eq 'colab-playground.exe' -and
+        [string]::Equals([IO.Path]::GetDirectoryName($folder), $runs, [StringComparison]::OrdinalIgnoreCase)) {
+      return $folder
+    }
+  }
+  throw "process $($process.Id) was not started by -Start"
+}
+
 if ($Start) {
   $manifest = Join-Path (Split-Path $PSScriptRoot -Parent) 'Cargo.toml'
   $exe = $null
@@ -75,39 +92,59 @@ if ($Start) {
       }
     }
   if ($LASTEXITCODE -ne 0 -or -not $exe) { throw 'cargo build failed' }
-  $run = Join-Path $runs (Get-Date -Format 'yyyyMMdd-HHmmss-fff')
-  $config = Join-Path $run 'config'
-  New-Item -ItemType Directory -Force $config | Out-Null
-  Copy-Item $exe (Join-Path $run 'colab-playground.exe')
-  # Without a byte order mark, which the app's JSON parser refuses.
-  if ($SettingsJson) { [IO.File]::WriteAllText((Join-Path $config 'settings.json'), $SettingsJson) }
-  $before = $env:COLAB_PLAYGROUND_CONFIG_DIR
-  $env:COLAB_PLAYGROUND_CONFIG_DIR = $config
+  New-Item -ItemType Directory -Force $runs | Out-Null
+  # Without -Force, so two starts never share a folder.
+  $run = Join-Path $runs ('{0}-{1}' -f (Get-Date -Format 'yyyyMMdd-HHmmss'), [guid]::NewGuid().ToString('N').Substring(0, 8))
+  New-Item -ItemType Directory $run | Out-Null
+  $process = $null
   try {
-    $process = Start-Process -FilePath (Join-Path $run 'colab-playground.exe') -ArgumentList (@('--mock') + $AppArgs) -PassThru
-  } finally {
-    $env:COLAB_PLAYGROUND_CONFIG_DIR = $before
+    $config = Join-Path $run 'config'
+    New-Item -ItemType Directory $config | Out-Null
+    Copy-Item $exe (Join-Path $run 'colab-playground.exe')
+    # Without a byte order mark, which the app's JSON parser refuses.
+    if ($SettingsJson) { [IO.File]::WriteAllText((Join-Path $config 'settings.json'), $SettingsJson) }
+    # Start-Process joins its arguments with spaces; quoted the way Windows splits a command
+    # line, each stays one argument.
+    $arguments = (@('--mock') + $AppArgs | ForEach-Object {
+        if ($_ -and $_ -notmatch '[\s"]') { return $_ }
+        '"' + ($_ -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
+      }) -join ' '
+    $before = $env:COLAB_PLAYGROUND_CONFIG_DIR
+    $env:COLAB_PLAYGROUND_CONFIG_DIR = $config
+    try {
+      $process = Start-Process -FilePath (Join-Path $run 'colab-playground.exe') -ArgumentList $arguments -PassThru
+    } finally {
+      $env:COLAB_PLAYGROUND_CONFIG_DIR = $before
+    }
+    for ($i = 0; $i -lt 100 -and $process.MainWindowHandle -eq 0; $i++) {
+      if ($process.HasExited) { throw "the app exited with code $($process.ExitCode)" }
+      Start-Sleep -Milliseconds 200
+      $process.Refresh()
+    }
+    if ($process.MainWindowHandle -eq 0) { throw 'the app opened no window' }
+    # Every later call makes this check, so a copy it would refuse fails here instead.
+    [void](Get-RunFolder $process)
+  } catch {
+    # Leave nothing that no process id points to.
+    if ($process -and -not $process.HasExited) {
+      $process | Stop-Process
+      [void]$process.WaitForExit(10000)
+    }
+    Remove-Item -LiteralPath $run -Recurse -Force -ErrorAction SilentlyContinue
+    throw
   }
-  for ($i = 0; $i -lt 100 -and $process.MainWindowHandle -eq 0; $i++) {
-    if ($process.HasExited) { throw "the app exited with code $($process.ExitCode)" }
-    Start-Sleep -Milliseconds 200
-    $process.Refresh()
-  }
-  if ($process.MainWindowHandle -eq 0) { throw 'the app opened no window' }
   Start-Sleep -Milliseconds 1000
   Write-Output $process.Id
   return
 }
 
 $process = Get-Process -Id $Id
-if ($process.ProcessName -ne 'colab-playground') { throw "process $Id is not Colab Playground" }
+$folder = Get-RunFolder $process
 
 if ($Stop) {
-  $folder = Split-Path $process.Path -Parent
-  Stop-Process -Id $Id
-  $process.WaitForExit(10000) | Out-Null
-  # Only folders -Start made are deleted.
-  if ($folder.StartsWith($runs, [StringComparison]::OrdinalIgnoreCase)) { Remove-Item -Recurse -Force $folder }
+  $process | Stop-Process
+  if (-not $process.WaitForExit(10000)) { throw "process $Id is still running, so $folder is left in place" }
+  Remove-Item -LiteralPath $folder -Recurse -Force
   return
 }
 
@@ -123,7 +160,8 @@ public static class ColabPlaygroundShot {
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref POINT p);
   [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr dc, uint flags);
-  [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+  // The W form: through the A form, WM_CHAR would carry a code-page byte, not UTF-16.
+  [DllImport("user32.dll", EntryPoint = "PostMessageW")] public static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
   [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
   [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
@@ -137,7 +175,11 @@ $h = $process.MainWindowHandle
 if ($h -eq 0) { throw "process $Id has no window" }
 
 function Pack([int]$x, [int]$y) { [IntPtr]((($y -band 0xFFFF) -shl 16) -bor ($x -band 0xFFFF)) }
-function Post([uint32]$message, [IntPtr]$wParam, [IntPtr]$lParam) { [void]$win::PostMessage($h, $message, $wParam, $lParam) }
+function Post([uint32]$message, [IntPtr]$wParam, [IntPtr]$lParam) {
+  if (-not $win::PostMessage($h, $message, $wParam, $lParam)) {
+    throw ('message 0x{0:X4} was not posted: the window may have closed' -f $message)
+  }
+}
 
 if ($Size) {
   $scale = $win::GetDpiForWindow($h) / 96.0
@@ -146,7 +188,10 @@ if ($Size) {
   $frameW = ($outer.R - $outer.L) - ($inner.R - $inner.L)
   $frameH = ($outer.B - $outer.T) - ($inner.B - $inner.T)
   $width = [int]($Size[0] * $scale) + $frameW; $height = [int]($Size[1] * $scale) + $frameH
-  [void]$win::SetWindowPos($h, [IntPtr]::Zero, 0, 0, $width, $height, 0x0002 -bor 0x0004 -bor 0x0010)  # no move, z-order or activation
+  # No move, z-order change or activation.
+  if (-not $win::SetWindowPos($h, [IntPtr]::Zero, 0, 0, $width, $height, 0x0002 -bor 0x0004 -bor 0x0010)) {
+    throw 'the window was not resized: it may have closed'
+  }
   Start-Sleep -Milliseconds 400
 }
 if ($Click) {
@@ -163,11 +208,11 @@ if ($Hover) {
 if ($Wheel) {
   Post 0x0200 ([IntPtr]0) (Pack $Wheel[0] $Wheel[1])
   Start-Sleep -Milliseconds 60
-  # WM_MOUSEWHEEL carries screen coordinates.
-  $point = New-Object ColabPlaygroundShot+POINT; $point.X = $Wheel[0]; $point.Y = $Wheel[1]
-  [void]$win::ClientToScreen($h, [ref]$point)
   $delta = if ($Wheel[2] -gt 0) { -120 } else { 120 }
   for ($i = 0; $i -lt [Math]::Abs($Wheel[2]); $i++) {
+    # WM_MOUSEWHEEL carries screen coordinates, taken for each notch in case the window moved.
+    $point = New-Object ColabPlaygroundShot+POINT; $point.X = $Wheel[0]; $point.Y = $Wheel[1]
+    [void]$win::ClientToScreen($h, [ref]$point)
     Post 0x020A ([IntPtr](($delta -band 0xFFFF) -shl 16)) (Pack $point.X $point.Y)
     Start-Sleep -Milliseconds 60
   }
@@ -195,10 +240,17 @@ if ($Out) {
   [void]$win::GetClientRect($h, [ref]$rect)
   $bitmap = New-Object System.Drawing.Bitmap ($rect.R - $rect.L), ($rect.B - $rect.T)
   $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-  $dc = $graphics.GetHdc()
-  # PW_CLIENTONLY | PW_RENDERFULLCONTENT: what DirectX presents, even if covered.
-  [void]$win::PrintWindow($h, $dc, 3)
-  $graphics.ReleaseHdc($dc); $graphics.Dispose()
-  $bitmap.Save($path, [System.Drawing.Imaging.ImageFormat]::Png); $bitmap.Dispose()
+  try {
+    $dc = $graphics.GetHdc()
+    # PW_CLIENTONLY | PW_RENDERFULLCONTENT: what DirectX presents, even if covered.
+    $printed = $win::PrintWindow($h, $dc, 3)
+    $graphics.ReleaseHdc($dc)
+    # A failed capture would save a blank image over the last good one.
+    if (-not $printed) { throw 'the window was not captured: it may have closed' }
+    $bitmap.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+  } finally {
+    $graphics.Dispose()
+    $bitmap.Dispose()
+  }
   Write-Host "saved $path ($($rect.R - $rect.L)x$($rect.B - $rect.T))"
 }
