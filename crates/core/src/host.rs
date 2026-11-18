@@ -884,10 +884,7 @@ impl Drop for HostChild {
     }
 }
 
-/// Script of [`HostKeepalive`]. It waits up to `$1` tenths of a second for the
-/// D-Bus session bus socket, prints [`KEEPALIVE_READY`], then idles until stdin
-/// reaches EOF. Only a `unix:path=` address is waited for; any other (or none)
-/// is reported ready at once.
+/// `$1`: how long to wait for the session bus socket, in tenths of a second.
 const KEEPALIVE_SCRIPT: &str = r#"case ${DBUS_SESSION_BUS_ADDRESS-} in
 unix:path=*)
   sock=${DBUS_SESSION_BUS_ADDRESS#unix:path=}
@@ -899,14 +896,12 @@ esac
 printf '%s\n' __CPG_KEEPALIVE_READY__
 cat >/dev/null"#;
 
-/// Stdout line of [`KEEPALIVE_SCRIPT`] once the session bus is up or its wait ran out.
+/// Also printed when the wait for the bus runs out: a missing bus must not block the app.
 const KEEPALIVE_READY: &str = "__CPG_KEEPALIVE_READY__";
 
-/// How long [`KEEPALIVE_SCRIPT`] waits for the session bus, in tenths of a second.
 const KEEPALIVE_BUS_WAIT_TENTHS: u32 = 100;
 
-/// How long [`HostKeepalive::ensure`] waits for [`KEEPALIVE_READY`]: the bus
-/// wait plus starting WSL itself.
+/// The bus wait plus starting WSL itself.
 const KEEPALIVE_READY_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Keeps a WSL distribution running while it is held.
@@ -933,7 +928,7 @@ pub struct HostKeepalive {
 }
 
 impl HostKeepalive {
-    /// A keepalive for `host`; spawns nothing until [`HostKeepalive::ensure`].
+    /// Spawns nothing until [`HostKeepalive::ensure`].
     pub fn new(host: Host) -> HostKeepalive {
         HostKeepalive {
             host,
@@ -941,10 +936,9 @@ impl HostKeepalive {
         }
     }
 
-    /// Starts the idle process, or starts it again if it ended (after
-    /// `wsl --shutdown`, for example), and then waits until the session bus is up
-    /// (bounded). Concurrent callers wait for the same start. Returns at once
-    /// while the process runs. A failed start is retried on the next call.
+    /// Restarts the process if it ended (after `wsl --shutdown`, for example). After
+    /// a start it returns only once the session bus is up, and callers that arrive
+    /// meanwhile wait for the same start.
     pub fn ensure(&self) {
         if !matches!(self.host, Host::Wsl { .. }) {
             return;
@@ -964,7 +958,6 @@ impl HostKeepalive {
         }
     }
 
-    /// Whether the idle process is running.
     pub fn is_running(&self) -> bool {
         let mut slot = self.child.lock().unwrap_or_else(|e| e.into_inner());
         slot.as_mut()
@@ -995,7 +988,6 @@ fn keepalive_request(bus_wait_tenths: u32) -> ScriptRequest {
         .stdin_pipe()
 }
 
-/// Waits for [`KEEPALIVE_READY`]. False when `timeout` passes or the script ends first.
 fn wait_until_ready(child: &HostChild, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     loop {
@@ -1350,7 +1342,7 @@ mod tests {
         let local = HostKeepalive::new(Host::Local);
         local.ensure();
         assert!(!local.is_running());
-        // Spawns nothing: tests never start `wsl.exe` (DESIGN.md section 2).
+        // Spawns nothing: tests never start `wsl.exe` (DESIGN.md, hard safety rules).
         let wsl = HostKeepalive::new(Host::Wsl { distro: None });
         assert!(!wsl.is_running());
         let req = keepalive_request(KEEPALIVE_BUS_WAIT_TENTHS);
