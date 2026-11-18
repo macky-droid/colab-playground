@@ -26,19 +26,14 @@ use crate::{
 /// How often the automatic check asks GitHub.
 pub const UPDATE_INTERVAL: Duration = Duration::from_secs(24 * 3600);
 
-/// The state of the last update check.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum UpdateCheck {
     /// Not checked in this run.
     #[default]
     Idle,
-    /// Asking GitHub.
     Checking,
-    /// No newer release.
     UpToDate,
-    /// A newer release.
     Available(Release),
-    /// The check failed.
     Failed(Error),
 }
 
@@ -48,7 +43,6 @@ fn secs(time: SystemTime) -> u64 {
         .as_secs()
 }
 
-/// Whether `version` is newer than this build.
 pub fn is_newer(version: &str) -> bool {
     match (
         Version::parse(version),
@@ -60,7 +54,6 @@ pub fn is_newer(version: &str) -> bool {
 }
 
 impl AppState {
-    /// The last update check in this run.
     pub fn update_check(&self) -> &UpdateCheck {
         &self.update
     }
@@ -79,18 +72,15 @@ impl AppState {
         Some((version, page))
     }
 
-    /// Whether the banner for the available release is still to be shown.
     pub fn update_notice(&self) -> Option<(String, String)> {
         self.update_available()
             .filter(|(version, _)| self.settings.update_dismissed.as_deref() != Some(version))
     }
 
-    /// Whether checks run automatically.
     pub fn checks_updates(&self) -> bool {
         self.settings.check_updates.0
     }
 
-    /// Turns automatic checks on or off.
     pub fn set_check_updates(&mut self, on: bool, cx: &mut Context<Self>) {
         self.settings.check_updates = OnByDefault(on);
         self.persist_settings(cx);
@@ -111,7 +101,6 @@ impl AppState {
         }
     }
 
-    /// The manual "Check for updates".
     pub fn check_updates_now(&mut self, cx: &mut Context<Self>) {
         self.run_update_check(true, cx);
     }

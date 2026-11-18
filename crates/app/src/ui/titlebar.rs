@@ -26,7 +26,6 @@ use crate::{
     platform::Chrome,
 };
 
-/// Selector of the whole strip.
 pub const TITLE_BAR_SELECTOR: &str = "title-bar";
 /// Selector of the strip's left part, as wide as the sidebar.
 pub const BRAND_SELECTOR: &str = "title-bar-brand";
@@ -37,7 +36,6 @@ pub const MARK_SELECTOR: &str = "title-bar-mark";
 /// carry Ely's own selectors `caption-Minimize`, `caption-Maximize` and `caption-Close`.
 pub const CONTROLS_SELECTOR: &str = "title-bar-controls";
 
-/// The title strip for `chrome`.
 pub fn render(chrome: Chrome, window: &mut Window, cx: &mut App) -> AnyElement {
     let layout = chrome.layout();
     let strip = if layout.draggable {

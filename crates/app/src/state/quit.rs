@@ -19,9 +19,7 @@ pub struct Billing {
     pub watched: Vec<RuntimeRef>,
     /// Runtimes with no automatic stop.
     pub unwatched: Vec<RuntimeRef>,
-    /// A runtime is being provisioned.
     pub provisioning: bool,
-    /// A plugin run is under way.
     pub running_plugin: bool,
     /// The runtime list, or an account in it, could not be loaded, so there may be more.
     pub unknown: bool,
@@ -31,7 +29,6 @@ pub struct Billing {
 }
 
 impl Billing {
-    /// Whether anything may be billing.
     pub fn any(&self) -> bool {
         self.known() || self.unknown || self.checking
     }
@@ -45,10 +42,8 @@ impl Billing {
     }
 }
 
-/// The quit prompt.
 #[derive(Clone, Debug, PartialEq)]
 pub struct QuitPrompt {
-    /// What bills.
     pub billing: Billing,
     /// Stops that failed during "Stop all".
     pub failures: Vec<(String, Error)>,
@@ -57,10 +52,8 @@ pub struct QuitPrompt {
     pub waiting: bool,
 }
 
-/// The close decision.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum QuitState {
-    /// Ask before closing.
     #[default]
     Ask,
     /// The user decided; the window may close.
@@ -68,7 +61,6 @@ pub enum QuitState {
 }
 
 impl AppState {
-    /// What would keep billing if the app closed now.
     pub fn billing(&self) -> Billing {
         let mut billing = Billing {
             provisioning: self.ops.is_running(Op::Provision),
@@ -172,12 +164,10 @@ impl AppState {
         }
     }
 
-    /// Whether the user approved quitting.
     pub fn quit_approved(&self) -> bool {
         self.quit == QuitState::Approved
     }
 
-    /// Leaves everything running and quits.
     pub fn quit_leaving_running(&mut self, cx: &mut Context<Self>) {
         self.approve_quit(cx);
     }
@@ -306,9 +296,7 @@ impl AppState {
     }
 }
 
-/// What "Stop all" could not stop or check.
 enum Failed {
-    /// A runtime, by its label.
     Runtime(String),
     /// An account whose runtimes could not be listed.
     Account(colab_playground_core::accounts::AccountId),

@@ -41,27 +41,19 @@ use crate::tunnel::{TunnelEvent, TunnelId, TunnelInfo, TunnelSpec, TunnelState};
 use crate::usage::{AccountUsage, Usage, poll_due};
 use crate::vm::{RunState, RunStatus};
 
-/// How the simulated login fails.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MockLoginFailure {
-    /// The CLI exits before printing a URL.
     CancelledBeforeUrl,
-    /// The pasted code is rejected.
     InvalidCode,
-    /// The new credential cannot be verified.
     VerificationFailed,
 }
 
-/// Failure switches.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MockFailures {
     /// `colab` is not installed (until `install_cli` succeeds).
     pub cli_missing: bool,
-    /// `install_cli` fails.
     pub install_fails: bool,
-    /// The OS keyring is unavailable.
     pub keyring_unavailable: bool,
-    /// Login failure mode.
     pub login: Option<MockLoginFailure>,
     /// Accelerators the accounts are not entitled to.
     pub not_entitled: Vec<Accelerator>,
@@ -93,7 +85,6 @@ pub struct MockFailures {
     pub update_available: bool,
     /// The update check fails (as if GitHub could not be reached).
     pub update_check_fails: bool,
-    /// Listing runtimes fails outright.
     pub runtimes_listing_fails: bool,
     /// Accounts (by email) whose runtimes cannot be listed: listings leave their runtimes out
     /// and report each account in `RuntimesView::errors`.
@@ -123,34 +114,28 @@ impl Default for MockFailures {
     }
 }
 
-/// An account in the initial world.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MockAccount {
-    /// Email.
     pub email: String,
     /// Starting balance in compute units.
     pub balance_cu: f64,
 }
 
-/// A runtime in the initial world.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MockRuntime {
     /// Index into [`MockScenario::accounts`].
     pub account: usize,
     /// Local name (`None` = created in the browser, unmanaged).
     pub name: Option<String>,
-    /// Hardware.
     pub accelerator: Accelerator,
     /// Tracked by the app (ledger entry with the default guard policy).
     pub managed: bool,
 }
 
-/// The initial world.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MockScenario {
     /// Saved accounts; the first is active. Empty = signed out.
     pub accounts: Vec<MockAccount>,
-    /// Runtimes that already exist.
     pub runtimes: Vec<MockRuntime>,
 }
 
@@ -198,7 +183,6 @@ impl MockScenario {
         }
     }
 
-    /// One signed-in account and nothing running.
     pub fn single() -> Self {
         MockScenario {
             accounts: vec![MockAccount {
@@ -218,18 +202,13 @@ impl MockScenario {
     }
 }
 
-/// Mock configuration.
 #[derive(Clone)]
 pub struct MockConfig {
-    /// Time source.
     pub clock: Arc<dyn Clock>,
     /// Wait per simulated step (on `clock`).
     pub step_delay: Duration,
-    /// Failure switches.
     pub failures: MockFailures,
-    /// Initial world.
     pub scenario: MockScenario,
-    /// Initial defaults.
     pub defaults: Defaults,
 }
 
@@ -346,7 +325,6 @@ struct World {
     unadopted_email: Option<String>,
     /// An add-account backup is pending: the account that was in the slot.
     pending_add: Option<Option<AccountId>>,
-    /// A `LoginFlow` is alive.
     login_live: bool,
     update_checks: u32,
 }
@@ -390,7 +368,6 @@ impl World {
         }
     }
 
-    /// Saves the unadopted slot credential as an account and makes it active.
     fn adopt_unadopted(&mut self, now: SystemTime) -> Option<AccountId> {
         let email = self.unadopted_email.take()?;
         let id = match self.accounts.iter().find(|a| a.email == email) {
@@ -421,7 +398,6 @@ impl World {
         }
     }
 
-    /// Runtimes on `account` the app does not track.
     fn unmanaged_on(&self, account: &AccountId) -> Vec<RuntimeRef> {
         self.runtimes
             .iter()
@@ -561,7 +537,6 @@ impl World {
     }
 }
 
-/// The simulated backend.
 #[derive(Clone)]
 pub struct MockBackend {
     cfg: Arc<MockConfig>,
@@ -575,7 +550,6 @@ impl std::fmt::Debug for MockBackend {
 }
 
 impl MockBackend {
-    /// Builds the world from `cfg.scenario`.
     pub fn new(cfg: MockConfig) -> MockBackend {
         let now = cfg.clock.now();
         let accounts: Vec<MAccount> = cfg

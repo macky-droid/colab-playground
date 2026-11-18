@@ -44,7 +44,6 @@ use serde::{Deserialize, Serialize};
 use crate::clock::CancelToken;
 use crate::error::{Error, ErrorKind, Result};
 
-/// Where scripts run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Host {
@@ -111,7 +110,6 @@ pub const MAX_WSL_COMMAND_LINE: usize = 30_000;
 /// Windows `CREATE_NO_WINDOW` process creation flag.
 pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-/// What the child's stdin is connected to.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum StdinMode {
     /// `/dev/null` (the default). An unexpected prompt reads EOF instead of hanging.
@@ -133,26 +131,22 @@ pub struct ScriptRequest {
     pub args: Vec<String>,
     /// Extra environment variables. Keys must match `^[A-Za-z_][A-Za-z0-9_]*$`.
     pub env: Vec<(String, String)>,
-    /// Stdin wiring.
     pub stdin: StdinMode,
     /// Kill the script after this long ([`Host::run`] returns `Timeout`).
     pub timeout: Option<Duration>,
 }
 
 impl ScriptRequest {
-    /// A request for `script` with no arguments.
     pub fn new(script: impl Into<String>) -> Self {
         ScriptRequest {
             script: script.into(),
             ..Default::default()
         }
     }
-    /// Appends a positional argument.
     pub fn arg(mut self, a: impl Into<String>) -> Self {
         self.args.push(a.into());
         self
     }
-    /// Appends positional arguments.
     pub fn args<I, S>(mut self, args: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -161,57 +155,46 @@ impl ScriptRequest {
         self.args.extend(args.into_iter().map(Into::into));
         self
     }
-    /// Adds an environment variable.
     pub fn env(mut self, k: impl Into<String>, v: impl Into<String>) -> Self {
         self.env.push((k.into(), v.into()));
         self
     }
-    /// Feeds these bytes on stdin.
     pub fn stdin_bytes(mut self, data: impl Into<Vec<u8>>) -> Self {
         self.stdin = StdinMode::Bytes(data.into());
         self
     }
-    /// Keeps stdin open as a pipe.
     pub fn stdin_pipe(mut self) -> Self {
         self.stdin = StdinMode::Pipe;
         self
     }
-    /// Sets a timeout.
     pub fn timeout(mut self, d: Duration) -> Self {
         self.timeout = Some(d);
         self
     }
 }
 
-/// Which output stream a line came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Stream {
-    /// Standard output.
     Stdout,
-    /// Standard error.
     Stderr,
 }
 
 /// One line of output (without the trailing newline, lossily UTF-8 decoded).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Line {
-    /// Origin stream.
     pub stream: Stream,
     /// Text without `\n` / `\r\n`.
     pub text: String,
 }
 
-/// Returned by a line callback to keep going or kill the process tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineAction {
-    /// Keep running.
     Continue,
     /// Kill the process tree now (e.g. an unexpected interactive prompt).
     Kill,
 }
 
-/// Collected result of a finished script.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ScriptOutput {
     /// Exit code, `None` if terminated by a signal.
@@ -234,9 +217,7 @@ impl ScriptOutput {
 /// A fully specified process launch, computed without spawning anything.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Invocation {
-    /// Program to execute.
     pub program: String,
-    /// Its arguments.
     pub args: Vec<String>,
     /// Environment variables set on the spawned process itself.
     pub env: Vec<(String, String)>,
@@ -244,7 +225,6 @@ pub struct Invocation {
     pub no_window: bool,
 }
 
-/// True when `key` is a valid environment variable name.
 pub fn is_env_key(key: &str) -> bool {
     let mut chars = key.chars();
     matches!(chars.next(), Some(c) if c == '_' || c.is_ascii_alphabetic())
@@ -309,7 +289,6 @@ fn command_line_len(program: &str, args: &[String]) -> usize {
 }
 
 impl Host {
-    /// `Wsl { distro: None }` on Windows, `Local` elsewhere.
     pub fn detect() -> Host {
         if cfg!(windows) {
             Host::Wsl { distro: None }
@@ -389,13 +368,11 @@ impl Host {
         collect(&mut child, timeout, cancel, on_line)
     }
 
-    /// Runs a script to completion without a line callback.
     pub fn run_quiet(&self, req: ScriptRequest, cancel: &CancelToken) -> Result<ScriptOutput> {
         self.run(req, cancel, &mut |_| LineAction::Continue)
     }
 
-    /// Starts a long-lived script. The returned handle kills the process tree
-    /// when dropped.
+    /// The returned handle kills the process tree when dropped.
     pub fn spawn(&self, req: ScriptRequest) -> Result<HostChild> {
         if matches!(self, Host::Wsl { .. }) && !cfg!(windows) {
             return Err(
@@ -543,7 +520,6 @@ fi
 printf 'CPG home=%s\n' "$HOME"
 "#;
 
-/// What [`Host::probe`] found.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProbeReport {
     /// `wsl.exe` answered (Windows only).
@@ -552,19 +528,13 @@ pub struct ProbeReport {
     pub wsl_distros: Vec<String>,
     /// Paths of tools found on the host `PATH` (login shell).
     pub bash: Option<String>,
-    /// `ssh` path.
     pub ssh: Option<String>,
-    /// `ssh-keygen` path.
     pub ssh_keygen: Option<String>,
     /// `git` path (on the host; plugin clones use the local `git`).
     pub git: Option<String>,
-    /// `uv` path.
     pub uv: Option<String>,
-    /// `python3` path.
     pub python3: Option<String>,
-    /// `colab` path.
     pub colab: Option<String>,
-    /// `colab version` output.
     pub colab_version: Option<String>,
     /// Interpreter of the `colab` entry script (runs the account helper).
     pub helper_python: Option<String>,
@@ -572,7 +542,6 @@ pub struct ProbeReport {
     pub keyring_ok: bool,
     /// `~/.ssh/id_ed25519.pub` or `id_ecdsa.pub` exists.
     pub ssh_key_present: bool,
-    /// `$HOME` on the host.
     pub home: Option<String>,
     /// Problems encountered while probing (log text).
     pub errors: Vec<String>,
@@ -662,7 +631,6 @@ impl Toolchain {
         }
     }
 
-    /// True while `helper_python` still has to be derived.
     pub fn needs_resolution(&self) -> bool {
         self.helper_python.is_empty()
     }
@@ -720,7 +688,6 @@ fn colab_path_error(path: &str, reason: &str, interpreter: Option<&str>) -> Erro
     e
 }
 
-/// Parses the output of the resolution script (pure).
 pub fn parse_resolution(colab: &str, stdout: &str) -> Result<Toolchain> {
     let mut helper = None;
     let mut reason = None;
@@ -839,7 +806,6 @@ impl HostChild {
         self.exit
     }
 
-    /// Blocks until the process exits.
     pub fn wait(&mut self) -> Option<i32> {
         if let Some(code) = self.exit {
             return code;

@@ -27,7 +27,6 @@ use crate::{
 /// How many ended runtimes the Sessions page keeps listing.
 const ENDED_KEPT: usize = 20;
 
-/// Runtimes, forwards, guard findings and ended runtimes.
 #[derive(Default)]
 pub struct SessionsState {
     pub(crate) runtimes: Load<RuntimesView>,
@@ -42,39 +41,27 @@ pub struct SessionsState {
 /// A runtime that ended while the app watched, and why.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ended {
-    /// Which runtime.
     pub runtime: RuntimeRef,
-    /// Its name as shown.
     pub label: String,
-    /// Its account's email.
     pub email: Option<String>,
-    /// Why it ended.
     pub reason: EndReason,
     /// When (backend clock).
     pub at: Option<SystemTime>,
 }
 
-/// Why a runtime ended.
 #[derive(Clone, Debug, PartialEq)]
 pub enum EndReason {
-    /// The user stopped it.
     User,
-    /// The cost guard stopped it.
     Guard(Concern),
     /// It disappeared: its watchdog, Colab, or a stop elsewhere.
     Vanished,
 }
 
-/// The stop confirmation.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StopPrompt {
-    /// What to stop.
     pub target: RuntimeRef,
-    /// Its name as shown.
     pub label: String,
-    /// Its account's email.
     pub email: Option<String>,
-    /// Why the last attempt failed.
     pub error: Option<Error>,
 }
 
@@ -99,7 +86,6 @@ impl AppState {
         self.sessions.now.or(self.usage_now())
     }
 
-    /// One listed runtime.
     pub fn runtime(&self, target: &RuntimeRef) -> Option<&Runtime> {
         self.sessions
             .runtimes
@@ -127,12 +113,10 @@ impl AppState {
         self.sessions.stop_failures.get(target)
     }
 
-    /// The last guard round failed.
     pub fn guard_error(&self) -> Option<&Error> {
         self.sessions.guard_error.as_ref()
     }
 
-    /// Whether a stop of `target` is under way.
     pub fn is_stopping(&self, target: &RuntimeRef) -> bool {
         self.ops.is_running(Op::Stop(key_of(target)))
     }
@@ -146,7 +130,6 @@ impl AppState {
         }
     }
 
-    /// Lists runtimes on every account (and the open forwards).
     pub fn load_runtimes(&mut self, cx: &mut Context<Self>) {
         if !self.cli_installed() || !self.has_saved_accounts() {
             return;
@@ -184,7 +167,6 @@ impl AppState {
         );
     }
 
-    /// Asks before stopping `target` (any runtime on any account).
     pub fn request_stop(&mut self, target: RuntimeRef, cx: &mut Context<Self>) {
         let Some(runtime) = self.runtime(&target) else {
             return;
@@ -198,7 +180,6 @@ impl AppState {
         cx.notify();
     }
 
-    /// Stops the runtime the stop confirmation is about and ends its billing.
     pub fn confirm_stop(&mut self, cx: &mut Context<Self>) {
         let Some(Overlay::Stop(prompt)) = &self.overlay else {
             return;
@@ -322,7 +303,6 @@ impl AppState {
         cx.notify();
     }
 
-    /// Cancels the auto-stop the confirmation is about.
     pub fn confirm_cancel_auto_stop(&mut self, cx: &mut Context<Self>) {
         let Some(Overlay::CancelAutoStop(prompt)) = &self.overlay else {
             return;
@@ -331,12 +311,10 @@ impl AppState {
         self.cancel_auto_stop(target, cx);
     }
 
-    /// Whether cancelling `target`'s auto-stop is under way.
     pub fn is_cancelling_auto_stop(&self, target: &RuntimeRef) -> bool {
         self.ops.is_running(Op::CancelAutoStop(key_of(target)))
     }
 
-    /// Cancels `target`'s auto-stop (it then runs until stopped).
     pub fn cancel_auto_stop(&mut self, target: RuntimeRef, cx: &mut Context<Self>) {
         let work_target = target.clone();
         self.run_backend(
@@ -566,7 +544,6 @@ impl AppState {
         self.sessions.ended.truncate(ENDED_KEPT);
     }
 
-    /// Clears the list of ended runtimes.
     pub fn clear_ended(&mut self, cx: &mut Context<Self>) {
         self.sessions.ended.clear();
         cx.notify();

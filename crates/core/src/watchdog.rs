@@ -19,7 +19,6 @@ use crate::error::{Error, ErrorKind, Result};
 use crate::guard::GuardPolicy;
 use crate::sessions::WatchdogInfo;
 
-/// Source of the watchdog, embedded at build time.
 pub const WATCHDOG_PY: &str = include_str!("../assets/watchdog.py");
 
 /// Directory on the VM holding watchdog, heartbeat and plugin runs.
@@ -127,8 +126,6 @@ _cpg_wd_status(_cfg, _cpg_wd_alive())
     )
 }
 
-/// `--env` values for [`start_snippet`]: deadline and idle rule from
-/// `policy`, the wind-down `grace` and the wind-down `hooks`.
 pub fn start_env(
     policy: &GuardPolicy,
     grace: Duration,
@@ -197,10 +194,8 @@ _cpg_wd_status(_cfg, _cpg_wd_alive())
     )
 }
 
-/// Parsed reply of the snippets above.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WatchdogReply {
-    /// The watchdog process is running.
     pub alive: bool,
     /// It knows `TBE_RUNTIME_ADDR` (without it the release cannot work).
     pub can_release: bool,

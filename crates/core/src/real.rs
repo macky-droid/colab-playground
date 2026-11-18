@@ -47,10 +47,8 @@ use crate::usage::{AccountUsage, poll_due};
 use crate::vm::{self, RunState, RunStatus};
 use crate::watchdog;
 
-/// Configuration of a [`RealBackend`].
 #[derive(Clone)]
 pub struct RealConfig {
-    /// Where the CLI runs.
     pub host: Host,
     /// `colab` and its interpreter. `None`: discovered on first use (real
     /// app only; tests always pass explicit paths).
@@ -62,13 +60,10 @@ pub struct RealConfig {
     pub host_dir: Option<HostPath>,
     /// Environment added to every host script (tests isolate `HOME` here).
     pub base_env: Vec<(String, String)>,
-    /// Time source.
     pub clock: Arc<dyn Clock>,
     /// HTTP client for Hugging Face.
     pub http: Arc<dyn HttpClient>,
-    /// Initial defaults.
     pub defaults: Defaults,
-    /// How often plugin runs are polled.
     pub run_poll_interval: Duration,
 }
 
@@ -181,7 +176,6 @@ struct Inner {
     login_active: AtomicBool,
 }
 
-/// The backend that drives the real Colab CLI.
 #[derive(Clone)]
 pub struct RealBackend {
     inner: Arc<Inner>,
@@ -205,7 +199,7 @@ mkdir -p -- "$(dirname -- "$1")" && cp -- "$src" "$1""#;
 const SLOT_TIMEOUT: Duration = Duration::from_secs(5);
 
 impl RealBackend {
-    /// Creates the backend. Loads app-side files; spawns nothing.
+    /// Loads app-side files; spawns nothing.
     pub fn new(cfg: RealConfig) -> Result<RealBackend> {
         std::fs::create_dir_all(&cfg.local_dir)?;
         let probe_layout = DataLayout::new(cfg.local_dir.clone(), HostPath::new("/"));

@@ -30,7 +30,6 @@ use crate::sessions::{Accelerator, ServerSession, WatchdogInfo, validate_session
 /// Hard cap on attempts (a safety limit, not a user default).
 pub const MAX_ATTEMPTS_CAP: u32 = 8;
 
-/// How many times [`start_watchdog`] tries to start the VM watchdog.
 pub const WATCHDOG_ATTEMPTS: u32 = 3;
 
 /// Caps how many sessions the app keeps on one account, so a retry loop can
@@ -45,29 +44,24 @@ pub struct SessionLimit {
 }
 
 impl Default for SessionLimit {
-    /// The cap from [`crate::defaults::Defaults::default`].
     fn default() -> Self {
         crate::defaults::Defaults::default().session_limit()
     }
 }
 
-/// What to do when no attempt met the spec.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OnExhausted {
-    /// Stop the last VM and fail.
     #[default]
     StopAndFail,
     /// Keep the last VM even though it is below spec.
     KeepLast,
 }
 
-/// What to provision.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProvisionSpec {
     /// Session name (must not exist yet).
     pub name: String,
-    /// Requested hardware.
     pub accelerator: Accelerator,
     /// Request the high-RAM shape.
     pub high_mem: bool,
@@ -78,7 +72,6 @@ pub struct ProvisionSpec {
     /// Wait between attempts (pre-filled from `Defaults`).
     #[serde(with = "serde_dur")]
     pub retry_delay: Duration,
-    /// Behaviour when attempts run out.
     pub on_exhausted: OnExhausted,
     /// Cost limits; also configures the VM watchdog.
     pub guard: GuardPolicy,
@@ -97,7 +90,6 @@ impl ProvisionSpec {
         }
     }
 
-    /// Validates the spec.
     pub fn validate(&self) -> Result<()> {
         validate_session_name(&self.name)?;
         if self.min_vram_mib.is_some_and(|m| m > 0) && !self.accelerator.is_gpu() {
@@ -119,7 +111,6 @@ impl ProvisionSpec {
     }
 }
 
-/// Probed hardware of a runtime.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Hardware {
     /// GPU name from `nvidia-smi` (`None` on CPU/TPU or if probing failed).
@@ -128,7 +119,6 @@ pub struct Hardware {
     pub vram_mib: Option<u32>,
 }
 
-/// Progress of [`provision`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum ProvisionEvent {
@@ -136,56 +126,39 @@ pub enum ProvisionEvent {
     Allocating {
         /// 1-based attempt.
         attempt: u32,
-        /// Total attempts.
         max_attempts: u32,
     },
     /// `colab new` failed (retryable unless followed by `Failed`).
     AllocationFailed {
-        /// Attempt.
         attempt: u32,
-        /// Why.
         error: Error,
     },
-    /// Hardware was probed.
     Probed {
-        /// Attempt.
         attempt: u32,
-        /// GPU name.
         gpu: Option<String>,
-        /// GPU memory.
         vram_mib: Option<u32>,
     },
-    /// The hardware is below spec.
     Rejected {
-        /// Attempt.
         attempt: u32,
-        /// GPU name.
         gpu: Option<String>,
-        /// GPU memory.
         vram_mib: Option<u32>,
-        /// Required minimum.
         min_vram_mib: u32,
     },
     /// A VM is being stopped (rejected, cancelled, or cleanup).
     Releasing {
-        /// Attempt.
         attempt: u32,
     },
     /// An unnamed assignment appeared after a failed `new`.
     OrphanDetected {
-        /// Its endpoint.
         endpoint: String,
-        /// Whether it was released.
         released: bool,
     },
-    /// Waiting before the next attempt.
     Retrying {
         /// The upcoming attempt.
         attempt: u32,
         /// Delay in seconds.
         delay_secs: u64,
     },
-    /// The VM watchdog is running.
     WatchdogStarted {
         /// Its deadline (local clock), if any.
         #[serde(with = "crate::clock::serde_secs::option")]
@@ -194,35 +167,24 @@ pub enum ProvisionEvent {
     /// The VM watchdog could not be started; the session is only protected
     /// by the app-side guard while the app runs.
     WatchdogFailed {
-        /// Why.
         error: Error,
     },
-    /// Done.
     Ready {
-        /// Session name.
         name: String,
-        /// GPU name.
         gpu: Option<String>,
-        /// GPU memory.
         vram_mib: Option<u32>,
         /// Kept although below spec (`OnExhausted::KeepLast`).
         below_spec: bool,
     },
-    /// Gave up.
     Failed {
-        /// Why.
         error: Error,
     },
 }
 
-/// Result of a successful [`provision`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProvisionOutcome {
-    /// Session name.
     pub name: String,
-    /// Probed hardware.
     pub hardware: Hardware,
-    /// Attempts used.
     pub attempts: u32,
     /// Kept although below spec.
     pub below_spec: bool,
@@ -251,7 +213,6 @@ pub trait ProvisionOps {
     fn stop(&self, name: &str, cancel: &CancelToken) -> Result<StopOutcome>;
     /// Release an unnamed assignment by endpoint; `Ok(true)` if released.
     fn reap(&self, endpoint: &str, cancel: &CancelToken) -> Result<bool>;
-    /// Start the VM watchdog for `policy`.
     fn start_watchdog(
         &self,
         name: &str,

@@ -20,7 +20,6 @@ use crate::i18n::keys;
 /// value in `Defaults`).
 pub const POLL_CHECK: Duration = Duration::from_secs(5);
 
-/// The last usage fetched and the backend's time then.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct UsageCache {
     pub(crate) views: Vec<AccountUsageView>,
@@ -37,15 +36,11 @@ pub struct UsageSummary {
     pub rate_cu_per_hour: f64,
     /// Sum of known running runtimes.
     pub runtimes: u32,
-    /// Accounts with a snapshot.
     pub known: usize,
-    /// Accounts without one.
     pub unknown: usize,
-    /// Some snapshot is stale.
     pub stale: bool,
 }
 
-/// Totals over `views`.
 pub fn summarize<'a>(views: impl IntoIterator<Item = &'a AccountUsageView>) -> UsageSummary {
     let mut summary = UsageSummary::default();
     for view in views {
@@ -83,7 +78,6 @@ pub fn stale_note(snapshot: &UsageSnapshot) -> &'static str {
     }
 }
 
-/// Starts the loop that refreshes usage when core says it is due.
 pub(crate) fn start_poller(cx: &mut Context<AppState>) -> Task<()> {
     cx.spawn(async move |this, cx| {
         loop {
@@ -97,7 +91,6 @@ pub(crate) fn start_poller(cx: &mut Context<AppState>) -> Task<()> {
 }
 
 impl AppState {
-    /// Usage of every saved account, as last fetched.
     pub fn usage(&self) -> &[AccountUsageView] {
         &self.usage.views
     }
@@ -112,18 +105,15 @@ impl AppState {
         self.usage.error.as_ref()
     }
 
-    /// Usage of one account.
     pub fn usage_for(&self, id: &AccountId) -> Option<&AccountUsageView> {
         self.usage.views.iter().find(|view| &view.account == id)
     }
 
-    /// Usage of the active account.
     pub fn active_usage(&self) -> Option<&AccountUsageView> {
         let id = self.accounts.ready()?.active.as_ref()?;
         self.usage_for(id)
     }
 
-    /// Totals across saved accounts.
     pub fn usage_summary(&self) -> UsageSummary {
         let saved: Vec<AccountId> = self
             .accounts

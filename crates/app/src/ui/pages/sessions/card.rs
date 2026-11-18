@@ -33,27 +33,21 @@ use crate::{
 pub fn runtime_selector(label: &str) -> String {
     format!("runtime {label}")
 }
-/// Selector of a runtime's Stop button.
 pub fn stop_selector(label: &str) -> String {
     format!("runtime-stop {label}")
 }
-/// Selector of a runtime's Extend button.
 pub fn extend_selector(label: &str) -> String {
     format!("runtime-extend {label}")
 }
-/// Selector of a runtime's Forward button.
 pub fn forward_selector(label: &str) -> String {
     format!("runtime-forward {label}")
 }
-/// Selector of a runtime's "Cancel auto-stop" button.
 pub fn cancel_auto_stop_selector(label: &str) -> String {
     format!("runtime-cancel-auto-stop {label}")
 }
-/// Selector of a runtime's "Set auto-stop" button.
 pub fn set_auto_stop_selector(label: &str) -> String {
     format!("runtime-set-auto-stop {label}")
 }
-/// Selector of a runtime's "Switch to this account" button.
 pub fn switch_selector(label: &str) -> String {
     format!("runtime-switch {label}")
 }
