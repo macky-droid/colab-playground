@@ -101,11 +101,11 @@ fn without_a_reading_usage_is_unknown_not_zero(cx: &mut TestAppContext) {
     assert!(app.shown(&format!("{USAGE_SLOT_SELECTOR} {unknown}")));
     let summary = app.read(|state, _| state.usage_summary());
     assert_eq!((summary.known, summary.unknown), (0, 2));
+    assert!(!app.shown("unmanaged-warning"));
 
     app.click(Route::Accounts.nav_selector());
     let unknown_total = app.cx.update(|_, cx| tr(cx, keys::SUMMARY_UNKNOWN));
     assert!(app.shown(&format!("{TOTALS_SELECTOR} {unknown_total}")));
-    assert!(!app.shown("unmanaged-warning"));
 }
 
 #[gpui::test]

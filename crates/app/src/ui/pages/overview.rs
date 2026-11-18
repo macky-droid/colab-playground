@@ -745,7 +745,7 @@ pub fn unmanaged_warning(
     }
     let title = if unmanaged.iter().any(|(_, count, _)| count.is_none()) {
         keys::UNMANAGED_UNKNOWN_TITLE
-    } else if unmanaged.iter().any(|(_, _, stale)| *stale) {
+    } else if unmanaged.iter().all(|(_, _, stale)| *stale) {
         keys::UNMANAGED_LAST_TITLE
     } else {
         keys::UNMANAGED_TITLE

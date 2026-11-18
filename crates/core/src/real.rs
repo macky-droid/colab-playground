@@ -354,7 +354,9 @@ impl Inner {
                 self.st().toolchain = Some(t.clone());
                 Ok(t)
             }
-            None if self.cfg.host != Host::Local && !report.wsl_installed => {
+            None if self.cfg.host != Host::Local
+                && (!report.wsl_installed || report.wsl_distros.is_empty()) =>
+            {
                 Err(Error::new(ErrorKind::WslUnavailable))
             }
             None => Err(Error::new(ErrorKind::NotInstalled).with("program", "colab")),
