@@ -39,15 +39,23 @@ pub enum LanguagePref {
     /// Traditional Chinese (Taiwan).
     #[serde(rename = "zh-TW")]
     ZhTw,
+    /// Japanese.
+    #[serde(rename = "ja-JP")]
+    JaJp,
+    /// Korean.
+    #[serde(rename = "ko-KR")]
+    KoKr,
 }
 
 impl LanguagePref {
     /// Every choice, in the order the settings page offers them.
-    pub const ALL: [LanguagePref; 4] = [
+    pub const ALL: [LanguagePref; 6] = [
         LanguagePref::System,
         LanguagePref::EnUs,
         LanguagePref::ZhCn,
         LanguagePref::ZhTw,
+        LanguagePref::JaJp,
+        LanguagePref::KoKr,
     ];
 
     /// The stable value used in the settings file and as the select's value.
@@ -57,6 +65,8 @@ impl LanguagePref {
             LanguagePref::EnUs => "en-US",
             LanguagePref::ZhCn => "zh-CN",
             LanguagePref::ZhTw => "zh-TW",
+            LanguagePref::JaJp => "ja-JP",
+            LanguagePref::KoKr => "ko-KR",
         }
     }
 
@@ -496,6 +506,11 @@ mod tests {
     fn language_values_round_trip() {
         for pref in LanguagePref::ALL {
             assert_eq!(LanguagePref::from_value(pref.value()), Some(pref));
+            assert_eq!(
+                serde_json::to_value(pref).expect("serialises"),
+                pref.value(),
+                "the settings file and the select agree on {pref:?}"
+            );
         }
         assert_eq!(LanguagePref::from_value("de-DE"), None);
     }

@@ -8,11 +8,15 @@ needs = ["hf_token"]
 en = "Deploy a GGUF model"
 zh-CN = "部署 GGUF 模型"
 zh-TW = "部署 GGUF 模型"
+ja = "GGUF モデルをデプロイ"
+ko = "GGUF 모델 배포"
 
 [description]
 en = "Serve a Hugging Face GGUF model with llama.cpp on a Colab GPU and get an OpenAI-compatible API plus a web chat. The best quantisation that fits the assigned GPU is picked automatically."
 zh-CN = "在 Colab GPU 上用 llama.cpp 运行 Hugging Face 的 GGUF 模型，提供 OpenAI 兼容 API 和网页聊天。会根据分配到的 GPU 自动选择放得下的最佳量化版本。"
 zh-TW = "在 Colab GPU 上用 llama.cpp 執行 Hugging Face 的 GGUF 模型，提供 OpenAI 相容 API 與網頁聊天。會依分配到的 GPU 自動選擇放得下的最佳量化版本。"
+ja = "Colab の GPU 上で llama.cpp を使って Hugging Face の GGUF モデルを提供し、OpenAI 互換 API と Web チャットを利用できます。割り当てられた GPU に収まる最適な量子化が自動で選ばれます。"
+ko = "Colab GPU에서 llama.cpp로 Hugging Face의 GGUF 모델을 서비스하고 OpenAI 호환 API와 웹 채팅을 제공합니다. 할당된 GPU에 들어가는 가장 좋은 양자화가 자동으로 선택됩니다."
 
 [provision]
 accelerator = "A100"
@@ -27,10 +31,14 @@ required = true
 en = "Model repository"
 zh-CN = "模型仓库"
 zh-TW = "模型儲存庫"
+ja = "モデル リポジトリ"
+ko = "모델 저장소"
 [inputs.help]
 en = "A Hugging Face repo with GGUF files, e.g. unsloth/Qwen3-0.6B-GGUF."
 zh-CN = "包含 GGUF 文件的 Hugging Face 仓库，例如 unsloth/Qwen3-0.6B-GGUF。"
 zh-TW = "包含 GGUF 檔案的 Hugging Face 儲存庫，例如 unsloth/Qwen3-0.6B-GGUF。"
+ja = "GGUF ファイルを含む Hugging Face リポジトリ（例：unsloth/Qwen3-0.6B-GGUF）。"
+ko = "GGUF 파일이 있는 Hugging Face 저장소(예: unsloth/Qwen3-0.6B-GGUF)."
 
 [[inputs]]
 id = "quant"
@@ -41,10 +49,14 @@ default = "auto"
 en = "Quantisation"
 zh-CN = "量化"
 zh-TW = "量化"
+ja = "量子化"
+ko = "양자화"
 [inputs.help]
 en = "auto picks the highest-quality quantised file that fits the GPU memory. Full-precision files (F16, BF16, F32) are used only when the repository has nothing else."
 zh-CN = "auto 会选择显存放得下的最高质量量化文件；只有仓库里没有其他文件时才会使用全精度文件（F16、BF16、F32）。"
 zh-TW = "auto 會選擇顯示記憶體放得下的最高品質量化檔案；只有儲存庫裡沒有其他檔案時才會使用全精度檔案（F16、BF16、F32）。"
+ja = "auto は GPU メモリに収まる最高品質の量子化ファイルを選びます。フル精度のファイル（F16、BF16、F32）は、リポジトリにほかのファイルがない場合にのみ使用します。"
+ko = "auto는 GPU 메모리에 들어가는 가장 품질이 높은 양자화 파일을 선택합니다. 전체 정밀도 파일(F16, BF16, F32)은 저장소에 다른 파일이 없을 때만 사용합니다."
 
 [[inputs]]
 id = "ctx"
@@ -56,10 +68,14 @@ max = 1048576
 en = "Context length"
 zh-CN = "上下文长度"
 zh-TW = "上下文長度"
+ja = "コンテキスト長"
+ko = "컨텍스트 길이"
 [inputs.help]
 en = "0 = the model's maximum, reduced automatically if it does not fit."
 zh-CN = "0 = 模型最大值，放不下时自动减小。"
 zh-TW = "0 = 模型最大值，放不下時自動減小。"
+ja = "0 = モデルの最大値。収まらない場合は自動で小さくします。"
+ko = "0 = 모델의 최댓값. 들어가지 않으면 자동으로 줄입니다."
 
 [[inputs]]
 id = "port"
@@ -71,6 +87,8 @@ max = 65535
 en = "Server port on the VM"
 zh-CN = "VM 上的服务端口"
 zh-TW = "VM 上的服務連接埠"
+ja = "VM 上のサーバー ポート"
+ko = "VM의 서버 포트"
 
 [[inputs]]
 id = "alias"
@@ -79,10 +97,14 @@ type = "text"
 en = "Model id in the API"
 zh-CN = "API 中的模型 id"
 zh-TW = "API 中的模型 id"
+ja = "API でのモデル ID"
+ko = "API의 모델 ID"
 [inputs.help]
 en = "Leave empty to derive it from the repository name."
 zh-CN = "留空则根据仓库名推导。"
 zh-TW = "留空則依儲存庫名稱推導。"
+ja = "空欄の場合は、リポジトリ名から決めます。"
+ko = "비워 두면 저장소 이름에서 정합니다."
 
 [[inputs]]
 id = "kv"
@@ -93,6 +115,8 @@ default = "auto"
 en = "KV cache type"
 zh-CN = "KV 缓存类型"
 zh-TW = "KV 快取類型"
+ja = "KV キャッシュの型"
+ko = "KV 캐시 유형"
 
 [[inputs]]
 id = "mmproj"
@@ -102,10 +126,14 @@ default = "auto"
 en = "Vision projector"
 zh-CN = "视觉投影文件"
 zh-TW = "視覺投影檔案"
+ja = "ビジョン プロジェクター"
+ko = "비전 프로젝터"
 [inputs.help]
 en = "auto loads one if the repo has it (f16 preferred), none disables it, or part of a file name."
 zh-CN = "auto：仓库里有就加载（优先 f16）；none：不加载；也可以填文件名的一部分。"
 zh-TW = "auto：儲存庫有就載入（優先 f16）；none：不載入；也可以填檔名的一部分。"
+ja = "auto：リポジトリにあれば読み込みます（f16 を優先）。none：読み込みません。ファイル名の一部も指定できます。"
+ko = "auto: 저장소에 있으면 불러옵니다(f16 우선). none: 불러오지 않습니다. 파일 이름의 일부를 입력할 수도 있습니다."
 
 [[inputs]]
 id = "mtp"
@@ -116,6 +144,8 @@ default = "auto"
 en = "Speculative decoding (MTP)"
 zh-CN = "投机解码（MTP）"
 zh-TW = "推測解碼（MTP）"
+ja = "投機的デコーディング（MTP）"
+ko = "추측 디코딩(MTP)"
 
 [[inputs]]
 id = "llama_tag"
@@ -125,6 +155,8 @@ default = "latest"
 en = "llama.cpp build"
 zh-CN = "llama.cpp 版本"
 zh-TW = "llama.cpp 版本"
+ja = "llama.cpp のビルド"
+ko = "llama.cpp 빌드"
 
 [[inputs]]
 id = "api_key"
@@ -133,6 +165,8 @@ type = "secret"
 en = "API key (optional)"
 zh-CN = "API 密钥（可选）"
 zh-TW = "API 金鑰（選填）"
+ja = "API キー（省略可）"
+ko = "API 키(선택 사항)"
 
 [[inputs]]
 id = "extra_args"
@@ -141,6 +175,8 @@ type = "text"
 en = "Extra llama-server arguments"
 zh-CN = "额外的 llama-server 参数"
 zh-TW = "額外的 llama-server 參數"
+ja = "llama-server の追加引数"
+ko = "llama-server 추가 인수"
 
 [run]
 script = "worker.py"
@@ -151,6 +187,8 @@ id = "detect"
 en = "Check the GPU"
 zh-CN = "检查 GPU"
 zh-TW = "檢查 GPU"
+ja = "GPU を確認"
+ko = "GPU 확인"
 
 [[stages]]
 id = "plan"
@@ -158,6 +196,8 @@ id = "plan"
 en = "Choose a quantisation"
 zh-CN = "选择量化版本"
 zh-TW = "選擇量化版本"
+ja = "量子化を選択"
+ko = "양자화 선택"
 
 [[stages]]
 id = "download"
@@ -165,6 +205,8 @@ id = "download"
 en = "Download the model"
 zh-CN = "下载模型"
 zh-TW = "下載模型"
+ja = "モデルをダウンロード"
+ko = "모델 다운로드"
 
 [[stages]]
 id = "server"
@@ -172,6 +214,8 @@ id = "server"
 en = "Start the server"
 zh-CN = "启动服务"
 zh-TW = "啟動服務"
+ja = "サーバーを起動"
+ko = "서버 시작"
 
 [[stages]]
 id = "warmup"
@@ -179,6 +223,8 @@ id = "warmup"
 en = "Warm up"
 zh-CN = "预热"
 zh-TW = "預熱"
+ja = "ウォームアップ"
+ko = "워밍업"
 
 [[endpoints]]
 id = "api"
@@ -190,3 +236,5 @@ kind = "openai"
 en = "OpenAI-compatible API and web chat"
 zh-CN = "OpenAI 兼容 API 与网页聊天"
 zh-TW = "OpenAI 相容 API 與網頁聊天"
+ja = "OpenAI 互換 API と Web チャット"
+ko = "OpenAI 호환 API와 웹 채팅"

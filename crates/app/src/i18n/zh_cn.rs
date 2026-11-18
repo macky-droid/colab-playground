@@ -58,6 +58,8 @@ pub(super) const MESSAGES: Messages = &[
     (LANG_EN_US, "English"),
     (LANG_ZH_CN, "简体中文"),
     (LANG_ZH_TW, "繁體中文"),
+    (LANG_JA_JP, "日本語"),
+    (LANG_KO_KR, "한국어"),
     (SETTINGS_APPEARANCE_TITLE, "外观"),
     (
         SETTINGS_APPEARANCE_DESCRIPTION,
