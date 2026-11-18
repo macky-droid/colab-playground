@@ -106,6 +106,57 @@ mod reconciliation_tests {
         assert_eq!(vanished[0].name.as_deref(), Some("old"));
         assert!(backend.inner.st().ledger.live(&account, "new").is_some());
     }
+
+    #[test]
+    fn reused_session_names_do_not_reconcile_the_replacement() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = RealConfig::for_app(Defaults::default()).unwrap();
+        config.local_dir = dir.path().to_owned();
+        let backend = RealBackend::new(config).unwrap();
+        let account = AccountId::new("alice").unwrap();
+        let original = TrackedSession {
+            name: "reused".into(),
+            account: account.clone(),
+            endpoint: Some("old-endpoint".into()),
+            accelerator: Accelerator::T4,
+            high_mem: false,
+            gpu: None,
+            vram_mib: None,
+            policy: GuardPolicy::default(),
+            spend: SpendMeter::new(SystemTime::UNIX_EPOCH),
+            watchdog: None,
+            stopped: None,
+        };
+        for endpoint in [
+            None,
+            Some("old-endpoint".into()),
+            Some("new-endpoint".into()),
+        ] {
+            backend.inner.st().ledger.upsert(original.clone()).unwrap();
+            let sample = backend.inner.reconciliation_sample();
+            let mut replacement = original.clone();
+            replacement.endpoint = endpoint;
+            replacement.spend = SpendMeter::new(SystemTime::UNIX_EPOCH + Duration::from_secs(1));
+            backend
+                .inner
+                .st()
+                .ledger
+                .upsert(replacement.clone())
+                .unwrap();
+            let names = BTreeMap::from([("listed-endpoint".into(), "reused".into())]);
+            assert!(
+                backend
+                    .inner
+                    .reconcile(&account, &[], Some(&names), &sample)
+                    .unwrap()
+                    .is_empty()
+            );
+            assert_eq!(
+                backend.inner.st().ledger.live(&account, "reused"),
+                Some(&replacement)
+            );
+        }
+    }
 }
 
 impl RealConfig {
@@ -541,8 +592,8 @@ impl Inner {
         )
     }
 
-    fn reconciliation_sample(&self) -> BTreeMap<AccountId, BTreeSet<String>> {
-        let mut sample: BTreeMap<AccountId, BTreeSet<String>> = BTreeMap::new();
+    fn reconciliation_sample(&self) -> BTreeMap<AccountId, Vec<TrackedSession>> {
+        let mut sample: BTreeMap<AccountId, Vec<TrackedSession>> = BTreeMap::new();
         for entry in self
             .st()
             .ledger
@@ -553,7 +604,7 @@ impl Inner {
             sample
                 .entry(entry.account.clone())
                 .or_default()
-                .insert(entry.name.clone());
+                .push(entry.clone());
         }
         sample
     }
@@ -563,7 +614,7 @@ impl Inner {
         account: &AccountId,
         list: &[RemoteAssignment],
         names: Option<&BTreeMap<String, String>>,
-        sample: &BTreeMap<AccountId, BTreeSet<String>>,
+        sample: &BTreeMap<AccountId, Vec<TrackedSession>>,
     ) -> Result<Vec<RuntimeRef>> {
         let mut st = self.st();
         let live: Vec<_> = st
@@ -573,9 +624,13 @@ impl Inner {
             .filter(|e| {
                 &e.account == account
                     && e.stopped.is_none()
-                    && sample
-                        .get(account)
-                        .is_some_and(|names| names.contains(&e.name))
+                    && sample.get(account).is_some_and(|entries| {
+                        entries.iter().any(|sampled| {
+                            sampled.name == e.name
+                                && sampled.started_at() == e.started_at()
+                                && sampled.endpoint == e.endpoint
+                        })
+                    })
             })
             .cloned()
             .collect();
