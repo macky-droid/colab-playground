@@ -10,7 +10,7 @@ use colab_playground_core::{
     Error, ErrorKind,
     provision::{ProvisionEvent, ProvisionOutcome, ProvisionSpec},
 };
-use gpui::Context;
+use gpui::{Context, ScrollHandle};
 
 use super::{AppState, InputSlot, Op, Overlay};
 use crate::i18n::{keys, tr_args};
@@ -71,11 +71,14 @@ impl ProvisionProgress {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct NewSession {
     pub spec: ProvisionSpec,
     pub phase: ProvisionPhase,
     pub progress: ProvisionProgress,
+    /// New on each opening and reset when a failed or cancelled attempt is edited again, so the
+    /// form shows from the top.
+    pub scroll: ScrollHandle,
 }
 
 impl AppState {
@@ -109,6 +112,7 @@ impl AppState {
             spec,
             phase: ProvisionPhase::Editing,
             progress: ProvisionProgress::default(),
+            scroll: ScrollHandle::new(),
         });
         self.overlay = Some(Overlay::NewSession);
         self.run_backend(
@@ -241,6 +245,7 @@ impl AppState {
         {
             session.phase = ProvisionPhase::Editing;
             session.progress = ProvisionProgress::default();
+            session.scroll.set_offset(gpui::Point::default());
             let name = session.spec.name.clone();
             self.set_input(InputSlot::SessionName, name);
             cx.notify();

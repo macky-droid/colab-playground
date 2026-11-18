@@ -11,9 +11,18 @@ use gpui::{Pixels, Rems, Size, px, rems, size};
 pub const WINDOW_SIZE: Size<Pixels> = size(px(1180.0), px(780.0));
 pub const WINDOW_MIN_SIZE: Size<Pixels> = size(px(880.0), px(560.0));
 
-pub const NEW_SESSION_FORM_MAX_HEIGHT: Rems = rems(28.0);
-pub const FORWARD_BODY_MAX_HEIGHT: Rems = rems(17.0);
 pub const RUN_LOG_HEIGHT: Rems = rems(14.0);
+
+/// What a dialog keeps around its scrolling content: the window margin above and below, its
+/// padding, title, action row and the gaps between them (about 209 px). Generous on purpose:
+/// too much only leaves the dialog a little short, too little makes the dialog's own body
+/// scroll as well.
+pub const DIALOG_CHROME: Rems = rems(13.5);
+
+pub const DIALOG_SCROLLED_MIN_HEIGHT: Rems = rems(8.0);
+
+/// Ely's dialog card padding (`p_6`).
+pub const DIALOG_PADDING: Rems = rems(1.5);
 
 /// One part (hours, minutes or seconds) of a duration field; it follows the control height so
 /// it keeps up with density.

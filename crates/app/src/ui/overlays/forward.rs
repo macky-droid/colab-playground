@@ -19,12 +19,13 @@ use super::{cancel_button, close, scrolled};
 use crate::{
     i18n::{keys, tr, tr_args},
     state::{AppState, ForwardForm},
-    ui::{Inputs, error_view, metrics, tagged},
+    ui::{Inputs, error_view, tagged},
 };
 
 pub const FORWARD_SUBMIT: &str = "forward-submit";
 /// Selector of the note shown for the reserved port.
 pub const RESERVED_NOTE: &str = "forward-reserved";
+pub const FORWARD_BODY: &str = "forward-body";
 
 fn field(label: gpui::SharedString, control: impl IntoElement, cx: &App) -> impl IntoElement {
     let theme = cx.theme();
@@ -138,14 +139,12 @@ pub(super) fn render(
             .flex()
             .flex_col()
             .gap_1()
-            .child(Input::new(&inputs.health))
+            .child(tagged("forward-health", Input::new(&inputs.health)))
             .child(Caption::new(tr(cx, keys::FORWARD_HEALTH_HINT))),
         cx,
     ));
-    // At the smallest window an error would push the dialog past the window: the body scrolls.
-    let dialog = Dialog::new("forward", tr(cx, keys::FORWARD_TITLE), close(handle)).child(
-        scrolled("forward-body", metrics::FORWARD_BODY_MAX_HEIGHT, body),
-    );
+    let dialog = Dialog::new("forward", tr(cx, keys::FORWARD_TITLE), close(handle))
+        .child(scrolled(FORWARD_BODY, None, body));
     let (cancel, label) = (tr(cx, keys::ACTION_CANCEL), tr(cx, keys::FORWARD_ACTION));
     let (go, fields) = (handle.clone(), inputs.clone());
     dialog

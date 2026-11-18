@@ -3,6 +3,7 @@
 disallowed-methods = [
     { path = "gpui::px", reason = "take the size from the theme (`cx.theme()`), or name it in `ui::metrics` when the theme has none" },
     { path = "gpui::rems", reason = "take the size from the theme (`cx.theme()`), or name it in `ui::metrics` when the theme has none" },
+    { path = "gpui::Rems", reason = "take the size from the theme (`cx.theme()`), or name it in `ui::metrics` when the theme has none" },
     { path = "gpui::relative", reason = "use a layout helper (`w_full`, `w_1_2`, `flex_1`, ...), or name the size in `ui::metrics`" },
     { path = "gpui::rgb", reason = "use a colour token from `cx.theme().colors`" },
     { path = "gpui::rgba", reason = "use a colour token from `cx.theme().colors`" },
