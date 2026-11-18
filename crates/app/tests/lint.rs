@@ -11,6 +11,7 @@ use std::{
 use proc_macro2::{TokenStream, TokenTree};
 use syn::{
     Lit, LitFloat, LitInt,
+    parse::Parser,
     visit::{self, Visit},
 };
 
@@ -56,9 +57,16 @@ impl Numbers {
         }
     }
 
-    /// Macro arguments are tokens, not syntax. A literal after a lone `.` is a tuple index;
-    /// after `..` it ends a range.
+    /// Macro arguments are tokens, not syntax. Those that read as Rust statements are checked
+    /// as such, so a `const` among them still names its number. The rest go token by token: a
+    /// literal after a lone `.` is a tuple index; after `..` it ends a range.
     fn tokens(&mut self, tokens: TokenStream) {
+        if let Ok(statements) = syn::Block::parse_within.parse2(tokens.clone()) {
+            for statement in &statements {
+                self.visit_stmt(statement);
+            }
+            return;
+        }
         let mut dots = 0;
         for token in tokens {
             let tuple_index = dots == 1;
@@ -139,11 +147,28 @@ fn ui_code_names_its_numbers() {
     );
 }
 
+fn found(body: &str) -> Vec<String> {
+    bare_numbers("probe.rs", &format!("fn probe() {{ {body} }}"))
+}
+
 #[test]
 fn in_a_macro_the_ends_of_a_range_are_numbers_and_a_tuple_index_is_not() {
-    let found = |body: &str| bare_numbers("probe.rs", &format!("fn probe() {{ {body} }}"));
     assert_eq!(found("vec![0..24];"), ["probe.rs:1: 24"]);
     assert_eq!(found("vec![0..=24];"), ["probe.rs:1: 24"]);
     assert_eq!(found("vec![tuple.2];"), [""; 0]);
     assert_eq!(found("vec![nested.2.3];"), [""; 0]);
+    // Arguments that are not statements, so they are read token by token.
+    assert_eq!(found(r#"format!("{}", 0..24);"#), ["probe.rs:1: 24"]);
+    assert_eq!(found(r#"format!("{} {}", tuple.2, nested.2.3);"#), [""; 0]);
+}
+
+#[test]
+fn in_a_macro_a_const_still_names_its_number() {
+    assert_eq!(found("vec![{ const COUNT: usize = 24; COUNT }];"), [""; 0]);
+    assert_eq!(found("vec![{ 24 }];"), ["probe.rs:1: 24"]);
+    assert_eq!(
+        found(r#"format!("{}", { const COUNT: usize = 24; COUNT });"#),
+        [""; 0]
+    );
+    assert_eq!(found(r#"format!("{}", { 24 });"#), ["probe.rs:1: 24"]);
 }
