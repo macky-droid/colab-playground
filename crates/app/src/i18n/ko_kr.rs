@@ -995,10 +995,6 @@ pub(super) const MESSAGES: Messages = &[
         "이 앱에서 시작하지 않은 런타임은 자동 중지 없이 계속 과금됩니다:",
     ),
     (SWITCH_UNMANAGED_ITEM, "{name}"),
-    (
-        SWITCH_UNMANAGED_MORE,
-        "목록을 가져오지 못한 런타임 {count}개 더",
-    ),
     (RUNTIME_SET_AUTO_STOP, "{time} 후 자동 중지 설정"),
     (
         AUTO_STOP_SET,
@@ -1101,6 +1097,10 @@ pub(super) const MESSAGES: Messages = &[
     (
         SESSIONS_EMPTY_PARTIAL_TITLE,
         "목록을 가져온 계정에서는 실행 중인 것이 없습니다",
+    ),
+    (
+        SWITCH_UNMANAGED_UNKNOWN,
+        "현재 계정에 이 앱에서 시작하지 않은 런타임이 있는지 확인하지 못했습니다. 실행 중인 런타임이 있다면 자동 중지 없이 계속 과금됩니다. [세션]에서 확인하십시오. 거기에서도 이 계정의 목록을 가져오지 못하면 브라우저에서 이 계정으로 로그인하여 Colab을 확인하십시오.",
     ),
     (
         PROV_RECONCILING,
