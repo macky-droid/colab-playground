@@ -1,12 +1,30 @@
 # Developing Colab Playground
 
-How a change gets from a branch onto `main`. Elsewhere:
+How a change gets from a branch onto `main`, and how docs and comments are written. Elsewhere:
 
 - building and running the app: [USAGE.md](USAGE.md#build-and-run);
 - the tests: [TESTING.md](TESTING.md);
-- the design, and the hard safety rules every contributor follows:
-  [DESIGN.md](DESIGN.md#2-hard-safety-rules-apply-to-every-contributor-and-agent);
+- the product principle, the scope and the hard safety rules every contributor follows:
+  [DESIGN.md](DESIGN.md#hard-safety-rules);
 - releases: [RELEASING.md](RELEASING.md).
+
+## Docs and comments
+
+The code is the source of truth for what the app does.
+
+- **When a description disagrees with the code, the code wins.** Fix or delete the doc or the
+  comment. Rules are the opposite case: code that breaks the product principle, a non-goal, a
+  hard safety rule or an invariant in [DESIGN.md](DESIGN.md) is a bug in the code.
+- **No doc describes how the code works.** A walk through modules, types, argv or screens is out
+  of date as soon as the code changes. Docs hold only what cannot be read from the code: how to
+  use and build the app, the contract for plugin authors, how Colab and its CLI behave, rules and
+  scope, plans, and process.
+- **Comments say why, never what.** Write one only for what the code cannot show: a reason, an
+  invariant, a trap, or a fact about an external system (the CLI, Colab, the OS). This covers doc
+  comments (`///`, `//!`) too. `// Stop the session.` above `stop(session)` adds nothing;
+  `// Port 8080 belongs to Colab.` above the check that refuses it does. When code
+  needs a comment to be followed, try a better name or a smaller function first.
+- Point at a doc section by its heading, never by a number.
 
 ## Landing a change
 

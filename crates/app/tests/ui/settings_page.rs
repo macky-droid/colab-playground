@@ -60,6 +60,28 @@ fn picking_a_language_redraws_in_it_and_saves_it(cx: &mut TestAppContext) {
     assert!(app.shown("page settings 設定"));
     assert_eq!(app.text(keys::NAV_SESSIONS), "工作階段");
 
+    app.pick_option(LANGUAGE_SELECTOR, index(LanguagePref::JaJp), LANGUAGES);
+    assert_eq!(app.language(), Language::JaJp);
+    assert!(app.shown("page settings 設定"));
+    assert_eq!(
+        app.text(keys::NAV_SESSIONS),
+        "セッション",
+        "Japanese, not the Traditional Chinese that also titles the page 設定"
+    );
+    assert_eq!(
+        app.saved_settings().map(|settings| settings.language),
+        Some(LanguagePref::JaJp)
+    );
+
+    app.pick_option(LANGUAGE_SELECTOR, index(LanguagePref::KoKr), LANGUAGES);
+    assert_eq!(app.language(), Language::KoKr);
+    assert!(app.shown("page settings 설정"));
+    assert_eq!(app.text(keys::NAV_SESSIONS), "세션");
+    assert_eq!(
+        app.saved_settings().map(|settings| settings.language),
+        Some(LanguagePref::KoKr)
+    );
+
     app.pick_option(LANGUAGE_SELECTOR, index(LanguagePref::EnUs), LANGUAGES);
     assert_eq!(app.language(), Language::EnUs);
     assert!(app.shown("page settings Settings"));
@@ -109,6 +131,10 @@ fn ely_component_strings_follow_the_app_language(cx: &mut TestAppContext) {
     assert_eq!(ely(&mut app, "theme.light"), "浅色");
     app.update(|state, cx| state.set_language(LanguagePref::ZhTw, cx));
     assert_eq!(ely(&mut app, "theme.light"), "淺色");
+    app.update(|state, cx| state.set_language(LanguagePref::JaJp, cx));
+    assert_eq!(ely(&mut app, "theme.light"), "ライト");
+    app.update(|state, cx| state.set_language(LanguagePref::KoKr, cx));
+    assert_eq!(ely(&mut app, "theme.light"), "밝게");
 }
 
 #[gpui::test]

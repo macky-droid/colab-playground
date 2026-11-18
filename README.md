@@ -48,7 +48,8 @@ runtime to your computer and runs plugins on the runtime. Written in Rust with G
   computer. Bundled: "Deploy a GGUF model" serves a Hugging Face GGUF model with llama.cpp
   (OpenAI-compatible API plus web chat) and picks the best quantisation that fits the GPU it gets.
   Write your own with [docs/PLUGINS.md](docs/PLUGINS.md).
-- **Languages and theme.** 简体中文, 繁體中文 and English; light, dark or follow the system.
+- **Languages and theme.** 简体中文, 繁體中文, 日本語, 한국어 and English; light, dark or follow the
+  system.
 
 Every limit and default is editable in Settings and can be overridden for a single session or
 deployment.
@@ -93,10 +94,11 @@ Requirements, backend flags, demo scenarios and where settings are stored:
 - [docs/USAGE.md](docs/USAGE.md): install a release, build and run, demo data, where things are
   stored.
 - [docs/PLUGINS.md](docs/PLUGINS.md): writing a plugin (manifest, environment, status, security).
-- [docs/DESIGN.md](docs/DESIGN.md): how it works and why (source of truth for the design).
+- [docs/DESIGN.md](docs/DESIGN.md): the product principle, the scope and the rules every change
+  follows.
 - [docs/TESTING.md](docs/TESTING.md): automated tests and the manual checklist for real mode.
-- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): landing a change through a pull request, and review
-  bot comments.
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): how docs and comments are written, landing a change
+  through a pull request, and review bot comments.
 - [docs/COLAB_NOTES.md](docs/COLAB_NOTES.md): Colab and CLI behaviour the app is built around.
 - [docs/ROADMAP.md](docs/ROADMAP.md): planned but not built.
 - [docs/RELEASING.md](docs/RELEASING.md): how a release is made and what each download contains.

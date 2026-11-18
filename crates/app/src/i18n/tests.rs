@@ -103,7 +103,7 @@ fn app_code_names_keys_only_through_the_constants() {
 }
 
 #[test]
-fn os_locales_resolve_to_the_three_languages() {
+fn os_locales_resolve_to_the_shipped_languages() {
     let cases = [
         ("zh-CN", Language::ZhCn),
         ("zh_CN.UTF-8", Language::ZhCn),
@@ -119,9 +119,21 @@ fn os_locales_resolve_to_the_three_languages() {
         ("zh-Hant", Language::ZhTw),
         ("zh-Hant-TW", Language::ZhTw),
         ("ZH-hant-cn", Language::ZhTw),
+        ("ja-JP", Language::JaJp),
+        ("ja_JP.UTF-8", Language::JaJp),
+        ("ja_JP.eucJP", Language::JaJp),
+        ("JA-jp", Language::JaJp),
+        ("ja", Language::JaJp),
+        ("ko-KR", Language::KoKr),
+        ("ko_KR.UTF-8", Language::KoKr),
+        ("ko_KR.euckr", Language::KoKr),
+        ("KO-kr", Language::KoKr),
+        ("ko-Kore-KR", Language::KoKr),
+        ("ko", Language::KoKr),
         ("en-US", Language::EnUs),
         ("en-GB", Language::EnUs),
-        ("ja-JP", Language::EnUs),
+        ("jv-ID", Language::EnUs),
+        ("kok-IN", Language::EnUs),
         ("C", Language::EnUs),
         ("POSIX", Language::EnUs),
         ("", Language::EnUs),
@@ -138,4 +150,8 @@ fn a_preference_resolves_with_the_os_locale_only_for_system() {
     assert_eq!(resolve(LanguagePref::EnUs, Some("zh-CN")), Language::EnUs);
     assert_eq!(resolve(LanguagePref::ZhCn, Some("en-US")), Language::ZhCn);
     assert_eq!(resolve(LanguagePref::ZhTw, None), Language::ZhTw);
+    assert_eq!(resolve(LanguagePref::System, Some("ja-JP")), Language::JaJp);
+    assert_eq!(resolve(LanguagePref::System, Some("ko-KR")), Language::KoKr);
+    assert_eq!(resolve(LanguagePref::JaJp, Some("ko-KR")), Language::JaJp);
+    assert_eq!(resolve(LanguagePref::KoKr, Some("ja-JP")), Language::KoKr);
 }

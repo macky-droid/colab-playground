@@ -1,4 +1,4 @@
-//! User-editable defaults (DESIGN §5: no policy value is hard-coded).
+//! User-editable defaults: no policy value is hard-coded (an invariant in `docs/DESIGN.md`).
 //!
 //! Every default policy value lives in [`Defaults`]. The app persists it in its
 //! settings file and pre-fills the new-session dialog and plugin run forms
