@@ -69,6 +69,45 @@ pub struct RealConfig {
     pub run_poll_interval: Duration,
 }
 
+#[cfg(test)]
+mod reconciliation_tests {
+    use super::*;
+    use crate::sessions::Accelerator;
+
+    #[test]
+    fn entries_started_after_the_listing_sample_are_not_marked_vanished() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = RealConfig::for_app(Defaults::default()).unwrap();
+        config.local_dir = dir.path().to_owned();
+        let backend = RealBackend::new(config).unwrap();
+        let account = AccountId::new("alice").unwrap();
+        let entry = |name: &str| TrackedSession {
+            name: name.into(),
+            account: account.clone(),
+            endpoint: Some(format!("endpoint-{name}")),
+            accelerator: Accelerator::T4,
+            high_mem: false,
+            gpu: None,
+            vram_mib: None,
+            policy: GuardPolicy::default(),
+            spend: SpendMeter::new(SystemTime::UNIX_EPOCH),
+            watchdog: None,
+            stopped: None,
+        };
+        backend.inner.st().ledger.upsert(entry("old")).unwrap();
+        let sample = backend.inner.reconciliation_sample();
+        let listing = Vec::new();
+        backend.inner.st().ledger.upsert(entry("new")).unwrap();
+        let vanished = backend
+            .inner
+            .reconcile(&account, &listing, None, &sample)
+            .unwrap();
+        assert_eq!(vanished.len(), 1);
+        assert_eq!(vanished[0].name.as_deref(), Some("old"));
+        assert!(backend.inner.st().ledger.live(&account, "new").is_some());
+    }
+}
+
 impl RealConfig {
     /// A configuration for the real app: `Host::detect()`, the OS data
     /// directory, lazy toolchain discovery.
@@ -502,18 +541,42 @@ impl Inner {
         )
     }
 
+    fn reconciliation_sample(&self) -> BTreeMap<AccountId, BTreeSet<String>> {
+        let mut sample: BTreeMap<AccountId, BTreeSet<String>> = BTreeMap::new();
+        for entry in self
+            .st()
+            .ledger
+            .entries()
+            .iter()
+            .filter(|e| e.stopped.is_none())
+        {
+            sample
+                .entry(entry.account.clone())
+                .or_default()
+                .insert(entry.name.clone());
+        }
+        sample
+    }
+
     fn reconcile(
         &self,
         account: &AccountId,
         list: &[RemoteAssignment],
         names: Option<&BTreeMap<String, String>>,
+        sample: &BTreeMap<AccountId, BTreeSet<String>>,
     ) -> Result<Vec<RuntimeRef>> {
         let mut st = self.st();
         let live: Vec<_> = st
             .ledger
             .entries()
             .iter()
-            .filter(|e| &e.account == account && e.stopped.is_none())
+            .filter(|e| {
+                &e.account == account
+                    && e.stopped.is_none()
+                    && sample
+                        .get(account)
+                        .is_some_and(|names| names.contains(&e.name))
+            })
             .cloned()
             .collect();
         let mut vanished = Vec::new();
@@ -557,13 +620,14 @@ impl Inner {
     ) -> (BTreeSet<AccountId>, Vec<RuntimeRef>) {
         let mut verified = BTreeSet::new();
         let mut vanished = Vec::new();
+        let sample = self.reconciliation_sample();
         if let Ok(helper) = self.helper()
             && let Ok(listed) = helper.assignments(ids, cancel)
         {
             for (account, result) in listed {
                 if let Ok(list) = result {
                     let names = self.state_names(&account, cancel);
-                    if let Ok(gone) = self.reconcile(&account, &list, names.as_ref()) {
+                    if let Ok(gone) = self.reconcile(&account, &list, names.as_ref(), &sample) {
                         vanished.extend(gone);
                         if !self.st().ledger.entries().iter().any(|e| {
                             e.account == account && e.stopped.is_none() && e.endpoint.is_none()
@@ -1192,6 +1256,7 @@ impl Backend for RealBackend {
             return Ok(view);
         }
         let active = self.inner.active(cancel).ok().flatten();
+        let sample = self.inner.reconciliation_sample();
         let listed = self.inner.helper()?.assignments(&ids, cancel)?;
         let tunnels = self.inner.tunnels.list();
         for (account, res) in listed {
@@ -1203,7 +1268,8 @@ impl Backend for RealBackend {
                 }
             };
             let names = self.inner.state_names(&account, cancel);
-            self.inner.reconcile(&account, &list, names.as_ref())?;
+            self.inner
+                .reconcile(&account, &list, names.as_ref(), &sample)?;
             let names = names.unwrap_or_default();
             let st = self.inner.st();
             let email = st.accounts.get(&account).and_then(|a| a.email.clone());
