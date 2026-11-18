@@ -31,6 +31,10 @@ use crate::{
 pub const SWITCH_NOTHING_SELECTOR: &str = "switch-nothing";
 pub const SWITCH_UNMANAGED_UNKNOWN_SELECTOR: &str = "switch-unmanaged-unknown";
 
+pub fn switch_session_selector(name: &str) -> String {
+    format!("switch-session {name}")
+}
+
 pub fn render(
     state: &AppState,
     handle: &Entity<AppState>,
@@ -325,7 +329,7 @@ fn impact_list(impact: &SwitchImpact, now: SystemTime, state: &AppState, cx: &Ap
                     .as_ref()
                     .and_then(|watchdog| watchdog.deadline)
                     .and_then(|deadline| deadline.duration_since(now).ok());
-                item(match deadline {
+                let row = item(match deadline {
                     Some(left) => tr_args(
                         cx,
                         keys::SWITCH_SESSION_DEADLINE,
@@ -340,7 +344,8 @@ fn impact_list(impact: &SwitchImpact, now: SystemTime, state: &AppState, cx: &Ap
                         keys::SWITCH_SESSION,
                         &[("name", &session.name), ("hardware", &hardware)],
                     ),
-                })
+                });
+                tagged(switch_session_selector(&session.name), row)
             }));
     }
     let Some(unmanaged) = &impact.unmanaged_left_running else {

@@ -1017,7 +1017,12 @@ fn switch_impact_never_reports_unlisted_runtimes_as_none() {
     assert_eq!(bobs.unmanaged_runtimes, 1);
     assert_eq!(left(&alice.id), None);
 
+    // The helper failing outright, before it answers for any account.
     f.knob("cli_api_broken", json!(false));
+    f.knob("keyring_locked", json!(true));
+    assert_eq!(left(&alice.id), None);
+
+    f.knob("keyring_locked", json!(false));
     let listed = left(&alice.id).unwrap();
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].endpoint, "browser-9");

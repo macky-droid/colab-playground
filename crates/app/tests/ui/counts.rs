@@ -8,7 +8,9 @@ use colab_playground::{
     route::Route,
     state::{AccountDialog, Load},
     ui::{
-        dialogs::{SWITCH_NOTHING_SELECTOR, SWITCH_UNMANAGED_UNKNOWN_SELECTOR},
+        dialogs::{
+            SWITCH_NOTHING_SELECTOR, SWITCH_UNMANAGED_UNKNOWN_SELECTOR, switch_session_selector,
+        },
         pages::{
             accounts::{ADD_SELECTOR, switch_selector},
             overview::{RUNTIMES_INCOMPLETE_SELECTOR, RUNTIMES_UNCOUNTED_SELECTOR},
@@ -231,9 +233,12 @@ fn switching_never_lets_usage_stand_in_for_runtimes_it_could_not_list(cx: &mut T
     assert_eq!(read, 2, "usage was read");
     assert_eq!(ask_to_switch(&mut app), None, "the reading is not a list");
     assert!(
-        app.shown("switch-impact"),
+        app.shown(&switch_session_selector("a100-7f3a")),
         "the managed sessions are listed"
     );
-    assert!(app.shown(SWITCH_UNMANAGED_UNKNOWN_SELECTOR));
+    assert!(
+        app.shown(SWITCH_UNMANAGED_UNKNOWN_SELECTOR),
+        "and the warning comes with them"
+    );
     assert!(!app.shown(SWITCH_NOTHING_SELECTOR));
 }
