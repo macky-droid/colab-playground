@@ -1184,4 +1184,8 @@ pub(super) const MESSAGES: Messages = &[
         SESSIONS_EMPTY_PARTIAL_TITLE,
         "一覧表示できたアカウントでは何も実行されていません",
     ),
+    (
+        SWITCH_UNMANAGED_UNKNOWN,
+        "現在のアカウントに、このアプリ以外で開始したランタイムがあるかを確認できませんでした。実行中のものがあれば、自動停止なしで課金が続きます。「セッション」で確認してください。",
+    ),
 ];
