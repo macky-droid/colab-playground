@@ -184,13 +184,15 @@ Does not match (release-please's fixed format):
 2. **Protect `main` with a ruleset.** Settings → Rules → Rulesets. The ruleset `main` applies to the
    default branch:
    - changes arrive by pull request (no approval needed);
-   - the three CI jobs must pass, on a branch that is up to date with `main`;
+   - the Linux and Windows CI jobs must pass, on a branch that is up to date with `main`;
    - force pushes and deleting the branch are blocked;
    - repository admins can bypass all of it.
 
-   Only the CI jobs are required. Release and Package do not run on every pull request, so
-   requiring them would block every merge. The required names are the job names in
-   [`ci.yml`](../.github/workflows/ci.yml): change one and the ruleset must follow.
+   Only those two CI jobs are required. The macOS CI job often waits for a runner that is never
+   assigned, and Release and Package do not run on every pull request, so requiring any of them
+   would block every merge. The macOS job still runs when a runner is assigned. The required
+   names are the job names in [`ci.yml`](../.github/workflows/ci.yml): change one and the ruleset
+   must follow.
 
 3. **Merge by squashing only.** Settings → General → Pull Requests: tick only **Allow squash
    merging**, with the default commit message set to "Default to pull request title and commit

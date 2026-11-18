@@ -36,8 +36,9 @@ The code is the source of truth for what the app does.
    the UI tests run headless and draw nothing. Take them as [TESTING.md](TESTING.md#screenshots)
    describes, in the states the change is about, such as the smallest window, the longest
    translation or dark mode.
-4. Wait for the three CI jobs to pass on a branch that is up to date with `main`. No approving
-   review is needed.
+4. Wait for the required CI jobs, Linux and Windows, to pass on a branch that is up to date with
+   `main`. The macOS job does not hold up the merge
+   ([RELEASING.md](RELEASING.md#one-time-repository-settings)). No approving review is needed.
 5. Merge with **Squash and merge**, the only method the repository allows. The pull request's
    title becomes the commit on `main` and its changelog line, so write it as a conventional commit
    ([Writing commits for the changelog](RELEASING.md#writing-commits-for-the-changelog)). Commits
