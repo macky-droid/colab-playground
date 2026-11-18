@@ -884,8 +884,30 @@ impl Drop for HostChild {
     }
 }
 
-/// Script of [`HostKeepalive`]: idle until stdin reaches EOF.
-const KEEPALIVE_SCRIPT: &str = "cat >/dev/null";
+/// Script of [`HostKeepalive`]. It waits up to `$1` tenths of a second for the
+/// D-Bus session bus socket, prints [`KEEPALIVE_READY`], then idles until stdin
+/// reaches EOF. Only a `unix:path=` address is waited for; any other (or none)
+/// is reported ready at once.
+const KEEPALIVE_SCRIPT: &str = r#"case ${DBUS_SESSION_BUS_ADDRESS-} in
+unix:path=*)
+  sock=${DBUS_SESSION_BUS_ADDRESS#unix:path=}
+  sock=${sock%%[,;]*}
+  i=0
+  while [ ! -S "$sock" ] && [ "$i" -lt "$1" ]; do sleep 0.1; i=$((i + 1)); done
+  ;;
+esac
+printf '%s\n' __CPG_KEEPALIVE_READY__
+cat >/dev/null"#;
+
+/// Stdout line of [`KEEPALIVE_SCRIPT`] once the session bus is up or its wait ran out.
+const KEEPALIVE_READY: &str = "__CPG_KEEPALIVE_READY__";
+
+/// How long [`KEEPALIVE_SCRIPT`] waits for the session bus, in tenths of a second.
+const KEEPALIVE_BUS_WAIT_TENTHS: u32 = 100;
+
+/// How long [`HostKeepalive::ensure`] waits for [`KEEPALIVE_READY`]: the bus
+/// wait plus starting WSL itself.
+const KEEPALIVE_READY_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Keeps a WSL distribution running while it is held.
 ///
@@ -896,6 +918,12 @@ const KEEPALIVE_SCRIPT: &str = "cat >/dev/null";
 /// keeps the distribution (and the unlocked keyring) up. It reads stdin until
 /// EOF: dropping the keepalive closes that pipe, and so does the app exiting
 /// for any reason, so it never outlives the app.
+///
+/// A freshly started distribution also brings its D-Bus session bus up a moment
+/// after the first command runs, and the keyring is reached through that bus: a
+/// command started before it finds no keyring at all. So each start of the idle
+/// process first waits for the bus, and [`HostKeepalive::ensure`] returns only
+/// then.
 ///
 /// A no-op on [`Host::Local`], which nothing stops between commands.
 #[derive(Debug)]
@@ -914,7 +942,9 @@ impl HostKeepalive {
     }
 
     /// Starts the idle process, or starts it again if it ended (after
-    /// `wsl --shutdown`, for example). A failed start is retried on the next call.
+    /// `wsl --shutdown`, for example), and then waits until the session bus is up
+    /// (bounded). Concurrent callers wait for the same start. Returns at once
+    /// while the process runs. A failed start is retried on the next call.
     pub fn ensure(&self) {
         if !matches!(self.host, Host::Wsl { .. }) {
             return;
@@ -925,7 +955,13 @@ impl HostKeepalive {
         {
             return;
         }
-        *slot = self.host.spawn(keepalive_request()).ok();
+        *slot = self
+            .host
+            .spawn(keepalive_request(KEEPALIVE_BUS_WAIT_TENTHS))
+            .ok();
+        if let Some(child) = slot.as_ref() {
+            wait_until_ready(child, KEEPALIVE_READY_TIMEOUT);
+        }
     }
 
     /// Whether the idle process is running.
@@ -953,8 +989,28 @@ impl Drop for HostKeepalive {
     }
 }
 
-fn keepalive_request() -> ScriptRequest {
-    ScriptRequest::new(KEEPALIVE_SCRIPT).stdin_pipe()
+fn keepalive_request(bus_wait_tenths: u32) -> ScriptRequest {
+    ScriptRequest::new(KEEPALIVE_SCRIPT)
+        .arg(bus_wait_tenths.to_string())
+        .stdin_pipe()
+}
+
+/// Waits for [`KEEPALIVE_READY`]. False when `timeout` passes or the script ends first.
+fn wait_until_ready(child: &HostChild, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return false;
+        }
+        match child.recv_line(left) {
+            Ok(line) if line.stream == Stream::Stdout && line.text == KEEPALIVE_READY => {
+                return true;
+            }
+            Ok(_) => {}
+            Err(_) => return false,
+        }
+    }
 }
 
 fn spawn_reader<R: Read + Send + 'static>(
@@ -1297,8 +1353,9 @@ mod tests {
         // Spawns nothing: tests never start `wsl.exe` (DESIGN.md section 2).
         let wsl = HostKeepalive::new(Host::Wsl { distro: None });
         assert!(!wsl.is_running());
-        let req = keepalive_request();
+        let req = keepalive_request(KEEPALIVE_BUS_WAIT_TENTHS);
         assert_eq!(req.stdin, StdinMode::Pipe);
+        assert_eq!(req.args, vec![KEEPALIVE_BUS_WAIT_TENTHS.to_string()]);
         assert!(req.timeout.is_none());
         let inv = Host::Wsl {
             distro: Some("Ubuntu".into()),
@@ -1309,12 +1366,15 @@ mod tests {
         assert!(inv.no_window);
     }
 
-    /// The keepalive script through the real bootstrap: up until stdin closes.
+    /// The keepalive script through the real bootstrap: ready at once without a
+    /// bus address, then up until stdin closes.
     #[cfg(unix)]
     #[test]
     fn keepalive_script_ends_at_stdin_eof() {
-        let mut child = Host::Local.spawn(keepalive_request()).unwrap();
-        std::thread::sleep(Duration::from_millis(500));
+        let req = keepalive_request(100).env("DBUS_SESSION_BUS_ADDRESS", "");
+        let mut child = Host::Local.spawn(req).unwrap();
+        assert!(wait_until_ready(&child, Duration::from_secs(5)));
+        std::thread::sleep(Duration::from_millis(300));
         assert!(child.try_wait().is_none(), "ended before stdin closed");
         child.close_stdin();
         let deadline = Instant::now() + Duration::from_secs(10);
@@ -1322,6 +1382,36 @@ mod tests {
             std::thread::sleep(Duration::from_millis(50));
         }
         assert_eq!(child.try_wait(), Some(Some(0)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn keepalive_is_ready_once_the_session_bus_socket_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let sock = dir.path().join("bus");
+        let addr = format!("unix:path={},guid=0123", sock.display());
+        let req = keepalive_request(100).env("DBUS_SESSION_BUS_ADDRESS", addr);
+        let child = Host::Local.spawn(req).unwrap();
+        assert!(
+            !wait_until_ready(&child, Duration::from_millis(600)),
+            "ready before the bus socket existed"
+        );
+        let _bus = std::os::unix::net::UnixListener::bind(&sock).unwrap();
+        assert!(wait_until_ready(&child, Duration::from_secs(5)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn keepalive_stops_waiting_for_a_bus_that_never_comes() {
+        let dir = tempfile::tempdir().unwrap();
+        let addr = format!("unix:path={}", dir.path().join("never").display());
+        let req = keepalive_request(3).env("DBUS_SESSION_BUS_ADDRESS", addr);
+        let mut child = Host::Local.spawn(req).unwrap();
+        assert!(wait_until_ready(&child, Duration::from_secs(5)));
+        assert!(
+            child.try_wait().is_none(),
+            "the keepalive ended after the wait"
+        );
     }
 
     #[cfg(unix)]

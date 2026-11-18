@@ -121,7 +121,10 @@ pub enum Host { Local, Wsl { distro: Option<String> } }
   from its first CLI or helper call until it is dropped. WSL stops an idle distribution shortly
   after its last command, and the keyring daemon restarts locked with it, so background polls
   would otherwise keep asking for the keyring password. The app exiting closes the pipe, so the
-  process never outlives it.
+  process never outlives it. A fresh distribution's D-Bus session bus (`unix:path=` in
+  `DBUS_SESSION_BUS_ADDRESS`) comes up a moment after the first command, and before it the keyring
+  is unreachable, so each start of the keepalive waits (bounded) for that socket before the CLI or
+  helper call goes ahead.
 - `Host::probe()` reports: WSL present / default distro (Windows), `bash`, `ssh`, `git`, `uv`,
   `python3`, `colab` path + version.
 

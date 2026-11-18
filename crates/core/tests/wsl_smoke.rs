@@ -16,11 +16,24 @@ fn wsl_keepalive_holds_until_stdin_closes() {
     let host = Host::Wsl { distro: None };
     let keepalive = HostKeepalive::new(host.clone());
     keepalive.ensure();
+    // `ensure` returns once the session bus is up: the socket must exist by now.
+    let bus = host
+        .run_quiet(
+            ScriptRequest::new(
+                r#"case ${DBUS_SESSION_BUS_ADDRESS-} in
+unix:path=*) s=${DBUS_SESSION_BUS_ADDRESS#unix:path=}; s=${s%%[,;]*}; [ -S "$s" ] && echo bus=up || echo bus=missing ;;
+*) echo bus=none ;;
+esac"#,
+            ),
+            &CancelToken::new(),
+        )
+        .expect("wsl.exe run");
+    assert!(!bus.stdout.contains("bus=missing"), "{}", bus.stdout);
     std::thread::sleep(Duration::from_secs(3));
     assert!(keepalive.is_running(), "the keepalive ended while held");
     drop(keepalive);
 
-    // The same script ends once its stdin closes, which is what happens when the app exits.
+    // A process like it ends once its stdin closes, which is what happens when the app exits.
     let mut child = host
         .spawn(ScriptRequest::new("cat >/dev/null").stdin_pipe())
         .expect("wsl.exe spawn");
