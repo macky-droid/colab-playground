@@ -13,12 +13,9 @@ use ely_gpui_component::{
     theme::{ActiveTheme, TextSize},
     typography::{Caption, Paragraph},
 };
-use gpui::{
-    AnyElement, App, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, div,
-};
+use gpui::{AnyElement, App, Entity, FontWeight, IntoElement, ParentElement, Styled, div};
 
-use super::{cancel_button, close};
+use super::{cancel_button, close, scrolled};
 use crate::{
     i18n::{keys, tr, tr_args},
     state::{AppState, ForwardForm},
@@ -28,6 +25,7 @@ use crate::{
 pub const FORWARD_SUBMIT: &str = "forward-submit";
 /// Selector of the note shown for the reserved port.
 pub const RESERVED_NOTE: &str = "forward-reserved";
+pub const FORWARD_BODY: &str = "forward-body";
 
 fn field(label: gpui::SharedString, control: impl IntoElement, cx: &App) -> impl IntoElement {
     let theme = cx.theme();
@@ -141,19 +139,12 @@ pub(super) fn render(
             .flex()
             .flex_col()
             .gap_1()
-            .child(Input::new(&inputs.health))
+            .child(tagged("forward-health", Input::new(&inputs.health)))
             .child(Caption::new(tr(cx, keys::FORWARD_HEALTH_HINT))),
         cx,
     ));
-    // At the smallest window an error would push the dialog past the window: the body scrolls.
-    let dialog = Dialog::new("forward", tr(cx, keys::FORWARD_TITLE), close(handle)).child(
-        div()
-            .id("forward-body")
-            .max_h(gpui::rems(17.0))
-            .overflow_y_scroll()
-            .pr_2()
-            .child(body),
-    );
+    let dialog = Dialog::new("forward", tr(cx, keys::FORWARD_TITLE), close(handle))
+        .child(scrolled(FORWARD_BODY, None, body));
     let (cancel, label) = (tr(cx, keys::ACTION_CANCEL), tr(cx, keys::FORWARD_ACTION));
     let (go, fields) = (handle.clone(), inputs.clone());
     dialog
