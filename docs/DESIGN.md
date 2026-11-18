@@ -98,7 +98,7 @@ Properties the code must keep. A change that breaks one is wrong even if every t
 - **Unknown usage is never treated as zero.** A failed fetch marks the data stale.
 - **The number of sessions the app creates is capped**, so a retry loop cannot fan out into many
   billed VMs.
-- **No default the user can set is hard-coded where it is used.** They live in one place, are
-  editable in Settings and can be overridden for one action.
+- **The default of every setting lives in one place**, is editable in Settings and can be
+  overridden for one action. Nothing hard-codes it where it is used.
 - **No user-visible literal outside the i18n catalog**, and every locale has the same keys.
 - **Colours and radii come from the theme.**
