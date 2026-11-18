@@ -222,6 +222,10 @@ impl AppState {
 
     /// One poller wake: refreshes when nothing would be disturbed and core says it is due.
     fn poll_tick(&mut self, cx: &mut Context<Self>) {
+        if self.is_provisioning() || self.ops.is_running(Op::PluginRun) {
+            // A provisioning progress shows how long Colab has not answered.
+            cx.notify();
+        }
         // The update check needs no account; its own daily cadence decides whether it asks.
         self.maybe_check_updates(cx);
         let signing_in = matches!(self.dialog, Some(AccountDialog::Add(_)));

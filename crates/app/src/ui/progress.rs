@@ -2,10 +2,13 @@
 //! rejected, the wait before retrying, the watchdog, ready or failed. Used by the New session
 //! dialog, the Sessions page while the dialog is hidden, and plugin runs that provision.
 
+use std::time::SystemTime;
+
 use colab_playground_core::provision::ProvisionEvent;
 use ely_gpui_component::{
+    feedback::InlineMessage,
     motion::Spinner,
-    primitives::{Icon, IconName},
+    primitives::{Icon, IconName, Severity},
     theme::{ActiveTheme, IconSize, TextSize},
 };
 use gpui::{AnyElement, App, IntoElement, ParentElement, SharedString, Styled, div};
@@ -56,6 +59,8 @@ pub fn sentence(event: &ProvisionEvent, done: bool, cx: &App) -> Option<(SharedS
             ),
             Tone::Busy,
         ),
+        // "Asking Colab…" reads as done once the hardware is reported.
+        ProvisionEvent::Allocated { .. } => return None,
         ProvisionEvent::AllocationFailed { error, .. } => (
             tr_args(
                 cx,
@@ -222,6 +227,33 @@ pub fn render(progress: &ProvisionProgress, live: bool, cx: &App) -> AnyElement 
         div().flex().flex_col().gap_1p5().children(rows),
     )
     .into_any_element()
+}
+
+/// Selector of the note saying how long Colab has not answered.
+pub const NO_ANSWER_SELECTOR: &str = "provision-no-answer";
+
+/// How long Colab has left the request unanswered, once that is unusually long, and that the
+/// user may wait or cancel. `None` while nothing is overdue.
+pub fn no_answer_note(
+    progress: &ProvisionProgress,
+    now: Option<SystemTime>,
+    cx: &App,
+) -> Option<AnyElement> {
+    let waited = progress.unanswered_for(now?)?;
+    Some(
+        tagged(
+            NO_ANSWER_SELECTOR,
+            InlineMessage::new(
+                Severity::Info,
+                tr_args(
+                    cx,
+                    keys::PROV_NO_ANSWER,
+                    &[("time", &format::duration(cx, waited))],
+                ),
+            ),
+        )
+        .into_any_element(),
+    )
 }
 
 /// Whether the progress list would show anything.

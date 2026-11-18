@@ -1112,4 +1112,8 @@ pub(super) const MESSAGES: Messages = &[
         PROV_RECONCILED,
         "취소한 요청으로 남은 런타임이 있는지 확인했습니다",
     ),
+    (
+        PROV_NO_ANSWER,
+        "{time} 동안 Colab이 응답하지 않았습니다. 더 오래 걸리는 요청도 있으며, 지금 취소할 수도 있습니다.",
+    ),
 ];

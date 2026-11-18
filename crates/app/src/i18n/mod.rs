@@ -632,6 +632,7 @@ catalog_keys! {
     SESSIONS_EMPTY_PARTIAL_TITLE => "app.b10.sessions_empty_partial_title",
     PROV_RECONCILING => "app.b11.prov_reconciling",
     PROV_RECONCILED => "app.b11.prov_reconciled",
+    PROV_NO_ANSWER => "app.b11.prov_no_answer",
 }
 
 /// A message table: `(key, message)` pairs; `{name}` marks an argument.

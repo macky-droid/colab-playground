@@ -395,11 +395,12 @@ impl AppState {
     }
 
     fn apply_run_event(&mut self, event: PluginRunEvent) {
+        let at = self.backend_now();
         let Some(run) = &mut self.plugin_run else {
             return;
         };
         match event {
-            PluginRunEvent::Provision(event) => run.provision.events.push(event),
+            PluginRunEvent::Provision(event) => run.provision.push(event, at),
             PluginRunEvent::Launched { session, .. } => run.session = Some(session),
             PluginRunEvent::Status(status) => run.status = Some(status),
             PluginRunEvent::Log { lines } => run.log.extend(lines),
