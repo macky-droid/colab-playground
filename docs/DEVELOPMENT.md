@@ -12,13 +12,15 @@ How a change gets from a branch onto `main`. Elsewhere:
 
 1. Branch from `origin/main`.
 2. Push the branch and open a pull request against `main`. Nothing is pushed to `main` directly:
-   the `main` ruleset requires a pull request ([RELEASING.md](RELEASING.md#one-time-repository-settings)).
+   the `main` ruleset requires a pull request
+   ([RELEASING.md](RELEASING.md#one-time-repository-settings)).
 3. Wait for the three CI jobs to pass on a branch that is up to date with `main`. No approving
    review is needed.
 4. Merge with **Squash and merge**, the only method the repository allows. The pull request's
    title becomes the commit on `main` and its changelog line, so write it as a conventional commit
    ([Writing commits for the changelog](RELEASING.md#writing-commits-for-the-changelog)). Commits
-   inside the pull request, fix-ups included, do not show. The branch is deleted after the merge.
+   inside the pull request, fix-ups included, never reach the changelog. The branch is deleted
+   after the merge.
 
 ## Automated review comments
 

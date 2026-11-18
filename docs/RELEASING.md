@@ -31,7 +31,7 @@ The pieces:
    Commits of hidden types alone (see the table below) open no pull request.
 3. When the release should go out, merge that pull request with **Squash and merge**, like every
    other pull request. Nothing else needs editing.
-4. That push runs Release again. release-please tags the merge commit `vX.Y.Z` and creates the
+4. That push runs Release again. release-please tags the squash commit `vX.Y.Z` and creates the
    GitHub release as a **draft**, with the changelog entry as its notes.
 5. In the same run, **Package** builds the downloads on Windows, Linux and macOS, writes
    `SHA256SUMS`, attaches all four files to the draft and only then publishes it. A draft is hidden
@@ -81,8 +81,9 @@ does, and what Package checks before anything is attached:
   commit that shows in the changelog raises the patch version. From 1.0.0 a breaking change raises
   the major version.
 - To choose a version (for example 1.0.0), end the squash commit of a `feat` or `fix` pull request
-  with the footer `Release-As: 1.0.0` (see [footers](#writing-commits-for-the-changelog)). A commit of a hidden type that carries the footer is listed in the changelog anyway, under
-  its hidden section's name (for example "Chores").
+  with the footer `Release-As: 1.0.0` (see [footers](#writing-commits-for-the-changelog)). A
+  commit of a hidden type that carries the footer is listed in the changelog anyway, under its
+  hidden section's name (for example "Chores").
 - The release type is `simple`, with the version written into `Cargo.toml` and `Cargo.lock` as
   `extra-files`. release-please's `rust` type and its `cargo-workspace` plugin cannot handle a
   version inherited from `[workspace.package]` (the `rust` updater only edits `[package].version`,
@@ -93,9 +94,9 @@ does, and what Package checks before anything is attached:
 ## Writing commits for the changelog
 
 Each commit on `main` is a squash-merged pull request, and its subject is the pull request's title:
-**write the title as a conventional commit**, because it becomes one changelog line. The commits
-inside the pull request do not show. The body is not shown either. The scope (`app`, `core`) is
-printed in bold before the line, and each line links to its commit.
+**write the title as a conventional commit**, because it becomes one changelog line. Neither the
+commits inside the pull request nor the commit body appear in the changelog. The scope (`app`,
+`core`) is printed in bold before the line, and each line links to its commit.
 
 **Footers** (`BREAKING CHANGE:`, `Release-As:`) belong at the end of the squash commit's message.
 When merging, check the message GitHub proposes (it lists the pull request's commits) and put the
@@ -188,7 +189,7 @@ Does not match (release-please's fixed format):
 3. **Merge by squashing only.** Settings → General → Pull Requests: tick only **Allow squash
    merging**, with the default commit message set to "Default to pull request title and commit
    details", and tick **Automatically delete head branches**. Each pull request then lands as one
-   commit titled after it, so fix-up commits (review fixes, Auto-fix) never reach the changelog;
+   commit titled after it, so fix-up commits (review fixes and the like) never reach the changelog;
    this is also the merge method release-please recommends. The ruleset still lists all three merge
    methods; the repository setting is the one that limits them. The same with the CLI:
 
