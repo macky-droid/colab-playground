@@ -366,6 +366,7 @@ pub(super) const MESSAGES: Messages = &[
     (ERR_AUTH_REQUIRED, "Colab CLI 需要重新登录。"),
     (ERR_NOT_ENTITLED, "此账号无法使用该硬件。"),
     (ERR_CAPACITY_REFUSED, "Colab 目前没有可用资源。"),
+    (ERR_ALLOCATION_TIMEOUT, "Colab 一直没有回应这次硬件申请。"),
     (ERR_SSH_BUSY, "已有其他连接接入此运行时。"),
     (ERR_SESSION_GONE, "该运行时已不存在。"),
     (ERR_CONNECTION_LOST, "与运行时的连接已中断。"),
@@ -906,4 +907,6 @@ pub(super) const MESSAGES: Messages = &[
     (SUMMARY_INCOMPLETE, "不完整"),
     (SUMMARY_NOT_COUNTED, "未计入：{emails}"),
     (SESSIONS_EMPTY_PARTIAL_TITLE, "能列出的账号上没有运行时"),
+    (PROV_RECONCILING, "正在检查取消的申请是否留下了运行时…"),
+    (PROV_RECONCILED, "已检查取消的申请是否留下了运行时"),
 ];

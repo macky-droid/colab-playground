@@ -372,6 +372,7 @@ pub(super) const MESSAGES: Messages = &[
     (ERR_AUTH_REQUIRED, "Colab CLI 需要重新登入。"),
     (ERR_NOT_ENTITLED, "這個帳號無法使用該硬體。"),
     (ERR_CAPACITY_REFUSED, "Colab 目前沒有可用的資源。"),
+    (ERR_ALLOCATION_TIMEOUT, "Colab 一直沒有回應這次硬體申請。"),
     (ERR_SSH_BUSY, "已有其他連線接入這個執行階段。"),
     (ERR_SESSION_GONE, "該執行階段已不存在。"),
     (ERR_CONNECTION_LOST, "與執行階段的連線已中斷。"),
@@ -924,4 +925,6 @@ pub(super) const MESSAGES: Messages = &[
     (SUMMARY_INCOMPLETE, "不完整"),
     (SUMMARY_NOT_COUNTED, "未計入：{emails}"),
     (SESSIONS_EMPTY_PARTIAL_TITLE, "能列出的帳號上沒有執行階段"),
+    (PROV_RECONCILING, "正在檢查取消的申請是否留下了執行階段…"),
+    (PROV_RECONCILED, "已檢查取消的申請是否留下了執行階段"),
 ];

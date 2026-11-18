@@ -436,6 +436,10 @@ pub(super) const MESSAGES: Messages = &[
         "Colab has no capacity for this right now.",
     ),
     (
+        ERR_ALLOCATION_TIMEOUT,
+        "Colab never answered the request for this hardware.",
+    ),
+    (
         ERR_SSH_BUSY,
         "Another connection to this runtime is already open.",
     ),
@@ -1079,5 +1083,13 @@ pub(super) const MESSAGES: Messages = &[
     (
         SESSIONS_EMPTY_PARTIAL_TITLE,
         "Nothing is running on the accounts that could be listed",
+    ),
+    (
+        PROV_RECONCILING,
+        "Checking whether the cancelled request left a runtime…",
+    ),
+    (
+        PROV_RECONCILED,
+        "Checked whether the cancelled request left a runtime",
     ),
 ];
