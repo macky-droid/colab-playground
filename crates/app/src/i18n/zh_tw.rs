@@ -835,7 +835,6 @@ pub(super) const MESSAGES: Messages = &[
         "非本應用程式啟動的執行階段會繼續計費，且不會自動停止：",
     ),
     (SWITCH_UNMANAGED_ITEM, "{name}"),
-    (SWITCH_UNMANAGED_MORE, "另有 {count} 個無法列出"),
     (RUNTIME_SET_AUTO_STOP, "設定 {time}後自動停止"),
     (AUTO_STOP_SET, "已設定 {time}後自動停止"),
     (CANCEL_AUTO_STOP_TITLE, "取消自動停止？"),
@@ -927,6 +926,10 @@ pub(super) const MESSAGES: Messages = &[
     (SUMMARY_INCOMPLETE, "不完整"),
     (SUMMARY_NOT_COUNTED, "未計入：{emails}"),
     (SESSIONS_EMPTY_PARTIAL_TITLE, "能列出的帳號上沒有執行階段"),
+    (
+        SWITCH_UNMANAGED_UNKNOWN,
+        "無法確認目前帳號上是否有非本應用程式啟動的執行階段。如果有，它們會繼續計費，且不會自動停止。請到「工作階段」中查看；如果那裡也無法列出此帳號，請在瀏覽器中以此帳號登入 Colab 查看。",
+    ),
     (PROV_RECONCILING, "正在檢查取消的申請是否留下了執行階段…"),
     (PROV_RECONCILED, "已檢查取消的申請是否留下了執行階段"),
     (

@@ -1,14 +1,21 @@
 //! Counts and "nothing is running" never come from what the app does not know: the Sessions
-//! empty state needs a complete listing, and the Overview runtime count (from usage) is unknown
-//! without any reading and marked when it leaves accounts out.
+//! empty state needs a complete listing, the Overview runtime count (from usage) is unknown
+//! without any reading and marked when it leaves accounts out, and the switch dialog needs to
+//! know what the account being left still runs.
 
 use colab_playground::{
     i18n::keys,
     route::Route,
-    ui::pages::{
-        accounts::ADD_SELECTOR,
-        overview::{RUNTIMES_INCOMPLETE_SELECTOR, RUNTIMES_UNCOUNTED_SELECTOR},
-        sessions::{EMPTY_PARTIAL_SELECTOR, EMPTY_SELECTOR},
+    state::{AccountDialog, Load},
+    ui::{
+        dialogs::{
+            SWITCH_NOTHING_SELECTOR, SWITCH_UNMANAGED_UNKNOWN_SELECTOR, switch_session_selector,
+        },
+        pages::{
+            accounts::{ADD_SELECTOR, switch_selector},
+            overview::{RUNTIMES_INCOMPLETE_SELECTOR, RUNTIMES_UNCOUNTED_SELECTOR},
+            sessions::{EMPTY_PARTIAL_SELECTOR, EMPTY_SELECTOR},
+        },
     },
 };
 use colab_playground_core::mock::{MockAccount, MockFailures, MockScenario};
@@ -37,6 +44,20 @@ fn two_accounts_nothing_running() -> MockScenario {
 fn on_sessions(app: &mut TestApp<'_>) {
     app.click(Route::Sessions.nav_selector());
     assert_eq!(app.route(), Route::Sessions);
+}
+
+/// Opens the switch dialog from ada (active) to lin; how many unmanaged runtimes it was
+/// given, if they could be listed.
+fn ask_to_switch(app: &mut TestApp<'_>) -> Option<usize> {
+    app.click(Route::Accounts.nav_selector());
+    app.click(&switch_selector("lin@example.com"));
+    match app.read(|state, _| state.dialog().cloned()) {
+        Some(AccountDialog::Switch {
+            impact: Load::Ready((impact, _)),
+            ..
+        }) => impact.unmanaged_left_running.map(|listed| listed.len()),
+        other => panic!("expected the switch dialog with its impact, got {other:?}"),
+    }
 }
 
 #[gpui::test]
@@ -159,4 +180,65 @@ fn an_account_without_usage_is_left_out_of_the_runtime_count_and_named(cx: &mut 
         app.shown(RUNTIMES_UNCOUNTED_SELECTOR),
         "and says what is left out"
     );
+}
+
+#[gpui::test]
+fn switching_away_from_an_idle_account_says_nothing_is_running(cx: &mut TestAppContext) {
+    let mut app = TestApp::with(cx, Options::scenario(two_accounts_nothing_running()));
+    assert_eq!(ask_to_switch(&mut app), Some(0));
+    assert!(app.shown(SWITCH_NOTHING_SELECTOR));
+    assert!(!app.shown(SWITCH_UNMANAGED_UNKNOWN_SELECTOR));
+}
+
+#[gpui::test]
+fn switching_never_says_nothing_is_running_when_the_runtimes_are_unknown(cx: &mut TestAppContext) {
+    let options = Options {
+        failures: MockFailures {
+            unlisted_accounts: vec!["ada@example.com".into()],
+            usage_fetch_fails: true,
+            ..MockFailures::default()
+        },
+        ..Options::scenario(two_accounts_nothing_running())
+    };
+    let mut app = TestApp::with(cx, options);
+    assert_eq!(ask_to_switch(&mut app), None, "neither listed nor counted");
+    assert!(
+        app.shown(SWITCH_UNMANAGED_UNKNOWN_SELECTOR),
+        "it says they could not be checked"
+    );
+    assert!(
+        !app.shown(SWITCH_NOTHING_SELECTOR),
+        "not \"Nothing is running\""
+    );
+
+    app.click("switch-confirm");
+    assert_eq!(
+        app.read(|state, _| state.active_email()).as_deref(),
+        Some("lin@example.com"),
+        "the switch stays possible"
+    );
+}
+
+#[gpui::test]
+fn switching_never_lets_usage_stand_in_for_runtimes_it_could_not_list(cx: &mut TestAppContext) {
+    let options = Options {
+        failures: MockFailures {
+            unlisted_accounts: vec!["ada@example.com".into()],
+            ..MockFailures::default()
+        },
+        ..Options::default()
+    };
+    let mut app = TestApp::with(cx, options);
+    let read = app.read(|state, _| state.usage_summary().known);
+    assert_eq!(read, 2, "usage was read");
+    assert_eq!(ask_to_switch(&mut app), None, "the reading is not a list");
+    assert!(
+        app.shown(&switch_session_selector("a100-7f3a")),
+        "the managed sessions are listed"
+    );
+    assert!(
+        app.shown(SWITCH_UNMANAGED_UNKNOWN_SELECTOR),
+        "and the warning comes with them"
+    );
+    assert!(!app.shown(SWITCH_NOTHING_SELECTOR));
 }

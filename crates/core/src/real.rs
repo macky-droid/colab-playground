@@ -957,9 +957,11 @@ impl Backend for RealBackend {
                 .filter(|t| !t.state.is_terminal())
                 .collect()
         };
-        // Unmanaged runtimes on the account being left: listed through the
-        // helper (no switch needed), else counted from the usage snapshot.
-        let (mut unmanaged_left_running, mut unmanaged_count) = (Vec::new(), 0u32);
+        // Unmanaged runtimes on the account being left, listed through the
+        // helper (no switch needed). The usage reading cannot stand in for
+        // the list: it is older than the question, and the sessions to
+        // subtract from it may have ended.
+        let mut unmanaged_left_running = Some(Vec::new());
         if let Some(f) = from.as_ref().filter(|f| *f != to) {
             let live = self.inner.live_names(f);
             let tracked: BTreeSet<String> = self
@@ -971,38 +973,31 @@ impl Backend for RealBackend {
                 .filter(|e| &e.account == f && e.stopped.is_none())
                 .filter_map(|e| e.endpoint.clone())
                 .collect();
+            // The helper reports a failure for one account inside an `Ok`, and
+            // an account missing from its answer was not listed either.
             let listed = self
                 .inner
                 .helper()
-                .and_then(|h| h.assignments(std::slice::from_ref(f), &CancelToken::new()));
-            match listed {
-                Ok(results) => {
-                    let names = self.inner.state_names(f, &CancelToken::new());
-                    for (_, res) in results.into_iter().filter(|(a, _)| a == f) {
-                        for a in res.unwrap_or_default() {
-                            let name = names.get(&a.endpoint).cloned();
-                            let managed = tracked.contains(&a.endpoint)
-                                || name.as_ref().is_some_and(|n| live.contains(n));
-                            if !managed {
-                                unmanaged_left_running.push(RuntimeRef {
-                                    account: f.clone(),
-                                    endpoint: a.endpoint,
-                                    name,
-                                });
-                            }
-                        }
-                    }
-                    unmanaged_count = unmanaged_left_running.len() as u32;
-                }
-                Err(_) => {
-                    let st = self.inner.st();
-                    unmanaged_count = st
-                        .usage
-                        .get(f)
-                        .map(|u| u.unmanaged_runtimes(live.len()))
-                        .unwrap_or(0);
-                }
-            }
+                .and_then(|h| h.assignments(std::slice::from_ref(f), &CancelToken::new()))
+                .ok()
+                .and_then(|results| results.into_iter().find(|(a, _)| a == f))
+                .and_then(|(_, res)| res.ok());
+            unmanaged_left_running = listed.map(|assignments| {
+                let names = self.inner.state_names(f, &CancelToken::new());
+                assignments
+                    .into_iter()
+                    .filter_map(|a| {
+                        let name = names.get(&a.endpoint).cloned();
+                        let managed = tracked.contains(&a.endpoint)
+                            || name.as_ref().is_some_and(|n| live.contains(n));
+                        (!managed).then(|| RuntimeRef {
+                            account: f.clone(),
+                            endpoint: a.endpoint,
+                            name,
+                        })
+                    })
+                    .collect()
+            });
         }
         Ok(SwitchImpact {
             from,
@@ -1010,7 +1005,6 @@ impl Backend for RealBackend {
             tunnels_closing,
             sessions_left_running,
             unmanaged_left_running,
-            unmanaged_count,
         })
     }
 

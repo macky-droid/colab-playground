@@ -170,13 +170,10 @@ pub struct SwitchImpact {
     /// billing) under their watchdog.
     pub sessions_left_running: Vec<TrackedSession>,
     /// Runtimes on the current account the app does not manage (e.g. opened
-    /// in the browser). They keep billing too and have no watchdog.
+    /// in the browser). They keep billing too and have no watchdog. `None`
+    /// when they could not be listed: unknown, never none.
     #[serde(default)]
-    pub unmanaged_left_running: Vec<RuntimeRef>,
-    /// How many unmanaged runtimes the current account has. Can exceed the
-    /// list when they could not be listed (then known only from usage).
-    #[serde(default)]
-    pub unmanaged_count: u32,
+    pub unmanaged_left_running: Option<Vec<RuntimeRef>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -28,6 +28,13 @@ use crate::{
     ui::{Inputs, error_view, tagged},
 };
 
+pub const SWITCH_NOTHING_SELECTOR: &str = "switch-nothing";
+pub const SWITCH_UNMANAGED_UNKNOWN_SELECTOR: &str = "switch-unmanaged-unknown";
+
+pub fn switch_session_selector(name: &str) -> String {
+    format!("switch-session {name}")
+}
+
 pub fn render(
     state: &AppState,
     handle: &Entity<AppState>,
@@ -275,11 +282,20 @@ fn switch(
 /// What switching affects: tunnels that close and runtimes that keep billing.
 fn impact_list(impact: &SwitchImpact, now: SystemTime, state: &AppState, cx: &App) -> AnyElement {
     let theme = cx.theme();
+    // "Nothing is running" needs a list that came back empty: runtimes that could not be
+    // listed may still be billing.
     if impact.tunnels_closing.is_empty()
         && impact.sessions_left_running.is_empty()
-        && impact.unmanaged_count == 0
+        && impact
+            .unmanaged_left_running
+            .as_ref()
+            .is_some_and(Vec::is_empty)
     {
-        return Paragraph::new(tr(cx, keys::SWITCH_NOTHING)).into_any_element();
+        return tagged(
+            SWITCH_NOTHING_SELECTOR,
+            Paragraph::new(tr(cx, keys::SWITCH_NOTHING)),
+        )
+        .into_any_element();
     }
     let item = |text: SharedString| {
         div()
@@ -313,7 +329,7 @@ fn impact_list(impact: &SwitchImpact, now: SystemTime, state: &AppState, cx: &Ap
                     .as_ref()
                     .and_then(|watchdog| watchdog.deadline)
                     .and_then(|deadline| deadline.duration_since(now).ok());
-                item(match deadline {
+                let row = item(match deadline {
                     Some(left) => tr_args(
                         cx,
                         keys::SWITCH_SESSION_DEADLINE,
@@ -328,14 +344,25 @@ fn impact_list(impact: &SwitchImpact, now: SystemTime, state: &AppState, cx: &Ap
                         keys::SWITCH_SESSION,
                         &[("name", &session.name), ("hardware", &hardware)],
                     ),
-                })
+                });
+                tagged(switch_session_selector(&session.name), row)
             }));
     }
-    if impact.unmanaged_count > 0 {
+    let Some(unmanaged) = &impact.unmanaged_left_running else {
+        return tagged(
+            "switch-impact",
+            list.child(tagged(
+                SWITCH_UNMANAGED_UNKNOWN_SELECTOR,
+                InlineMessage::new(Severity::Warning, tr(cx, keys::SWITCH_UNMANAGED_UNKNOWN)),
+            )),
+        )
+        .into_any_element();
+    };
+    if !unmanaged.is_empty() {
         // Runtimes opened in the browser or elsewhere keep billing with no automatic stop.
         list = list
             .child(Paragraph::new(tr(cx, keys::SWITCH_UNMANAGED)))
-            .children(impact.unmanaged_left_running.iter().map(|runtime| {
+            .children(unmanaged.iter().map(|runtime| {
                 let label = state
                     .runtime(runtime)
                     .map(crate::state::runtime_label)
@@ -347,14 +374,6 @@ fn impact_list(impact: &SwitchImpact, now: SystemTime, state: &AppState, cx: &Ap
                     &[("name", &label)],
                 ))
             }));
-        let listed = impact.unmanaged_left_running.len() as u32;
-        if impact.unmanaged_count > listed {
-            list = list.child(item(tr_args(
-                cx,
-                keys::SWITCH_UNMANAGED_MORE,
-                &[("count", &(impact.unmanaged_count - listed).to_string())],
-            )));
-        }
     }
     tagged("switch-impact", list).into_any_element()
 }

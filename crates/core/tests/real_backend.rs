@@ -981,11 +981,51 @@ fn switch_impact_lists_unmanaged_runtimes_via_the_helper() {
     let impact = f.b.switch_impact(&alice.id).unwrap();
     assert_eq!(impact.from.as_ref(), Some(&bob.id));
     assert_eq!(impact.sessions_left_running.len(), 1);
-    assert_eq!(impact.unmanaged_count, 1);
-    assert_eq!(impact.unmanaged_left_running[0].endpoint, "browser-9");
-    assert_eq!(impact.unmanaged_left_running[0].account, bob.id);
+    let unmanaged = impact.unmanaged_left_running.unwrap();
+    assert_eq!(unmanaged.len(), 1);
+    assert_eq!(unmanaged[0].endpoint, "browser-9");
+    assert_eq!(unmanaged[0].account, bob.id);
     let same = f.b.switch_impact(&bob.id).unwrap();
-    assert_eq!(same.unmanaged_count, 0);
+    assert_eq!(same.unmanaged_left_running, Some(vec![]));
+}
+
+#[test]
+fn switch_impact_never_reports_unlisted_runtimes_as_none() {
+    let f = fixture();
+    let alice = f.adopt_alice();
+    let bob = f.add_bob();
+    let left = |to: &AccountId| f.b.switch_impact(to).unwrap().unmanaged_left_running;
+    // The helper answers, but reports that bob's runtimes could not be listed.
+    f.knob("cli_api_broken", json!(true));
+    assert_eq!(left(&alice.id), None, "no list and no usage");
+    assert_eq!(left(&bob.id), Some(vec![]), "staying leaves nothing behind");
+
+    f.b.refresh_usage(&[], &nc()).unwrap();
+    assert_eq!(
+        left(&alice.id),
+        None,
+        "a usage reading of zero is not a list"
+    );
+
+    // Usage that shows the runtime does not stand in for the list either.
+    f.edit_server(|s| {
+        s["accounts"]["bob"]["assignments"]["browser-9"] =
+            json!({"accelerator": "L4", "variant": "GPU", "shape": "STANDARD"});
+    });
+    let usage = f.b.refresh_usage(&[], &nc()).unwrap();
+    let bobs = usage.iter().find(|u| u.account == bob.id).unwrap();
+    assert_eq!(bobs.unmanaged_runtimes, 1);
+    assert_eq!(left(&alice.id), None);
+
+    // The helper failing outright, before it answers for any account.
+    f.knob("cli_api_broken", json!(false));
+    f.knob("keyring_locked", json!(true));
+    assert_eq!(left(&alice.id), None);
+
+    f.knob("keyring_locked", json!(false));
+    let listed = left(&alice.id).unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].endpoint, "browser-9");
 }
 
 /// Overriding only the `colab` path derives the interpreter from its

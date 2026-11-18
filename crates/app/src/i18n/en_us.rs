@@ -983,10 +983,6 @@ pub(super) const MESSAGES: Messages = &[
         "Runtimes not started by this app keep billing, with no automatic stop:",
     ),
     (SWITCH_UNMANAGED_ITEM, "{name}"),
-    (
-        SWITCH_UNMANAGED_MORE,
-        "{count} more that could not be listed",
-    ),
     (RUNTIME_SET_AUTO_STOP, "Set auto-stop in {time}"),
     (AUTO_STOP_SET, "Auto-stop set for {time} from now"),
     (CANCEL_AUTO_STOP_TITLE, "Cancel auto-stop?"),
@@ -1083,6 +1079,10 @@ pub(super) const MESSAGES: Messages = &[
     (
         SESSIONS_EMPTY_PARTIAL_TITLE,
         "Nothing is running on the accounts that could be listed",
+    ),
+    (
+        SWITCH_UNMANAGED_UNKNOWN,
+        "Couldn't check whether the current account has runtimes that this app did not start. Any that are running keep billing, with no automatic stop. Check Sessions; if it can't list this account either, check Colab in your browser, signed in to this account.",
     ),
     (
         PROV_RECONCILING,
