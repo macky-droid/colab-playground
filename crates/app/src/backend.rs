@@ -114,7 +114,7 @@ pub struct MockFlags {
 
 impl MockFlags {
     /// Names accepted by `--mock-fail` (comma-separated).
-    pub const FAILURES: [&'static str; 13] = [
+    pub const FAILURES: [&'static str; 14] = [
         "cli-missing",
         "install-fails",
         "keyring",
@@ -122,6 +122,7 @@ impl MockFlags {
         "login-invalid-code",
         "login-unverified",
         "not-entitled",
+        "no-answer",
         "ssh-busy",
         "plugin-fails",
         "watchdog-restart-fails",
@@ -161,6 +162,10 @@ impl MockFlags {
                             colab_playground_core::sessions::Accelerator::A100,
                             colab_playground_core::sessions::Accelerator::H100,
                         ]
+                    }
+                    "no-answer" => {
+                        flags.failures.allocation_hangs =
+                            vec![colab_playground_core::sessions::Accelerator::A100]
                     }
                     "ssh-busy" => flags.failures.ssh_busy_attempts = 1,
                     "plugin-fails" => flags.failures.plugin_fail_stage = Some("download".into()),

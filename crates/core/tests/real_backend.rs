@@ -419,6 +419,78 @@ fn provision_retries_to_80_gb_and_enforces_entitlement_and_cap() {
     assert!(err.is(ErrorKind::SessionLimitReached));
 }
 
+/// A request Colab never answers fails once (the CLI already retried), and a
+/// cancel kills the waiting `colab new` at once and stops the VM the request
+/// got anyway.
+#[test]
+fn a_request_colab_never_answers_fails_once_and_a_cancel_kills_it() {
+    let f = fixture();
+    f.adopt_alice();
+    f.knob("no_answer", json!(["A100"]));
+    let spec = |name| ProvisionSpec::new(name, Accelerator::A100, &Defaults::default());
+    let (tx, _rx) = channel();
+    let err = f.b.provision(spec("na"), tx, &nc()).unwrap_err();
+    assert!(err.is(ErrorKind::AllocationTimeout), "{err}");
+    let news = f
+        .calls()
+        .iter()
+        .filter(|c| {
+            c["argv"]
+                .as_array()
+                .is_some_and(|a| a.contains(&json!("new")))
+        })
+        .count();
+    assert_eq!(news, 1, "not retried");
+    assert!(f.assignments("alice").is_empty());
+
+    f.knob("no_answer_hangs", json!(true));
+    let cancel = CancelToken::new();
+    let canceller = {
+        let cancel = cancel.clone();
+        let server = f.state.join("server.json");
+        std::thread::spawn(move || {
+            // Cancel once the hanging request has got its VM.
+            let end = Instant::now() + Duration::from_secs(30);
+            while Instant::now() < end {
+                let s: Value = std::fs::read_to_string(&server)
+                    .ok()
+                    .and_then(|t| serde_json::from_str(&t).ok())
+                    .unwrap_or_default();
+                if s["accounts"]["alice"]["assignments"]
+                    .as_object()
+                    .is_some_and(|a| !a.is_empty())
+                {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            cancel.cancel();
+        })
+    };
+    let started = Instant::now();
+    let (tx, rx) = channel();
+    let err = f.b.provision(spec("nb"), tx, &cancel).unwrap_err();
+    canceller.join().unwrap();
+    assert!(err.is(ErrorKind::Cancelled), "{err}");
+    assert!(
+        started.elapsed() < Duration::from_secs(60),
+        "the cancel waited for `colab new`: {:?}",
+        started.elapsed()
+    );
+    let events: Vec<ProvisionEvent> = rx.try_iter().collect();
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, ProvisionEvent::OrphanDetected { released: true, .. })),
+        "{events:?}"
+    );
+    assert!(
+        f.assignments("alice").is_empty(),
+        "the VM the request got anyway was left: {:?}",
+        f.assignments("alice")
+    );
+}
+
 /// Setting an auto-stop after a cancel puts it back on the runtime: the
 /// watchdog is started again the way provisioning starts it.
 #[test]

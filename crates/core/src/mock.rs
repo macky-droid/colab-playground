@@ -57,6 +57,11 @@ pub struct MockFailures {
     pub login: Option<MockLoginFailure>,
     /// Accelerators the accounts are not entitled to.
     pub not_entitled: Vec<Accelerator>,
+    /// Accelerators Colab never answers a request for: `colab new` waits
+    /// [`ALLOCATION_HANG`] and fails with `AllocationTimeout`. Cancelled during
+    /// that wait, the request still gets an unnamed VM that provisioning must
+    /// clean up.
+    pub allocation_hangs: Vec<Accelerator>,
     /// GPU memory of successive A100 allocations (the last value repeats).
     pub a100_vram_sequence: Vec<u32>,
     /// The first N tunnel connections fail with HTTP 429 (`u32::MAX`: always).
@@ -99,6 +104,7 @@ impl Default for MockFailures {
             keyring_unavailable: false,
             login: None,
             not_entitled: vec![],
+            allocation_hangs: vec![],
             a100_vram_sequence: vec![40_960, 81_920],
             ssh_busy_attempts: 0,
             plugin_fail_stage: None,
@@ -113,6 +119,11 @@ impl Default for MockFailures {
         }
     }
 }
+
+/// How long a simulated `colab new` waits for an answer that never comes
+/// ([`MockFailures::allocation_hangs`]): four two-minute tries and the CLI's
+/// backoff between them.
+pub const ALLOCATION_HANG: Duration = Duration::from_secs(4 * 120 + 70);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MockAccount {
@@ -807,6 +818,17 @@ impl ProvisionOps for MockOps<'_> {
         high_mem: bool,
         cancel: &CancelToken,
     ) -> Result<()> {
+        let hangs = self.m.w().failures.allocation_hangs.contains(&accelerator);
+        if hangs {
+            if let Err(e) = self.m.cfg.clock.sleep(ALLOCATION_HANG, cancel) {
+                // Killed mid-request, which Colab still answered with a VM.
+                self.m.add_unmanaged_runtime(&self.account, accelerator);
+                return Err(e);
+            }
+            return Err(Error::new(ErrorKind::AllocationTimeout).detail(
+                "ReadTimeout: HTTPSConnectionPool(host='colab.research.google.com', port=443): Read timed out. (read timeout=120)",
+            ));
+        }
         self.m.step(cancel)?;
         let now = self.m.now_();
         let mut w = self.m.w();
@@ -2392,6 +2414,19 @@ mod tests {
                 .unwrap_err()
                 .is(ErrorKind::NotEntitled)
         );
+        off();
+
+        on(MockFailures {
+            allocation_hangs: vec![Accelerator::T4],
+            ..d()
+        });
+        let (tx, _rx) = mpsc::channel();
+        assert!(
+            m.provision(spec.clone(), tx, &nc())
+                .unwrap_err()
+                .is(ErrorKind::AllocationTimeout)
+        );
+        assert!(m.runtimes(&nc()).unwrap().runtimes.is_empty());
         off();
         let (tx, _rx) = mpsc::channel();
         m.provision(spec, tx, &nc()).unwrap();

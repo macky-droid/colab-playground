@@ -472,6 +472,10 @@ pub(super) const MESSAGES: Messages = &[
         "現在、Colab にはこれに使えるリソースの空きがありません。",
     ),
     (
+        ERR_ALLOCATION_TIMEOUT,
+        "このハードウェアの要求に Colab が応答しませんでした。",
+    ),
+    (
         ERR_SSH_BUSY,
         "このランタイムへの別の接続がすでに開いています。",
     ),
@@ -1181,5 +1185,13 @@ pub(super) const MESSAGES: Messages = &[
     (
         SESSIONS_EMPTY_PARTIAL_TITLE,
         "一覧表示できたアカウントでは何も実行されていません",
+    ),
+    (
+        PROV_RECONCILING,
+        "キャンセルした要求でランタイムが残っていないか確認しています…",
+    ),
+    (
+        PROV_RECONCILED,
+        "キャンセルした要求でランタイムが残っていないか確認しました",
     ),
 ];

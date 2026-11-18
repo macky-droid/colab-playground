@@ -249,6 +249,19 @@ pub fn classify_failure(out: &ScriptOutput) -> Error {
     e
 }
 
+/// Whether `colab new` died of the `requests` read timeout: Colab never
+/// answered the assignment request, and the CLI's own retries (each waiting
+/// about two minutes) ran out. The CLI prints uncaught exceptions as a rich
+/// traceback that wraps long lines, so this matches the exception line's
+/// start (`ReadTimeout: …`, or `requests.exceptions.ReadTimeout: …` in a plain
+/// traceback), never the message after it.
+fn allocation_read_timed_out(stderr: &str) -> bool {
+    stderr.lines().any(|line| {
+        let line = line.trim_start();
+        line.starts_with("ReadTimeout:") || line.starts_with("requests.exceptions.ReadTimeout:")
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StopOutcome {
     /// "Session terminated."
@@ -388,6 +401,8 @@ impl Cli {
                     "`colab new` did not report READY: {}",
                     tail(&out.stdout, 300)
                 ));
+            } else if e.kind == ErrorKind::Other && allocation_read_timed_out(&out.stderr) {
+                e = e.with_kind(ErrorKind::AllocationTimeout);
             }
             Err(e)
         }
@@ -718,6 +733,40 @@ A new version of colab-cli is available
         assert_eq!(
             classify_failure(&out(3, "", "boom")).param("exit_code"),
             Some("3")
+        );
+    }
+
+    /// How google-colab-cli 0.8.0 (Typer with rich) prints the read timeout that ends a
+    /// `colab new` Colab never answered: the message wraps, the exception line starts it.
+    const RICH_READ_TIMEOUT: &str = "\
+│ ❱ 303 │   │   │   │   raise                                                  │
+│   304 │   │   │   delay = backoff * (2**attempt)                             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ReadTimeout: HTTPSConnectionPool(host='colab.research.google.com', port=443):
+Read timed out. (read timeout=120)";
+
+    #[test]
+    fn a_read_timeout_is_told_apart_from_code_that_mentions_it() {
+        assert!(allocation_read_timed_out(RICH_READ_TIMEOUT));
+        assert!(allocation_read_timed_out(
+            "Traceback (most recent call last):\n  File \"client.py\", line 303, in assign\n    raise\nrequests.exceptions.ReadTimeout: HTTPSConnectionPool(host='colab.research.google.com', port=443): Read timed out. (read timeout=120)"
+        ));
+        // Source lines shown in a traceback name the exception without being it.
+        assert!(!allocation_read_timed_out(
+            "│   296 │   │   except (ColabRequestError, requests.exceptions.ReadTimeout) as e: │\nColabRequestError: Failed to issue request POST https://colab.research.google.com/tun/m/assign: Bad Gateway"
+        ));
+        assert!(!allocation_read_timed_out(
+            "urllib3.exceptions.ReadTimeoutError: HTTPSConnectionPool(host='x', port=443)"
+        ));
+        assert_eq!(
+            classify_failure(&out(
+                1,
+                "[colab] Creating session 'a'...",
+                RICH_READ_TIMEOUT
+            ))
+            .kind,
+            ErrorKind::Other,
+            "only `colab new` turns it into AllocationTimeout"
         );
     }
 }

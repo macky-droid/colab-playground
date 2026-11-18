@@ -229,6 +229,78 @@ fn cancelling_while_a_runtime_exists_leaves_nothing_billing(cx: &mut TestAppCont
     assert!(runtime_names(&mut app).is_empty());
 }
 
+fn no_answer_for_a100() -> Options {
+    Options {
+        failures: MockFailures {
+            allocation_hangs: vec![Accelerator::A100],
+            ..MockFailures::default()
+        },
+        ..Options::scenario(MockScenario::single())
+    }
+}
+
+#[gpui::test]
+fn cancelling_a_request_colab_never_answers_ends_it_and_leaves_nothing(cx: &mut TestAppContext) {
+    let mut app = TestApp::with(cx, no_answer_for_a100());
+    on_sessions(&mut app);
+    app.click(NEW_SESSION_SELECTOR);
+    app.update(|state, cx| state.edit_new_session(|spec| spec.accelerator = Accelerator::A100, cx));
+    // Wait 1 is `colab new` waiting for an answer that never comes: cancel there. The mock's
+    // request still gets a VM, with no name, as a real one may after it is killed.
+    app.cancel_switch.arm(1);
+    app.click(NEW_SESSION_START);
+    assert_eq!(phase(&mut app), Some(ProvisionPhase::Cancelled));
+    assert!(!app.read(|state, _| state.is_provisioning()));
+    let events = events(&mut app);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, ProvisionEvent::Reconciling { attempt: 1 })),
+        "{events:?}"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, ProvisionEvent::OrphanDetected { released: true, .. })),
+        "the VM the request got anyway was stopped: {events:?}"
+    );
+    assert!(
+        !events.iter().any(|e| matches!(
+            e,
+            ProvisionEvent::AllocationFailed { .. } | ProvisionEvent::Retrying { .. }
+        )),
+        "a cancel is not a failed attempt: {events:?}"
+    );
+    assert!(app.shown("provision-cancelled"));
+    let left = app.mock.runtimes(&CancelToken::new()).expect("listing");
+    assert!(left.runtimes.is_empty(), "nothing billed is left: {left:?}");
+}
+
+#[gpui::test]
+fn a_request_colab_never_answers_fails_once_without_retrying(cx: &mut TestAppContext) {
+    let mut app = TestApp::with(cx, no_answer_for_a100());
+    provision(&mut app, |spec| {
+        spec.accelerator = Accelerator::A100;
+        spec.max_attempts = 3;
+    });
+    let Some(ProvisionPhase::Failed(error)) = phase(&mut app) else {
+        panic!("expected a failure, got {:?}", phase(&mut app));
+    };
+    assert_eq!(error.kind, ErrorKind::AllocationTimeout);
+    assert!(app.shown("error-provision"), "the failure is explained");
+    let events = events(&mut app);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, ProvisionEvent::Allocating { .. }))
+            .count(),
+        1,
+        "the CLI already retried for about ten minutes: {events:?}"
+    );
+    let left = app.mock.runtimes(&CancelToken::new()).expect("listing");
+    assert!(left.runtimes.is_empty(), "{left:?}");
+}
+
 #[gpui::test]
 fn any_runtime_on_any_account_can_be_stopped(cx: &mut TestAppContext) {
     let mut app = TestApp::new(cx);

@@ -285,6 +285,7 @@ catalog_keys! {
     ERR_AUTH_REQUIRED => "app.err.auth_required",
     ERR_NOT_ENTITLED => "app.err.not_entitled",
     ERR_CAPACITY_REFUSED => "app.err.capacity_refused",
+    ERR_ALLOCATION_TIMEOUT => "app.err.allocation_timeout",
     ERR_SSH_BUSY => "app.err.ssh_busy",
     ERR_SESSION_GONE => "app.err.session_gone",
     ERR_CONNECTION_LOST => "app.err.connection_lost",
@@ -629,6 +630,8 @@ catalog_keys! {
     SUMMARY_INCOMPLETE => "app.b10.summary_incomplete",
     SUMMARY_NOT_COUNTED => "app.b10.summary_not_counted",
     SESSIONS_EMPTY_PARTIAL_TITLE => "app.b10.sessions_empty_partial_title",
+    PROV_RECONCILING => "app.b11.prov_reconciling",
+    PROV_RECONCILED => "app.b11.prov_reconciled",
 }
 
 /// A message table: `(key, message)` pairs; `{name}` marks an argument.

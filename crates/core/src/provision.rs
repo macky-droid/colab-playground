@@ -7,11 +7,15 @@
 //!
 //! Safety properties:
 //!
-//! * `colab new` is never killed mid-flight (that could leave an assignment
-//!   without a local record); a cancellation is honoured right after it and
-//!   the VM is stopped.
+//! * A cancelled `colab new` is killed: Colab may never answer it, and the
+//!   CLI then waits about ten minutes before giving up. The request may still
+//!   allocate a VM (recorded by name if the CLI got the reply just before the
+//!   kill, or a `[?]` assignment otherwise), so the account is checked right
+//!   away and again after [`KILL_SETTLE`], and whatever appeared is stopped or
+//!   reaped. A cancellation that lands after `new` returned stops its VM.
 //! * After a failed `new`, any VM it allocated anyway is stopped (by name) or
-//!   reaped (by endpoint, for `[?]` assignments that appeared meanwhile).
+//!   reaped (by endpoint, for `[?]` assignments that appeared meanwhile). A
+//!   `new` that timed out or got no answer gets the same two looks as a kill.
 //! * Every stop is confirmed with `colab sessions`; an unverifiable release is
 //!   reported as [`ErrorKind::OrphanSuspected`] instead of being ignored.
 //! * `NotEntitled` (and auth/installation problems) abort immediately.
@@ -31,6 +35,12 @@ use crate::sessions::{Accelerator, ServerSession, WatchdogInfo, validate_session
 pub const MAX_ATTEMPTS_CAP: u32 = 8;
 
 pub const WATCHDOG_ATTEMPTS: u32 = 3;
+
+/// How long provisioning waits after killing `colab new` before it checks the
+/// account a second time for a VM that request allocated anyway. An answered
+/// request takes about 3 s; the CLI itself waits 10 s before re-checking a
+/// request that got no answer.
+pub const KILL_SETTLE: Duration = Duration::from_secs(10);
 
 /// Caps how many sessions the app keeps on one account, so a retry loop can
 /// never fan out into many billed VMs.
@@ -148,6 +158,12 @@ pub enum ProvisionEvent {
     Releasing {
         attempt: u32,
     },
+    /// `colab new` was killed by a cancel: checking whether the request
+    /// allocated a VM anyway (any found is reported as `OrphanDetected`).
+    Reconciling {
+        /// Attempt.
+        attempt: u32,
+    },
     /// An unnamed assignment appeared after a failed `new`.
     OrphanDetected {
         endpoint: String,
@@ -225,6 +241,8 @@ fn aborts_immediately(kind: ErrorKind) -> bool {
     matches!(
         kind,
         ErrorKind::NotEntitled
+            // The CLI already retried for about ten minutes.
+            | ErrorKind::AllocationTimeout
             | ErrorKind::AuthRequired
             | ErrorKind::KeyringUnavailable
             | ErrorKind::NotInstalled
@@ -315,6 +333,23 @@ fn cleanup_failed_create(
     Ok(())
 }
 
+/// Cleans up after a `colab new` whose request was abandoned without an answer
+/// (killed by a cancel or at its time limit, or given up by the CLI): the
+/// request may still allocate a VM after the first look, so the account is
+/// checked again after [`KILL_SETTLE`]. Neither the wait nor the checks can be
+/// cancelled.
+fn cleanup_killed_create(
+    ops: &dyn ProvisionOps,
+    name: &str,
+    before: &BTreeSet<String>,
+    clock: &dyn Clock,
+    events: &dyn Fn(ProvisionEvent),
+) -> Result<()> {
+    cleanup_failed_create(ops, name, before, events)?;
+    let _ = clock.sleep(KILL_SETTLE, &CancelToken::new());
+    cleanup_failed_create(ops, name, before, events)
+}
+
 /// Runs the provisioning loop. Emits every step through `events`; also emits
 /// `Failed` before returning an error (except for cancellation).
 ///
@@ -370,13 +405,23 @@ fn run(
             attempt,
             max_attempts: max,
         });
-        // Never interrupt `colab new` itself (see module docs).
-        if let Err(e) = ops.create(name, spec.accelerator, spec.high_mem, &nc) {
+        if let Err(e) = ops.create(name, spec.accelerator, spec.high_mem, cancel) {
+            if e.kind == ErrorKind::Cancelled {
+                events(ProvisionEvent::Reconciling { attempt });
+                cleanup_killed_create(ops, name, &before, clock, events)?;
+                return Err(e);
+            }
             events(ProvisionEvent::AllocationFailed {
                 attempt,
                 error: e.clone(),
             });
-            cleanup_failed_create(ops, name, &before, events)?;
+            if matches!(e.kind, ErrorKind::Timeout | ErrorKind::AllocationTimeout) {
+                // Killed at the CLI call's own time limit, or the CLI gave up on its last
+                // request without an answer: either may still get a VM after the first look.
+                cleanup_killed_create(ops, name, &before, clock, events)?;
+            } else {
+                cleanup_failed_create(ops, name, &before, events)?;
+            }
             if aborts_immediately(e.kind) || attempt == max {
                 return Err(e);
             }
@@ -529,6 +574,11 @@ mod tests {
         log: RefCell<Vec<String>>,
         stop_fails: bool,
         cancel_on_probe: Option<CancelToken>,
+        /// The user cancels while `colab new` waits for Colab, and the host kills it.
+        cancel_on_create: Option<CancelToken>,
+        /// The Nth `sessions` call (1-based) is the first to list an unnamed VM that a
+        /// killed `colab new` got after all.
+        orphan_on_listing: Option<usize>,
         vram: RefCell<Option<u32>>,
         /// The next N watchdog starts fail.
         watchdog_failures: RefCell<u32>,
@@ -549,10 +599,27 @@ mod tests {
     impl ProvisionOps for Fake {
         fn sessions(&self, _: &CancelToken) -> Result<Vec<ServerSession>> {
             self.log.borrow_mut().push("sessions".into());
+            let listings = self
+                .log
+                .borrow()
+                .iter()
+                .filter(|l| *l == "sessions")
+                .count();
+            if self.orphan_on_listing == Some(listings) {
+                self.live.borrow_mut().push(sess(None, "late-orphan"));
+            }
             Ok(self.live.borrow().clone())
         }
-        fn create(&self, name: &str, _: Accelerator, _: bool, _: &CancelToken) -> Result<()> {
+        fn create(&self, name: &str, _: Accelerator, _: bool, cancel: &CancelToken) -> Result<()> {
             self.log.borrow_mut().push("create".into());
+            if let Some(c) = &self.cancel_on_create {
+                c.cancel();
+                assert!(cancel.is_cancelled(), "`colab new` runs under the cancel");
+                if self.orphan_on_fail {
+                    self.live.borrow_mut().push(sess(None, "orphan-1"));
+                }
+                return Err(Error::cancelled());
+            }
             match self
                 .creates
                 .borrow_mut()
@@ -751,18 +818,99 @@ mod tests {
     }
 
     #[test]
-    fn not_entitled_aborts_without_retry() {
+    fn not_entitled_and_unanswered_requests_abort_without_retry() {
+        for kind in [ErrorKind::NotEntitled, ErrorKind::AllocationTimeout] {
+            let f = Fake {
+                creates: RefCell::new(VecDeque::from([Err(kind)])),
+                ..Default::default()
+            };
+            let (r, _, _) = run_fake(
+                &f,
+                &spec(None, 3, OnExhausted::StopAndFail),
+                &CancelToken::new(),
+            );
+            assert!(r.unwrap_err().is(kind));
+            assert_eq!(
+                f.log.borrow().iter().filter(|l| *l == "create").count(),
+                1,
+                "{kind:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn cancelling_during_create_kills_it_and_reaps_what_it_left() {
+        let cancel = CancelToken::new();
         let f = Fake {
-            creates: RefCell::new(VecDeque::from([Err(ErrorKind::NotEntitled)])),
+            cancel_on_create: Some(cancel.clone()),
+            orphan_on_fail: true,
             ..Default::default()
         };
-        let (r, _, _) = run_fake(
-            &f,
-            &spec(None, 3, OnExhausted::StopAndFail),
-            &CancelToken::new(),
+        let (r, ev, _) = run_fake(&f, &spec(None, 3, OnExhausted::StopAndFail), &cancel);
+        assert!(r.unwrap_err().is(ErrorKind::Cancelled));
+        assert!(f.live.borrow().is_empty(), "the cancel left a VM behind");
+        assert!(f.log.borrow().contains(&"reap orphan-1".to_owned()));
+        assert!(
+            ev.iter()
+                .any(|e| matches!(e, ProvisionEvent::Reconciling { attempt: 1 }))
         );
-        assert!(r.unwrap_err().is(ErrorKind::NotEntitled));
+        assert!(
+            ev.iter()
+                .any(|e| matches!(e, ProvisionEvent::OrphanDetected { released: true, .. }))
+        );
+        assert!(!ev.iter().any(|e| matches!(
+            e,
+            ProvisionEvent::Failed { .. }
+                | ProvisionEvent::AllocationFailed { .. }
+                | ProvisionEvent::Retrying { .. }
+        )));
         assert_eq!(f.log.borrow().iter().filter(|l| *l == "create").count(), 1);
+    }
+
+    #[test]
+    fn a_vm_that_shows_up_after_the_kill_is_reaped_on_the_second_look() {
+        let cancel = CancelToken::new();
+        // Listing 1 is the check before creating, 2 the first look after the kill.
+        let f = Fake {
+            cancel_on_create: Some(cancel.clone()),
+            orphan_on_listing: Some(3),
+            ..Default::default()
+        };
+        let (r, ev, clock) = run_fake(&f, &spec(None, 3, OnExhausted::StopAndFail), &cancel);
+        assert!(r.unwrap_err().is(ErrorKind::Cancelled));
+        assert!(f.log.borrow().contains(&"reap late-orphan".to_owned()));
+        assert!(f.live.borrow().is_empty(), "the late VM was left billing");
+        assert!(
+            ev.iter()
+                .any(|e| matches!(e, ProvisionEvent::OrphanDetected { released: true, .. }))
+        );
+        assert_eq!(
+            clock.now(),
+            ManualClock::fixed().now() + KILL_SETTLE,
+            "the second look waited on the injected clock"
+        );
+    }
+
+    #[test]
+    fn an_unanswered_or_timed_out_create_also_gets_a_second_look() {
+        for kind in [ErrorKind::Timeout, ErrorKind::AllocationTimeout] {
+            let f = Fake {
+                creates: RefCell::new(VecDeque::from([Err(kind)])),
+                orphan_on_listing: Some(3),
+                ..Default::default()
+            };
+            let (r, _, _) = run_fake(
+                &f,
+                &spec(None, 1, OnExhausted::StopAndFail),
+                &CancelToken::new(),
+            );
+            assert!(r.unwrap_err().is(kind));
+            assert!(
+                f.log.borrow().contains(&"reap late-orphan".to_owned()),
+                "{kind:?}"
+            );
+            assert!(f.live.borrow().is_empty(), "{kind:?} left a VM billing");
+        }
     }
 
     #[test]

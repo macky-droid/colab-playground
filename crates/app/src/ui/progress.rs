@@ -101,6 +101,17 @@ pub fn sentence(event: &ProvisionEvent, done: bool, cx: &App) -> Option<(SharedS
             ),
             Tone::Busy,
         ),
+        ProvisionEvent::Reconciling { .. } => (
+            tr(
+                cx,
+                if done {
+                    keys::PROV_RECONCILED
+                } else {
+                    keys::PROV_RECONCILING
+                },
+            ),
+            Tone::Busy,
+        ),
         ProvisionEvent::OrphanDetected { released: true, .. } => {
             (tr(cx, keys::PROV_ORPHAN_RELEASED), Tone::Info)
         }
