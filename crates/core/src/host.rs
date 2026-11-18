@@ -849,13 +849,32 @@ impl HostChild {
         code
     }
 
+    /// The job's process group id, waiting up to `limit` for the wrapper to report it. The job
+    /// runs in a group of its own, so a kill that came before the report would miss it.
+    fn await_pgid(&mut self, limit: Duration) -> Option<u32> {
+        let deadline = Instant::now() + limit;
+        loop {
+            if let Some(id) = *self.pgid.lock().unwrap_or_else(|e| e.into_inner()) {
+                return Some(id);
+            }
+            if Instant::now() >= deadline || self.try_wait().is_some() {
+                return None;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+
     /// Kills the process tree (idempotent).
     pub fn kill(&mut self) {
         if self.try_wait().is_some() {
             return;
         }
-        let pgid = *self.pgid.lock().unwrap_or_else(|e| e.into_inner());
-        if let (false, Some(pgid)) = (self.direct, pgid) {
+        let pgid = if self.direct {
+            None
+        } else {
+            self.await_pgid(Duration::from_secs(5))
+        };
+        if let Some(pgid) = pgid {
             let req = ScriptRequest::new(KILL_SCRIPT).arg(pgid.to_string());
             if let Ok(inv) = self.host.invocation(&req, false)
                 && let Ok(mut killer) = spawn_invocation(&inv, Stdio::null())
@@ -1232,6 +1251,17 @@ mod tests {
         child.kill();
         std::thread::sleep(Duration::from_secs(4));
         assert!(!marker.exists(), "background grandchild survived the kill");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_kill_right_after_the_spawn_waits_for_the_group_id() {
+        let mut child = Host::Local
+            .spawn(ScriptRequest::new("sleep 30").stdin_pipe())
+            .unwrap();
+        assert!(child.await_pgid(Duration::from_secs(5)).is_some());
+        child.kill();
+        assert!(child.try_wait().is_some());
     }
 
     #[cfg(unix)]

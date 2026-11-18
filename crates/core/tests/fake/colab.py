@@ -5,7 +5,7 @@ Mimics the observable behaviour of google-colab-cli 0.8.0 that the core relies
 on: global ``--config`` state files and their pruning, ``sessions`` / ``usage``
 / ``new`` / ``exec`` / ``stop`` / ``version`` / ``whoami`` output formats and
 exit codes, the copy-paste OAuth prompt, HTTP 400 for unentitled
-accelerators, and ``ssh --proxy-mode`` (including its auto-create of unknown
+accelerators, an allocation request Colab never answers, and ``ssh --proxy-mode`` (including its auto-create of unknown
 session names and HTTP 429). Snippets sent with ``exec`` are compiled (syntax
 errors surface like kernel tracebacks) and the core's known snippets get
 simulated answers. State lives under ``$CPG_FAKE_STATE`` (see fake_common).
@@ -154,6 +154,19 @@ def cmd_new(state_path, args):
     s = fc.server()
     if acc in s["knobs"]["deny"]:
         err("[colab] Backend rejected accelerator '%s'. You may not have quota or entitlement for this accelerator on your account." % acc)
+        return 1
+    if acc in s["knobs"]["no_answer"]:
+        if s["knobs"]["no_answer_hangs"]:
+            # Colab allocates a VM but the reply never arrives, so the CLI records
+            # no session (the VM is listed as `[?]`) and keeps waiting.
+            allocate(s, name, session, acc, "--high-mem" in args)
+            fc.save_server(s)
+            time.sleep(600)
+            return 1
+        # How 0.8.0 (Typer with rich) ends once its retries of the request ran out
+        # (the traceback box above these lines is left out).
+        err("ReadTimeout: HTTPSConnectionPool(host='colab.research.google.com', port=443): ")
+        err("Read timed out. (read timeout=120)")
         return 1
     ep = allocate(s, name, session, acc, "--high-mem" in args)
     fc.save_server(s)

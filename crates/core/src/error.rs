@@ -25,6 +25,9 @@ pub enum ErrorKind {
     /// Colab refused the allocation (HTTP 412): too many sessions or a
     /// temporary capacity limit. Retrying later may help.
     CapacityRefused,
+    /// Colab never answered the request for a runtime: `colab new` gave up
+    /// after its own retries (each waits about two minutes for a reply).
+    AllocationTimeout,
     /// A runtime already has its single allowed `colab ssh` connection (HTTP 429).
     SshBusy,
     /// The named session no longer exists (locally or on the server).
@@ -122,6 +125,7 @@ impl ErrorKind {
             ErrorKind::AuthRequired => "auth_required",
             ErrorKind::NotEntitled => "not_entitled",
             ErrorKind::CapacityRefused => "capacity_refused",
+            ErrorKind::AllocationTimeout => "allocation_timeout",
             ErrorKind::SshBusy => "ssh_busy",
             ErrorKind::SessionGone => "session_gone",
             ErrorKind::ConnectionLost => "connection_lost",
@@ -174,7 +178,9 @@ impl ErrorKind {
                 NextStep::SignInAgain
             }
             K::LoginInvalidCode | K::LoginCancelled | K::AddInProgress => NextStep::TryAgain,
-            K::NotEntitled | K::ProvisionExhausted => NextStep::ChooseOtherAccelerator,
+            K::NotEntitled | K::ProvisionExhausted | K::AllocationTimeout => {
+                NextStep::ChooseOtherAccelerator
+            }
             K::CapacityRefused
             | K::ConnectionLost
             | K::ExecTimeout
@@ -382,6 +388,7 @@ mod tests {
             ErrorKind::NotEntitled,
             ErrorKind::SshBusy,
             ErrorKind::LoginInvalidCode,
+            ErrorKind::AllocationTimeout,
         ] {
             assert_eq!(ErrorKind::from_str_lossy(kind.as_str()), kind);
         }
