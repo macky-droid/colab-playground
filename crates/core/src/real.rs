@@ -1268,8 +1268,9 @@ impl Backend for RealBackend {
                 }
             };
             let names = self.inner.state_names(&account, cancel);
-            self.inner
-                .reconcile(&account, &list, names.as_ref(), &sample)?;
+            let _ = self
+                .inner
+                .reconcile(&account, &list, names.as_ref(), &sample);
             let names = names.unwrap_or_default();
             let st = self.inner.st();
             let email = st.accounts.get(&account).and_then(|a| a.email.clone());

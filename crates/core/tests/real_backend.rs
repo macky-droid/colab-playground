@@ -950,6 +950,35 @@ fn ownership_is_verified_without_live_ledger_entries_even_if_listing_fails() {
 }
 
 #[test]
+fn runtime_listing_survives_ledger_write_failure() {
+    let f = fixture();
+    f.adopt_alice();
+    f.provision("ended", Accelerator::T4);
+    f.provision("running", Accelerator::T4);
+    let running_endpoint =
+        f.b.runtimes(&nc())
+            .unwrap()
+            .runtimes
+            .into_iter()
+            .find(|r| r.id.name.as_deref() == Some("running"))
+            .unwrap()
+            .id
+            .endpoint;
+    f.edit_server(|s| {
+        s["accounts"]["alice"]["assignments"]
+            .as_object_mut()
+            .unwrap()
+            .retain(|endpoint, _| endpoint == &running_endpoint);
+    });
+    let ledger_file = f.cfg.local_dir.join("ledger.json");
+    std::fs::remove_file(&ledger_file).unwrap();
+    std::fs::create_dir(&ledger_file).unwrap();
+    let view = f.b.runtimes(&nc()).unwrap();
+    assert_eq!(view.runtimes.len(), 1);
+    assert_eq!(view.runtimes[0].id.name.as_deref(), Some("running"));
+}
+
+#[test]
 fn endpoint_backfill_is_persisted_and_missing_names_do_not_end_sessions() {
     let mut f = fixture();
     let account = f.adopt_alice();
