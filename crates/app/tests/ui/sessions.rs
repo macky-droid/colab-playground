@@ -2,17 +2,19 @@
 //! session limit, cancel), stopping any runtime on any account, forwards, the cost guard and
 //! quitting with runtimes still billing.
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use colab_playground::{
+    i18n::{self, Language},
     route::Route,
-    state::{EndReason, Overlay, ProvisionPhase},
+    state::{EndReason, Overlay, ProvisionPhase, ProvisionProgress},
     ui::{
         overlays::{
             FORWARD_BODY, FORWARD_SUBMIT, NEW_SESSION_FORM, NEW_SESSION_LIMIT, NEW_SESSION_START,
             RESERVED_NOTE,
         },
         pages::sessions::{NEW_SESSION_SELECTOR, forward_selector, stop_selector},
+        progress,
     },
 };
 use colab_playground_core::{
@@ -23,9 +25,9 @@ use colab_playground_core::{
     provision::ProvisionEvent,
     sessions::Accelerator,
 };
-use gpui::TestAppContext;
+use gpui::{Context, IntoElement, ParentElement, Render, Styled, TestAppContext, Window, div};
 
-use crate::support::{Options, TestApp, click_at};
+use crate::support::{Options, TestApp, click_at, mount};
 
 const STOP_CONFIRM: &str = "stop-confirm";
 
@@ -302,6 +304,54 @@ fn a_request_colab_never_answers_fails_once_without_retrying(cx: &mut TestAppCon
     );
     let left = app.mock.runtimes(&CancelToken::new()).expect("listing");
     assert!(left.runtimes.is_empty(), "{left:?}");
+}
+
+/// A headless backend call runs to completion in one go, so a request still waiting cannot be
+/// caught in the app itself: the note is drawn on its own.
+struct NoAnswerNote {
+    progress: ProvisionProgress,
+    now: SystemTime,
+}
+
+impl Render for NoAnswerNote {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .size_full()
+            .children(progress::no_answer_note(&self.progress, Some(self.now), cx))
+    }
+}
+
+#[gpui::test]
+fn a_request_colab_leaves_unanswered_says_so_once_it_is_overdue(cx: &mut TestAppContext) {
+    let asked = SystemTime::UNIX_EPOCH + Duration::from_secs(1_767_225_600);
+    let mut asking = ProvisionProgress::default();
+    asking.push(
+        ProvisionEvent::Allocating {
+            attempt: 1,
+            max_attempts: 3,
+        },
+        Some(asked),
+    );
+    let mut answered = asking.clone();
+    answered.push(ProvisionEvent::Allocated { attempt: 1 }, Some(asked));
+    for (progress, after, shown) in [
+        (asking.clone(), 30, false),
+        (asking, 3 * 60, true),
+        (answered, 3 * 60, false),
+    ] {
+        let (_, cx) = mount(cx, move |_, cx| {
+            i18n::install(Language::EnUs, cx);
+            NoAnswerNote {
+                progress,
+                now: asked + Duration::from_secs(after),
+            }
+        });
+        assert_eq!(
+            cx.debug_bounds(progress::NO_ANSWER_SELECTOR).is_some(),
+            shown,
+            "{after} s after asking"
+        );
+    }
 }
 
 #[gpui::test]

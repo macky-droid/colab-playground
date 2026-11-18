@@ -1194,4 +1194,8 @@ pub(super) const MESSAGES: Messages = &[
         PROV_RECONCILED,
         "キャンセルした要求でランタイムが残っていないか確認しました",
     ),
+    (
+        PROV_NO_ANSWER,
+        "{time}の間、Colab から応答がありません。さらに時間がかかる要求もあります。今すぐキャンセルすることもできます。",
+    ),
 ];

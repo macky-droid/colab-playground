@@ -126,6 +126,11 @@ pub(super) fn render(
                         .child(progress::headline(&session.progress, cx)),
                 )
                 .child(progress::render(&session.progress, true, cx))
+                .children(progress::no_answer_note(
+                    &session.progress,
+                    state.backend_now(),
+                    cx,
+                ))
                 .child(InlineMessage::new(
                     Severity::Info,
                     tr(cx, keys::NEW_CANCEL_NOTE),
