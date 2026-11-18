@@ -355,6 +355,6 @@ failure. It is the default in debug builds and the only backend used by UI tests
   login flow, provision retry to an 80 GB A100, quick deploy to a ready endpoint, guard auto-stop,
   plugin install from a fixture folder.
 - CI (light): Linux runs fmt, clippy and all tests; Windows and macOS run `cargo check
-  --workspace --all-targets` and the core tests; Windows also runs the app's UI tests.
+  --workspace --all-targets`, the core tests and the app's UI tests.
 - Not verifiable by automated tests (covered by the manual smoke checklist in `docs/TESTING.md`):
   real-account login/switch, real provisioning, the VM-side `unassign`, real tunnels.
