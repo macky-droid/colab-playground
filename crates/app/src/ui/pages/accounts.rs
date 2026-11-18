@@ -26,7 +26,7 @@ use crate::{
     i18n::{keys, tr, tr_args},
     route::Route,
     state::{AccountRow, AppState, Op, RemoveBlock, SignInStatus, usage_is_stale},
-    ui::{error_view, pages::overview::unmanaged_warning, tagged},
+    ui::{error_view, metrics, pages::overview::unmanaged_warning, tagged},
 };
 
 /// Selector around "Add account" in the page header.
@@ -387,7 +387,7 @@ fn usage_stats(usage: Option<&AccountUsageView>, state: &AppState, cx: &App) -> 
     let unknown = || tr(cx, keys::SUMMARY_UNKNOWN);
     let cell = |label: &str, text: SharedString| {
         div()
-            .min_w(theme.label_width() * 0.75)
+            .min_w(metrics::usage_figure_min_width(theme))
             .flex()
             .flex_col()
             .child(Caption::new(tr(cx, label)))

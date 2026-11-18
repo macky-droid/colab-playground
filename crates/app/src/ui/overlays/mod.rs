@@ -16,14 +16,13 @@ use ely_gpui_component::{
     typography::Caption,
 };
 use gpui::{
-    AnyElement, App, Axis, Entity, InteractiveElement, IntoElement, ParentElement, Rems,
-    RenderOnce, ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Window, deferred,
-    div,
+    AnyElement, App, Axis, Entity, InteractiveElement, IntoElement, ParentElement, RenderOnce,
+    ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Window, deferred, div,
 };
 
 use crate::{
     state::{AppState, Overlay},
-    ui::{Inputs, tagged},
+    ui::{Inputs, metrics, tagged},
 };
 
 pub use forward::{FORWARD_BODY, FORWARD_SUBMIT, RESERVED_NOTE};
@@ -88,18 +87,7 @@ fn busy_line(id: &'static str, text: SharedString) -> impl IntoElement {
         .child(Caption::new(text))
 }
 
-/// What a dialog keeps around its scrolling content: the window margin above and below, its
-/// padding, title, action row and the gaps between them (about 209 px). Generous on purpose:
-/// too much only leaves the dialog a little short, too little makes the dialog's own body
-/// scroll as well.
-const DIALOG_CHROME: Rems = Rems(13.5);
-
-const MIN_SCROLLED: Rems = Rems(8.0);
-
-/// Ely's dialog card padding (`p_6`).
-const DIALOG_PADDING: Rems = Rems(1.5);
-
-/// `DIALOG_CHROME` counts only a title and an action row, so this must be the whole content of
+/// `metrics::DIALOG_CHROME` counts only a title and an action row, so this must be the whole content of
 /// a dialog without a description. The thumb shows whenever the content runs past the room, not
 /// only on hover: a form that continues below must say so.
 #[derive(IntoElement)]
@@ -122,10 +110,14 @@ fn scrolled(
 }
 
 impl RenderOnce for Scrolled {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "Ely's `ScrollArea` lays its bar over the content and shows it only while in use"
+    )]
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let rem = window.rem_size();
-        let room = (window.viewport_size().height - DIALOG_CHROME.to_pixels(rem))
-            .max(MIN_SCROLLED.to_pixels(rem));
+        let room = (window.viewport_size().height - metrics::DIALOG_CHROME.to_pixels(rem))
+            .max(metrics::DIALOG_SCROLLED_MIN_HEIGHT.to_pixels(rem));
         let handle = match self.handle {
             Some(handle) => handle,
             None => window
@@ -136,7 +128,7 @@ impl RenderOnce for Scrolled {
         // The bar sits in the card's right padding, beside the content rather than over it
         // (its track takes presses). The dialog's body clips to its content box on both axes,
         // so the bar is drawn deferred, outside that clip.
-        let padding = DIALOG_PADDING.to_pixels(rem);
+        let padding = metrics::DIALOG_PADDING.to_pixels(rem);
         tagged(
             self.id,
             div()
