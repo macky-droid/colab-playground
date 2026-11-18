@@ -156,7 +156,7 @@ fn an_accelerator_the_account_cannot_use_says_so(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn changing_options_after_a_failure_shows_the_form_from_its_top(cx: &mut TestAppContext) {
-    use gpui::{point, px};
+    use gpui::point;
     let options = Options {
         failures: MockFailures {
             not_entitled: vec![Accelerator::H100],
@@ -165,7 +165,7 @@ fn changing_options_after_a_failure_shows_the_form_from_its_top(cx: &mut TestApp
         ..Options::scenario(MockScenario::single())
     };
     let mut app = TestApp::with(cx, options);
-    app.resize(880.0, 560.0);
+    app.resize(size(px(880.0), px(560.0)));
     open_new_session(&mut app);
     app.update(|state, cx| {
         state.edit_new_session(
