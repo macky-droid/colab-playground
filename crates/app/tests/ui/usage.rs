@@ -105,6 +105,30 @@ fn without_a_reading_usage_is_unknown_not_zero(cx: &mut TestAppContext) {
     app.click(Route::Accounts.nav_selector());
     let unknown_total = app.cx.update(|_, cx| tr(cx, keys::SUMMARY_UNKNOWN));
     assert!(app.shown(&format!("{TOTALS_SELECTOR} {unknown_total}")));
+    assert!(!app.shown("unmanaged-warning"));
+}
+
+#[gpui::test]
+fn stale_unmanaged_warning_describes_the_last_reading(cx: &mut TestAppContext) {
+    let mut app = TestApp::new(cx);
+    let email = app.read(|state, _| state.unmanaged()[0].0.clone().unwrap());
+    let current = app
+        .cx
+        .update(|_, cx| tr_args(cx, keys::UNMANAGED_ONE, &[("email", &email)]));
+    let current_title = app.text(keys::UNMANAGED_TITLE);
+    assert!(app.shown(&format!("unmanaged-warning {current_title} {current}")));
+    app.set_failures(MockFailures {
+        usage_fetch_fails: true,
+        ..MockFailures::default()
+    });
+    app.advance(Duration::from_secs(60));
+    assert!(active_snapshot(&mut app).unwrap().stale);
+    let historical = app
+        .cx
+        .update(|_, cx| tr_args(cx, keys::UNMANAGED_LAST_ONE, &[("email", &email)]));
+    let title = app.text(keys::UNMANAGED_LAST_TITLE);
+    assert!(app.shown(&format!("unmanaged-warning {title} {historical}")));
+    assert!(!app.shown(&format!("unmanaged-warning {current_title} {current}")));
 }
 
 #[gpui::test]

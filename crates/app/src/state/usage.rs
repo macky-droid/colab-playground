@@ -153,12 +153,19 @@ impl AppState {
     }
 
     /// Accounts with runtimes this app does not manage, and how many.
-    pub fn unmanaged(&self) -> Vec<(Option<String>, u32)> {
+    pub fn unmanaged(&self) -> Vec<(Option<String>, u32, bool)> {
         self.usage
             .views
             .iter()
             .filter(|view| view.unmanaged_runtimes > 0)
-            .map(|view| (view.email.clone(), view.unmanaged_runtimes))
+            .map(|view| {
+                (
+                    view.email.clone(),
+                    view.unmanaged_runtimes,
+                    view.snapshot
+                        .is_some_and(|s| is_stale(&s, self.usage_now())),
+                )
+            })
             .collect()
     }
 

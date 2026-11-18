@@ -746,40 +746,50 @@ pub fn unmanaged_warning(
     if unmanaged.is_empty() {
         return None;
     }
+    let title = if unmanaged.iter().any(|(_, _, stale)| *stale) {
+        keys::UNMANAGED_LAST_TITLE
+    } else {
+        keys::UNMANAGED_TITLE
+    };
     let lines: Vec<String> = unmanaged
         .iter()
-        .map(|(email, count)| {
+        .map(|(email, count, stale)| {
             let email = email
                 .clone()
                 .unwrap_or_else(|| tr(cx, keys::ACCOUNTS_NO_EMAIL).to_string());
             if *count == 1 {
-                tr_args(cx, keys::UNMANAGED_ONE, &[("email", &email)]).to_string()
+                let key = if *stale {
+                    keys::UNMANAGED_LAST_ONE
+                } else {
+                    keys::UNMANAGED_ONE
+                };
+                tr_args(cx, key, &[("email", &email)]).to_string()
             } else {
-                tr_args(
-                    cx,
-                    keys::UNMANAGED_MANY,
-                    &[("email", &email), ("count", &count.to_string())],
-                )
-                .to_string()
+                let key = if *stale {
+                    keys::UNMANAGED_LAST_MANY
+                } else {
+                    keys::UNMANAGED_MANY
+                };
+                tr_args(cx, key, &[("email", &email), ("count", &count.to_string())]).to_string()
             }
         })
         .collect();
     let handle = handle.clone();
+    let body = lines.join("\n");
     Some(
         tagged(
             "unmanaged-warning",
-            Alert::new(
-                "unmanaged",
-                Severity::Warning,
-                tr(cx, keys::UNMANAGED_TITLE),
-            )
-            .body(lines.join("\n"))
-            .action(
-                Button::new("unmanaged-view", tr(cx, keys::ACTION_VIEW_SESSIONS))
-                    .size(ControlSize::Sm)
-                    .on_click(move |_, _, cx| {
-                        handle.update(cx, |state, cx| state.navigate(Route::Sessions, cx))
-                    }),
+            tagged(
+                format!("unmanaged-warning {} {body}", tr(cx, title)),
+                Alert::new("unmanaged", Severity::Warning, tr(cx, title))
+                    .body(body)
+                    .action(
+                        Button::new("unmanaged-view", tr(cx, keys::ACTION_VIEW_SESSIONS))
+                            .size(ControlSize::Sm)
+                            .on_click(move |_, _, cx| {
+                                handle.update(cx, |state, cx| state.navigate(Route::Sessions, cx))
+                            }),
+                    ),
             ),
         )
         .w_full()

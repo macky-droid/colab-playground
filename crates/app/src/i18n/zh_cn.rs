@@ -187,6 +187,15 @@ pub(super) const MESSAGES: Messages = &[
     (SUMMARY_EMPTY, "已用完"),
     (UNMANAGED_TITLE, "有其他运行时正在计费"),
     (
+        UNMANAGED_LAST_ONE,
+        "上次读取时，{email} 上有 1 个非本应用启动的运行时在消耗计算单元。",
+    ),
+    (UNMANAGED_LAST_TITLE, "上次读取时的其他运行时"),
+    (
+        UNMANAGED_LAST_MANY,
+        "上次读取时，{email} 上有 {count} 个非本应用启动的运行时在消耗计算单元。",
+    ),
+    (
         UNMANAGED_ONE,
         "{email} 上有 1 个不是由本应用启动的运行时正在消耗计算单元。",
     ),

@@ -167,6 +167,9 @@ catalog_keys! {
     UNMANAGED_TITLE => "app.unmanaged.title",
     UNMANAGED_ONE => "app.unmanaged.one",
     UNMANAGED_MANY => "app.unmanaged.many",
+    UNMANAGED_LAST_TITLE => "app.unmanaged.last_title",
+    UNMANAGED_LAST_ONE => "app.unmanaged.last_one",
+    UNMANAGED_LAST_MANY => "app.unmanaged.last_many",
     BACKEND_START_FAILED => "app.backend.start_failed",
     // Accounts
     ACCOUNTS_ACTIVE => "app.accounts.active",

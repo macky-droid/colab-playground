@@ -211,6 +211,15 @@ pub(super) const MESSAGES: Messages = &[
     (SUMMARY_EMPTY, "None left"),
     (UNMANAGED_TITLE, "Other runtimes are billing"),
     (
+        UNMANAGED_LAST_ONE,
+        "As of the last reading, 1 runtime that this app didn't start was using compute units on {email}.",
+    ),
+    (UNMANAGED_LAST_TITLE, "Other runtimes at the last reading"),
+    (
+        UNMANAGED_LAST_MANY,
+        "As of the last reading, {count} runtimes that this app didn't start were using compute units on {email}.",
+    ),
+    (
         UNMANAGED_ONE,
         "1 runtime that this app didn't start is using compute units on {email}.",
     ),

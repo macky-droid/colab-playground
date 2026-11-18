@@ -195,6 +195,15 @@ pub(super) const MESSAGES: Messages = &[
     (SUMMARY_EMPTY, "已用完"),
     (UNMANAGED_TITLE, "有其他執行階段正在計費"),
     (
+        UNMANAGED_LAST_ONE,
+        "上次讀取時，{email} 上有 1 個非這個應用程式啟動的執行階段在消耗運算單元。",
+    ),
+    (UNMANAGED_LAST_TITLE, "上次讀取時的其他執行階段"),
+    (
+        UNMANAGED_LAST_MANY,
+        "上次讀取時，{email} 上有 {count} 個非這個應用程式啟動的執行階段在消耗運算單元。",
+    ),
+    (
         UNMANAGED_ONE,
         "{email} 上有 1 個不是由這個應用程式啟動的執行階段正在消耗運算單元。",
     ),

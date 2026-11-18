@@ -236,6 +236,9 @@ impl RateAttribution {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AccountUsage {
     pub snapshot: Option<UsageSnapshot>,
+    /// Managed runtimes when the snapshot was recorded; absent in older caches.
+    #[serde(default)]
+    pub managed_at_reading: Option<usize>,
     pub history: BalanceHistory,
     pub attribution: RateAttribution,
     /// Last fetch attempt (successful or not), for [`poll_due`].
@@ -247,6 +250,7 @@ pub struct AccountUsage {
 impl AccountUsage {
     pub fn record_success(&mut self, usage: Usage, now: SystemTime, live: &BTreeSet<String>) {
         self.snapshot = Some(UsageSnapshot::new(usage, now));
+        self.managed_at_reading = Some(live.len());
         self.history.push(now, usage.balance_cu);
         self.attribution
             .observe(usage.rate_cu_per_hour, usage.assignments, live);
@@ -262,10 +266,13 @@ impl AccountUsage {
         self.last_error = Some(error);
     }
 
-    /// Runtimes the app does not know about (`assignments` beyond `known`).
+    /// Runtimes beyond those managed at the reading (`known` is a legacy-cache fallback).
     pub fn unmanaged_runtimes(&self, known: usize) -> u32 {
         self.snapshot
-            .map(|s| s.assignments.saturating_sub(known as u32))
+            .map(|s| {
+                s.assignments
+                    .saturating_sub(self.managed_at_reading.unwrap_or(known) as u32)
+            })
             .unwrap_or(0)
     }
 }
@@ -428,5 +435,46 @@ mod tests {
         assert_eq!(tot.accounts, 2);
         assert!(!tot.complete);
         assert!(tot.any_stale);
+    }
+
+    #[test]
+    fn unmanaged_count_stays_with_the_reading() {
+        let mut a = AccountUsage::default();
+        assert_eq!(a.unmanaged_runtimes(0), 0);
+        a.record_success(u(80.0, 13.6, 3), t(0), &set(&["s1", "s2"]));
+        assert_eq!(
+            a.unmanaged_runtimes(1),
+            1,
+            "a stop does not change the reading"
+        );
+        assert_eq!(
+            a.unmanaged_runtimes(3),
+            1,
+            "a start does not hide a runtime"
+        );
+        a.record_failure(Error::new(crate::ErrorKind::Http), t(30));
+        assert_eq!(a.unmanaged_runtimes(3), 1);
+        a.record_success(u(79.0, 13.6, 5), t(60), &set(&["s1", "s2", "s3"]));
+        assert_eq!(
+            a.unmanaged_runtimes(0),
+            2,
+            "a successful reading updates the count"
+        );
+        a.record_success(u(78.0, 13.6, 1), t(90), &set(&["s1", "s2"]));
+        assert_eq!(a.unmanaged_runtimes(0), 0, "subtraction saturates");
+    }
+
+    #[test]
+    fn older_usage_caches_fall_back_to_known_sessions() {
+        let mut a = AccountUsage::default();
+        a.record_success(u(80.0, 13.6, 3), t(0), &set(&["s1", "s2"]));
+        let mut value = serde_json::to_value(&a).unwrap();
+        value.as_object_mut().unwrap().remove("managed_at_reading");
+        let legacy: AccountUsage = serde_json::from_value(value).unwrap();
+        assert_eq!(legacy.managed_at_reading, None);
+        assert_eq!(legacy.unmanaged_runtimes(2), 1);
+        let restored: AccountUsage =
+            serde_json::from_value(serde_json::to_value(&a).unwrap()).unwrap();
+        assert_eq!(restored.unmanaged_runtimes(0), 1);
     }
 }
