@@ -65,14 +65,22 @@ param(
 $ErrorActionPreference = 'Stop'
 $runs = Join-Path ([IO.Path]::GetTempPath()) 'colab-playground-screenshots'
 
-# A copy -Start launched runs as <runs>\<its folder>\colab-playground.exe. Anything else, such
-# as your own Colab Playground, could be signed in to a real account.
+# -Start writes down the copy it launched, by id and start time, in that copy's folder under
+# $runs. Only that process is ever driven or stopped, and only its folder deleted: any other
+# Colab Playground, even the same copy started again by hand, could be signed in to a real
+# account.
+function Get-RunRecord([System.Diagnostics.Process]$process) {
+  "$($process.Id) $($process.StartTime.ToFileTimeUtc())"
+}
 function Get-RunFolder([System.Diagnostics.Process]$process) {
   $exe = $process.Path
   if ($exe) {
     $folder = [IO.Path]::GetDirectoryName($exe)
+    $record = Join-Path $folder 'process.txt'
     if ([IO.Path]::GetFileName($exe) -eq 'colab-playground.exe' -and
-        [string]::Equals([IO.Path]::GetDirectoryName($folder), $runs, [StringComparison]::OrdinalIgnoreCase)) {
+        [string]::Equals([IO.Path]::GetDirectoryName($folder), $runs, [StringComparison]::OrdinalIgnoreCase) -and
+        (Test-Path -LiteralPath $record) -and
+        "$(Get-Content -LiteralPath $record -Raw)".Trim() -eq (Get-RunRecord $process)) {
       return $folder
     }
   }
@@ -122,6 +130,7 @@ if ($Start) {
       $process.Refresh()
     }
     if ($process.MainWindowHandle -eq 0) { throw 'the app opened no window' }
+    [IO.File]::WriteAllText((Join-Path $run 'process.txt'), (Get-RunRecord $process))
     # Every later call makes this check, so a copy it would refuse fails here instead.
     [void](Get-RunFolder $process)
   } catch {
