@@ -32,9 +32,13 @@ The code is the source of truth for what the app does.
 2. Push the branch and open a pull request against `main`. Nothing is pushed to `main` directly:
    the `main` ruleset requires a pull request
    ([RELEASING.md](RELEASING.md#one-time-repository-settings)).
-3. Wait for the three CI jobs to pass on a branch that is up to date with `main`. No approving
+3. If the change touches the interface, confirm it by looking at screenshots of the running app;
+   the UI tests run headless and draw nothing. Take them from a debug build on the mock backend
+   with its own config folder ([USAGE.md](USAGE.md#demo-data)), in the states the change is
+   about, such as the smallest window, the longest translation or dark mode.
+4. Wait for the three CI jobs to pass on a branch that is up to date with `main`. No approving
    review is needed.
-4. Merge with **Squash and merge**, the only method the repository allows. The pull request's
+5. Merge with **Squash and merge**, the only method the repository allows. The pull request's
    title becomes the commit on `main` and its changelog line, so write it as a conventional commit
    ([Writing commits for the changelog](RELEASING.md#writing-commits-for-the-changelog)). Commits
    inside the pull request, fix-ups included, never reach the changelog. The branch is deleted
