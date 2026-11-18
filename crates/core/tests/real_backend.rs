@@ -926,6 +926,30 @@ fn ownership_is_unverified_when_listing_fails_and_recovers_on_a_new_reading() {
 }
 
 #[test]
+fn ownership_is_verified_without_live_ledger_entries_even_if_listing_fails() {
+    for stopped in [false, true] {
+        let f = fixture();
+        f.adopt_alice();
+        if stopped {
+            f.provision("ended", Accelerator::T4);
+            let target = f.b.runtimes(&nc()).unwrap().runtimes[0].id.clone();
+            f.b.stop_session(&target, StopOptions::default(), &nc())
+                .unwrap();
+        }
+        f.edit_server(|s| {
+            s["accounts"]["alice"]["assignments"] = json!({
+                "m-browser": {"accelerator": "T4"}
+            });
+        });
+        f.knob("cli_api_broken", json!(true));
+        let views = f.b.refresh_usage(&[], &nc()).unwrap();
+        assert!(views[0].ownership_verified);
+        assert_eq!(views[0].unmanaged_runtimes, 1);
+        assert!(!views[0].snapshot.unwrap().stale);
+    }
+}
+
+#[test]
 fn endpoint_backfill_is_persisted_and_missing_names_do_not_end_sessions() {
     let mut f = fixture();
     let account = f.adopt_alice();

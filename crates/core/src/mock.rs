@@ -568,7 +568,7 @@ impl World {
         match (fails, reading) {
             (false, Some(u)) => {
                 entry.record_success(u, now, &live);
-                entry.ownership_verified = verified;
+                entry.ownership_verified = live.is_empty() || verified;
             }
             _ => entry.record_failure(
                 Error::new(ErrorKind::Http).detail("simulated usage failure"),
@@ -2105,6 +2105,48 @@ mod tests {
             .retain(|r| r.endpoint != entry.endpoint.as_deref().unwrap());
         assert!(!w.reconcile(&account, m.now_()).0);
         assert!(w.ledger.live(&account, &entry.name).is_some());
+    }
+
+    #[test]
+    fn ownership_without_live_ledger_entries_does_not_need_a_listing() {
+        for stopped in [false, true] {
+            let mut scenario = if stopped {
+                MockScenario::demo()
+            } else {
+                MockScenario::single()
+            };
+            if !stopped {
+                scenario
+                    .runtimes
+                    .push(MockScenario::demo().runtimes[2].clone());
+            }
+            let (m, _) = mock(scenario);
+            let account = {
+                let mut w = m.w();
+                let account = w.active.clone().unwrap();
+                let names = w.live_names(&account);
+                for name in names {
+                    w.ledger
+                        .update(&account, &name, |e| {
+                            e.stopped = Some(StopRecord {
+                                at: m.now_(),
+                                reason: StopReason::User,
+                            })
+                        })
+                        .unwrap();
+                }
+                account
+            };
+            m.set_failures(MockFailures {
+                runtimes_listing_fails: true,
+                ..Default::default()
+            });
+            let views = m.refresh_usage(&[], &nc()).unwrap();
+            let view = views.iter().find(|v| v.account == account).unwrap();
+            assert!(view.ownership_verified);
+            assert_eq!(view.unmanaged_runtimes, view.snapshot.unwrap().assignments);
+            assert!(view.unmanaged_runtimes > 0);
+        }
     }
 
     #[test]
