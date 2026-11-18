@@ -235,6 +235,11 @@ pub(super) const MESSAGES: Messages = &[
     (SUMMARY_EMPTY, "残りなし"),
     (UNMANAGED_TITLE, "ほかのランタイムが課金中です"),
     (
+        UNMANAGED_UNKNOWN,
+        "{email} の前回の取得時点では、ランタイムの管理状況を確認できませんでした。このアプリが管理していないランタイムの数は不明です。",
+    ),
+    (UNMANAGED_UNKNOWN_TITLE, "ランタイムの管理状況が不明です"),
+    (
         UNMANAGED_LAST_ONE,
         "前回の取得時点では、このアプリが開始していないランタイム 1 件が、{email} のコンピューティング ユニットを消費していました。",
     ),

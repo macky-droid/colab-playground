@@ -187,6 +187,11 @@ pub(super) const MESSAGES: Messages = &[
     (SUMMARY_EMPTY, "已用完"),
     (UNMANAGED_TITLE, "有其他运行时正在计费"),
     (
+        UNMANAGED_UNKNOWN,
+        "上次读取时未能核实 {email} 上的运行时是否由本应用管理，因此未托管运行时的数量未知。",
+    ),
+    (UNMANAGED_UNKNOWN_TITLE, "运行时归属未知"),
+    (
         UNMANAGED_LAST_ONE,
         "上次读取时，{email} 上有 1 个非本应用启动的运行时在消耗计算单元。",
     ),

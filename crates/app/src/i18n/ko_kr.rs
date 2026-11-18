@@ -208,6 +208,11 @@ pub(super) const MESSAGES: Messages = &[
     (SUMMARY_EMPTY, "남은 양 없음"),
     (UNMANAGED_TITLE, "다른 런타임이 과금 중입니다"),
     (
+        UNMANAGED_UNKNOWN,
+        "{email} 계정의 마지막 조회 시점에 런타임 관리 여부를 확인할 수 없었습니다. 이 앱이 관리하지 않는 런타임 수는 알 수 없습니다.",
+    ),
+    (UNMANAGED_UNKNOWN_TITLE, "런타임 관리 여부를 알 수 없습니다"),
+    (
         UNMANAGED_LAST_ONE,
         "마지막 조회 시점에 이 앱이 시작하지 않은 런타임 1개가 {email} 계정의 컴퓨팅 단위를 소비하고 있었습니다.",
     ),

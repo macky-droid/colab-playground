@@ -500,13 +500,76 @@ impl World {
             .collect()
     }
 
-    fn record_usage(&mut self, id: &AccountId, now: SystemTime) {
+    fn reconcile(&mut self, id: &AccountId, now: SystemTime) -> (bool, Vec<RuntimeRef>) {
+        if self.listing_fails_for(id) {
+            return (false, Vec::new());
+        }
+        let live: Vec<_> = self
+            .ledger
+            .entries()
+            .iter()
+            .filter(|e| &e.account == id && e.stopped.is_none())
+            .cloned()
+            .collect();
+        let mut vanished = Vec::new();
+        let mut verified = true;
+        for e in live {
+            let endpoint = e.endpoint.clone().or_else(|| {
+                self.runtimes
+                    .iter()
+                    .find(|r| &r.account == id && r.name.as_deref() == Some(&e.name))
+                    .map(|r| r.endpoint.clone())
+            });
+            let Some(endpoint) = endpoint else {
+                verified = false;
+                continue;
+            };
+            if self
+                .runtimes
+                .iter()
+                .any(|r| &r.account == id && r.endpoint == endpoint)
+            {
+                if e.endpoint.is_none()
+                    && self
+                        .ledger
+                        .update(id, &e.name, |e| e.endpoint = Some(endpoint))
+                        .is_err()
+                {
+                    verified = false;
+                }
+            } else {
+                if self
+                    .ledger
+                    .update(id, &e.name, |e| {
+                        e.stopped = Some(StopRecord {
+                            at: now,
+                            reason: StopReason::Vanished,
+                        })
+                    })
+                    .is_err()
+                {
+                    verified = false;
+                }
+                vanished.push(RuntimeRef {
+                    account: id.clone(),
+                    endpoint,
+                    name: Some(e.name),
+                });
+            }
+        }
+        (verified, vanished)
+    }
+
+    fn record_usage(&mut self, id: &AccountId, now: SystemTime, verified: bool) {
         let live = self.live_names(id);
         let fails = self.failures.usage_fetch_fails;
         let reading = self.usage_of(id);
         let entry = self.usage.entry(id.clone()).or_default();
         match (fails, reading) {
-            (false, Some(u)) => entry.record_success(u, now, &live),
+            (false, Some(u)) => {
+                entry.record_success(u, now, &live);
+                entry.ownership_verified = verified;
+            }
             _ => entry.record_failure(
                 Error::new(ErrorKind::Http).detail("simulated usage failure"),
                 now,
@@ -1269,7 +1332,8 @@ impl Backend for MockBackend {
             accounts.to_vec()
         };
         for id in ids {
-            w.record_usage(&id, now);
+            let (verified, _) = w.reconcile(&id, now);
+            w.record_usage(&id, now, verified);
         }
         Ok(w.usage_views())
     }
@@ -1302,6 +1366,10 @@ impl Backend for MockBackend {
         }
         w.settle(now);
         let mut view = RuntimesView::default();
+        let ids: Vec<_> = w.accounts.iter().map(|a| a.id.clone()).collect();
+        for id in ids {
+            w.reconcile(&id, now);
+        }
         for account in &w.accounts {
             if w.failures.unlisted_accounts.contains(&account.email) {
                 view.errors.push(AccountError {
@@ -1527,28 +1595,16 @@ impl Backend for MockBackend {
                 .collect();
             let ids: BTreeSet<AccountId> = live.iter().map(|e| e.account.clone()).collect();
             for id in &ids {
-                w.record_usage(id, now);
+                let (verified, vanished) = w.reconcile(id, now);
+                report.vanished.extend(vanished);
+                w.record_usage(id, now, verified);
             }
-            for e in &live {
-                let gone = !w
-                    .runtimes
-                    .iter()
-                    .any(|r| r.account == e.account && r.name.as_deref() == Some(&e.name));
-                if gone {
-                    let _ = w.ledger.update(&e.account, &e.name, |x| {
-                        x.stopped = Some(StopRecord {
-                            at: now,
-                            reason: StopReason::Vanished,
-                        })
-                    });
-                    report.vanished.push(RuntimeRef {
-                        account: e.account.clone(),
-                        endpoint: e.endpoint.clone().unwrap_or_default(),
-                        name: Some(e.name.clone()),
-                    });
-                }
-            }
-            live
+            w.ledger
+                .entries()
+                .iter()
+                .filter(|e| e.stopped.is_none() && ids.contains(&e.account))
+                .cloned()
+                .collect()
         };
         for e in live {
             if report
@@ -1972,6 +2028,83 @@ mod tests {
 
     fn nc() -> CancelToken {
         CancelToken::new()
+    }
+
+    #[test]
+    fn reconciliation_precedes_usage_and_respects_listing_failures() {
+        for guard in [false, true] {
+            for per_account in [false, true] {
+                let (m, _) = mock(MockScenario::demo());
+                let (account, email) = {
+                    let mut w = m.w();
+                    let account = w.active.clone().unwrap();
+                    let email = w.email(&account).unwrap();
+                    let endpoint = w
+                        .ledger
+                        .entries()
+                        .iter()
+                        .find(|e| e.account == account)
+                        .unwrap()
+                        .endpoint
+                        .clone()
+                        .unwrap();
+                    w.runtimes.retain(|r| r.endpoint != endpoint);
+                    (account, email)
+                };
+                m.set_failures(MockFailures {
+                    runtimes_listing_fails: !per_account,
+                    unlisted_accounts: if per_account { vec![email] } else { vec![] },
+                    ..Default::default()
+                });
+                let refresh = || {
+                    if guard {
+                        m.guard_poll(&nc()).unwrap().usage
+                    } else {
+                        m.refresh_usage(&[], &nc()).unwrap()
+                    }
+                };
+                let views = refresh();
+                let view = views.iter().find(|v| v.account == account).unwrap();
+                assert!(!view.snapshot.unwrap().stale);
+                assert!(!view.ownership_verified);
+                assert_eq!(m.w().live_names(&account).len(), 2);
+                m.set_failures(MockFailures::default());
+                let views = refresh();
+                let view = views.iter().find(|v| v.account == account).unwrap();
+                assert!(view.ownership_verified);
+                assert_eq!(view.unmanaged_runtimes, 1);
+                assert_eq!(m.w().live_names(&account).len(), 1);
+            }
+        }
+    }
+
+    #[test]
+    fn reconciliation_backfills_but_does_not_invent_missing_identities() {
+        let (m, _) = mock(MockScenario::demo());
+        let mut w = m.w();
+        let account = w.active.clone().unwrap();
+        let entry = w
+            .ledger
+            .entries()
+            .iter()
+            .find(|e| e.account == account)
+            .unwrap()
+            .clone();
+        w.ledger
+            .update(&account, &entry.name, |e| e.endpoint = None)
+            .unwrap();
+        assert!(w.reconcile(&account, m.now_()).0);
+        assert_eq!(
+            w.ledger.live(&account, &entry.name).unwrap().endpoint,
+            entry.endpoint
+        );
+        w.ledger
+            .update(&account, &entry.name, |e| e.endpoint = None)
+            .unwrap();
+        w.runtimes
+            .retain(|r| r.endpoint != entry.endpoint.as_deref().unwrap());
+        assert!(!w.reconcile(&account, m.now_()).0);
+        assert!(w.ledger.live(&account, &entry.name).is_some());
     }
 
     #[test]

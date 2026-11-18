@@ -881,6 +881,90 @@ fn usage_guard_stop_and_vanished_sessions() {
 }
 
 #[test]
+fn usage_reconciles_before_counting_managed_sessions() {
+    for guard in [false, true] {
+        let f = fixture();
+        f.adopt_alice();
+        f.provision("gone", Accelerator::T4);
+        f.edit_server(|s| {
+            s["accounts"]["alice"]["assignments"] = json!({
+                "m-browser": {"accelerator": "T4", "high_mem": false}
+            })
+        });
+        let views = if guard {
+            let report = f.b.guard_poll(&nc()).unwrap();
+            assert_eq!(report.vanished.len(), 1);
+            report.usage
+        } else {
+            f.b.refresh_usage(&[], &nc()).unwrap()
+        };
+        assert!(views[0].ownership_verified);
+        assert_eq!(views[0].unmanaged_runtimes, 1);
+    }
+}
+
+#[test]
+fn ownership_is_unverified_when_listing_fails_and_recovers_on_a_new_reading() {
+    let f = fixture();
+    f.adopt_alice();
+    f.provision("managed", Accelerator::T4);
+    f.knob("cli_api_broken", json!(true));
+    for views in [
+        f.b.refresh_usage(&[], &nc()).unwrap(),
+        f.b.guard_poll(&nc()).unwrap().usage,
+    ] {
+        assert!(views[0].snapshot.is_some_and(|s| !s.stale));
+        assert!(!views[0].ownership_verified);
+    }
+    f.knob("cli_api_broken", json!(false));
+    f.b.runtimes(&nc()).unwrap();
+    assert!(
+        !f.b.usage()[0].ownership_verified,
+        "listing does not rewrite a reading"
+    );
+    assert!(f.b.refresh_usage(&[], &nc()).unwrap()[0].ownership_verified);
+}
+
+#[test]
+fn endpoint_backfill_is_persisted_and_missing_names_do_not_end_sessions() {
+    let mut f = fixture();
+    let account = f.adopt_alice();
+    f.provision("managed", Accelerator::T4);
+    let state_file = f.state_file(&account.id);
+    let state = std::fs::read_to_string(&state_file).unwrap();
+    let ledger_file = f.cfg.local_dir.join("ledger.json");
+    let mut ledger: Value =
+        serde_json::from_str(&std::fs::read_to_string(&ledger_file).unwrap()).unwrap();
+    ledger[0]["endpoint"] = Value::Null;
+    std::fs::write(&ledger_file, ledger.to_string()).unwrap();
+    f.b = RealBackend::new(f.cfg.clone()).unwrap();
+
+    for contents in [None, Some("not json"), Some("{}")] {
+        if let Some(contents) = contents {
+            std::fs::write(&state_file, contents).unwrap();
+        } else {
+            std::fs::remove_file(&state_file).unwrap();
+        }
+        let views = f.b.refresh_usage(&[], &nc()).unwrap();
+        assert!(!views[0].ownership_verified);
+        let ledger: Value =
+            serde_json::from_str(&std::fs::read_to_string(&ledger_file).unwrap()).unwrap();
+        assert!(ledger[0]["endpoint"].is_null());
+        assert!(ledger[0]["stopped"].is_null());
+    }
+    std::fs::write(&state_file, state).unwrap();
+    assert!(f.b.runtimes(&nc()).unwrap().runtimes[0].managed);
+    let ledger: Value =
+        serde_json::from_str(&std::fs::read_to_string(&ledger_file).unwrap()).unwrap();
+    assert!(ledger[0]["endpoint"].is_string());
+    f.b = RealBackend::new(f.cfg.clone()).unwrap();
+    std::fs::remove_file(&state_file).unwrap();
+    assert!(f.b.refresh_usage(&[], &nc()).unwrap()[0].ownership_verified);
+    f.edit_server(|s| s["accounts"]["alice"]["assignments"] = json!({}));
+    assert_eq!(f.b.guard_poll(&nc()).unwrap().vanished.len(), 1);
+}
+
+#[test]
 fn keyring_and_cli_api_failures_are_typed() {
     let f = fixture();
     f.adopt_alice();

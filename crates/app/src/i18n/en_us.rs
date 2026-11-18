@@ -211,6 +211,11 @@ pub(super) const MESSAGES: Messages = &[
     (SUMMARY_EMPTY, "None left"),
     (UNMANAGED_TITLE, "Other runtimes are billing"),
     (
+        UNMANAGED_UNKNOWN,
+        "Runtime ownership couldn't be verified for the last reading on {email}. The number of unmanaged runtimes is unknown.",
+    ),
+    (UNMANAGED_UNKNOWN_TITLE, "Runtime ownership unknown"),
+    (
         UNMANAGED_LAST_ONE,
         "As of the last reading, 1 runtime that this app didn't start was using compute units on {email}.",
     ),

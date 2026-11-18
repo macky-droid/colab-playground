@@ -195,6 +195,11 @@ pub(super) const MESSAGES: Messages = &[
     (SUMMARY_EMPTY, "已用完"),
     (UNMANAGED_TITLE, "有其他執行階段正在計費"),
     (
+        UNMANAGED_UNKNOWN,
+        "上次讀取時未能確認 {email} 上的執行階段是否由這個應用程式管理，因此未受管理的執行階段數量未知。",
+    ),
+    (UNMANAGED_UNKNOWN_TITLE, "執行階段歸屬未知"),
+    (
         UNMANAGED_LAST_ONE,
         "上次讀取時，{email} 上有 1 個非這個應用程式啟動的執行階段在消耗運算單元。",
     ),

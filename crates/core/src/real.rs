@@ -469,25 +469,102 @@ impl Inner {
     }
 
     /// Names recorded in an account's state file, by endpoint.
-    fn state_names(&self, account: &AccountId, cancel: &CancelToken) -> BTreeMap<String, String> {
-        let Ok(layout) = self.layout(cancel) else {
-            return BTreeMap::new();
-        };
+    fn state_names(
+        &self,
+        account: &AccountId,
+        cancel: &CancelToken,
+    ) -> Option<BTreeMap<String, String>> {
+        let layout = self.layout(cancel).ok()?;
         let text = self
             .fs()
             .read(&layout.account_state(account), cancel)
             .ok()
-            .flatten()
-            .unwrap_or_default();
-        let map: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_str(&text).unwrap_or_default();
-        map.into_iter()
-            .filter_map(|(name, rec)| {
-                rec.get("endpoint")
-                    .and_then(|e| e.as_str())
-                    .map(|e| (e.to_owned(), name))
-            })
-            .collect()
+            .flatten()?;
+        let map: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&text).ok()?;
+        Some(
+            map.into_iter()
+                .filter_map(|(name, rec)| {
+                    rec.get("endpoint")
+                        .and_then(|e| e.as_str())
+                        .map(|e| (e.to_owned(), name))
+                })
+                .collect(),
+        )
+    }
+
+    fn reconcile(
+        &self,
+        account: &AccountId,
+        list: &[RemoteAssignment],
+        names: Option<&BTreeMap<String, String>>,
+    ) -> Result<Vec<RuntimeRef>> {
+        let mut st = self.st();
+        let live: Vec<_> = st
+            .ledger
+            .entries()
+            .iter()
+            .filter(|e| &e.account == account && e.stopped.is_none())
+            .cloned()
+            .collect();
+        let mut vanished = Vec::new();
+        for e in live {
+            let endpoint = e.endpoint.clone().or_else(|| {
+                names.and_then(|names| {
+                    names
+                        .iter()
+                        .find(|(_, name)| *name == &e.name)
+                        .map(|(ep, _)| ep.clone())
+                })
+            });
+            if let Some(endpoint) = endpoint {
+                if list.iter().any(|a| a.endpoint == endpoint) {
+                    if e.endpoint.is_none() {
+                        st.ledger
+                            .update(account, &e.name, |e| e.endpoint = Some(endpoint))?;
+                    }
+                } else {
+                    st.ledger.update(account, &e.name, |e| {
+                        e.stopped = Some(StopRecord {
+                            at: self.now(),
+                            reason: StopReason::Vanished,
+                        });
+                    })?;
+                    vanished.push(RuntimeRef {
+                        account: account.clone(),
+                        endpoint,
+                        name: Some(e.name),
+                    });
+                }
+            }
+        }
+        Ok(vanished)
+    }
+
+    fn reconcile_accounts(
+        &self,
+        ids: &[AccountId],
+        cancel: &CancelToken,
+    ) -> (BTreeSet<AccountId>, Vec<RuntimeRef>) {
+        let mut verified = BTreeSet::new();
+        let mut vanished = Vec::new();
+        if let Ok(helper) = self.helper()
+            && let Ok(listed) = helper.assignments(ids, cancel)
+        {
+            for (account, result) in listed {
+                if let Ok(list) = result {
+                    let names = self.state_names(&account, cancel);
+                    if let Ok(gone) = self.reconcile(&account, &list, names.as_ref()) {
+                        vanished.extend(gone);
+                        if !self.st().ledger.entries().iter().any(|e| {
+                            e.account == account && e.stopped.is_none() && e.endpoint.is_none()
+                        }) {
+                            verified.insert(account);
+                        }
+                    }
+                }
+            }
+        }
+        (verified, vanished)
     }
 
     fn stop(&self, target: &RuntimeRef, opts: &StopOptions, cancel: &CancelToken) -> Result<()> {
@@ -553,7 +630,11 @@ impl Inner {
         Ok(())
     }
 
-    fn record_usage(&self, results: Vec<(AccountId, Result<crate::usage::Usage>)>) {
+    fn record_usage(
+        &self,
+        results: Vec<(AccountId, Result<crate::usage::Usage>)>,
+        verified: &BTreeSet<AccountId>,
+    ) {
         let now = self.now();
         for (id, res) in results {
             let live = self.live_names(&id);
@@ -562,6 +643,7 @@ impl Inner {
             match res {
                 Ok(u) => {
                     entry.record_success(u, now, &live);
+                    entry.ownership_verified = verified.contains(&id);
                     let snap = entry.snapshot;
                     if let Some(s) = snap {
                         let _ = st.accounts.set_usage(&id, s);
@@ -983,7 +1065,10 @@ impl Backend for RealBackend {
                 .and_then(|results| results.into_iter().find(|(a, _)| a == f))
                 .and_then(|(_, res)| res.ok());
             unmanaged_left_running = listed.map(|assignments| {
-                let names = self.inner.state_names(f, &CancelToken::new());
+                let names = self
+                    .inner
+                    .state_names(f, &CancelToken::new())
+                    .unwrap_or_default();
                 assignments
                     .into_iter()
                     .filter_map(|a| {
@@ -1061,11 +1146,13 @@ impl Backend for RealBackend {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
+        let (verified, _) = self.inner.reconcile_accounts(&ids, cancel);
         match self.inner.helper()?.usage_many(&ids, cancel) {
-            Ok(results) => self.inner.record_usage(results),
-            Err(e) => self
-                .inner
-                .record_usage(ids.iter().map(|i| (i.clone(), Err(e.clone()))).collect()),
+            Ok(results) => self.inner.record_usage(results, &verified),
+            Err(e) => self.inner.record_usage(
+                ids.iter().map(|i| (i.clone(), Err(e.clone()))).collect(),
+                &verified,
+            ),
         }
         Ok(self.inner.usage_views())
     }
@@ -1106,25 +1193,8 @@ impl Backend for RealBackend {
                 }
             };
             let names = self.inner.state_names(&account, cancel);
-            let endpoints: BTreeSet<&str> = list.iter().map(|a| a.endpoint.as_str()).collect();
-            // Ledger sessions missing on the server have ended.
-            let gone: Vec<String> = {
-                let st = self.inner.st();
-                st.ledger
-                    .entries()
-                    .iter()
-                    .filter(|e| e.account == account && e.stopped.is_none())
-                    .filter(|e| {
-                        e.endpoint
-                            .as_deref()
-                            .is_some_and(|ep| !endpoints.contains(ep))
-                    })
-                    .map(|e| e.name.clone())
-                    .collect()
-            };
-            for n in gone {
-                self.inner.mark_stopped(&account, &n, StopReason::Vanished);
-            }
+            self.inner.reconcile(&account, &list, names.as_ref())?;
+            let names = names.unwrap_or_default();
             let st = self.inner.st();
             let email = st.accounts.get(&account).and_then(|a| a.email.clone());
             let usage = st.usage.get(&account);
@@ -1229,6 +1299,7 @@ impl Backend for RealBackend {
         let endpoint = self
             .inner
             .state_names(&account, &CancelToken::new())
+            .unwrap_or_default()
             .into_iter()
             .find(|(_, n)| n == &outcome.name)
             .map(|(e, _)| e);
@@ -1349,6 +1420,17 @@ impl Backend for RealBackend {
             return Ok(report);
         }
         let helper = self.inner.helper()?;
+        let (verified, vanished) = self.inner.reconcile_accounts(&ids, cancel);
+        report.vanished = vanished;
+        let live: Vec<TrackedSession> = self
+            .inner
+            .st()
+            .ledger
+            .entries()
+            .iter()
+            .filter(|e| e.stopped.is_none() && ids.contains(&e.account))
+            .cloned()
+            .collect();
         let fresh: BTreeSet<AccountId> = match helper.usage_many(&ids, cancel) {
             Ok(results) => {
                 let ok = results
@@ -1356,33 +1438,17 @@ impl Backend for RealBackend {
                     .filter(|(_, r)| r.is_ok())
                     .map(|(i, _)| i.clone())
                     .collect();
-                self.inner.record_usage(results);
+                self.inner.record_usage(results, &verified);
                 ok
             }
             Err(e) => {
-                self.inner
-                    .record_usage(ids.iter().map(|i| (i.clone(), Err(e.clone()))).collect());
+                self.inner.record_usage(
+                    ids.iter().map(|i| (i.clone(), Err(e.clone()))).collect(),
+                    &verified,
+                );
                 BTreeSet::new()
             }
         };
-        if let Ok(listed) = helper.assignments(&ids, cancel) {
-            for (account, res) in listed {
-                let Ok(list) = res else { continue };
-                for e in live.iter().filter(|e| e.account == account) {
-                    if let Some(ep) = &e.endpoint
-                        && !list.iter().any(|a| &a.endpoint == ep)
-                    {
-                        self.inner
-                            .mark_stopped(&account, &e.name, StopReason::Vanished);
-                        report.vanished.push(RuntimeRef {
-                            account: account.clone(),
-                            endpoint: ep.clone(),
-                            name: Some(e.name.clone()),
-                        });
-                    }
-                }
-            }
-        }
         let now = self.inner.now();
         let vanished: BTreeSet<(AccountId, String)> = report
             .vanished

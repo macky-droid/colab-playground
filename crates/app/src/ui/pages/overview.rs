@@ -746,7 +746,9 @@ pub fn unmanaged_warning(
     if unmanaged.is_empty() {
         return None;
     }
-    let title = if unmanaged.iter().any(|(_, _, stale)| *stale) {
+    let title = if unmanaged.iter().any(|(_, count, _)| count.is_none()) {
+        keys::UNMANAGED_UNKNOWN_TITLE
+    } else if unmanaged.iter().any(|(_, _, stale)| *stale) {
         keys::UNMANAGED_LAST_TITLE
     } else {
         keys::UNMANAGED_TITLE
@@ -757,6 +759,9 @@ pub fn unmanaged_warning(
             let email = email
                 .clone()
                 .unwrap_or_else(|| tr(cx, keys::ACCOUNTS_NO_EMAIL).to_string());
+            let Some(count) = count else {
+                return tr_args(cx, keys::UNMANAGED_UNKNOWN, &[("email", &email)]).to_string();
+            };
             if *count == 1 {
                 let key = if *stale {
                     keys::UNMANAGED_LAST_ONE

@@ -239,6 +239,8 @@ pub struct AccountUsage {
     /// Managed runtimes when the snapshot was recorded; absent in older caches.
     #[serde(default)]
     pub managed_at_reading: Option<usize>,
+    #[serde(default)]
+    pub ownership_verified: bool,
     pub history: BalanceHistory,
     pub attribution: RateAttribution,
     /// Last fetch attempt (successful or not), for [`poll_due`].
@@ -251,6 +253,7 @@ impl AccountUsage {
     pub fn record_success(&mut self, usage: Usage, now: SystemTime, live: &BTreeSet<String>) {
         self.snapshot = Some(UsageSnapshot::new(usage, now));
         self.managed_at_reading = Some(live.len());
+        self.ownership_verified = true;
         self.history.push(now, usage.balance_cu);
         self.attribution
             .observe(usage.rate_cu_per_hour, usage.assignments, live);
@@ -470,8 +473,10 @@ mod tests {
         a.record_success(u(80.0, 13.6, 3), t(0), &set(&["s1", "s2"]));
         let mut value = serde_json::to_value(&a).unwrap();
         value.as_object_mut().unwrap().remove("managed_at_reading");
+        value.as_object_mut().unwrap().remove("ownership_verified");
         let legacy: AccountUsage = serde_json::from_value(value).unwrap();
         assert_eq!(legacy.managed_at_reading, None);
+        assert!(!legacy.ownership_verified);
         assert_eq!(legacy.unmanaged_runtimes(2), 1);
         let restored: AccountUsage =
             serde_json::from_value(serde_json::to_value(&a).unwrap()).unwrap();

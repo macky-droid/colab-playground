@@ -165,6 +165,40 @@ fn old_values_are_not_reported_as_a_failed_refresh() {
 }
 
 #[gpui::test]
+fn unverified_ownership_is_unknown_even_when_usage_is_fresh_or_stale(cx: &mut TestAppContext) {
+    let mut app = TestApp::new(cx);
+    let email = app.read(|state, _| state.active_email().unwrap().to_string());
+    let title = app.text(keys::UNMANAGED_UNKNOWN_TITLE);
+    let body = app
+        .cx
+        .update(|_, cx| tr_args(cx, keys::UNMANAGED_UNKNOWN, &[("email", &email)]));
+    app.set_failures(MockFailures {
+        unlisted_accounts: vec![email.clone()],
+        ..MockFailures::default()
+    });
+    app.advance(Duration::from_secs(60));
+    assert!(!active_snapshot(&mut app).unwrap().stale);
+    assert!(app.read(|state, _| {
+        state
+            .unmanaged()
+            .iter()
+            .any(|(e, count, _)| e.as_ref() == Some(&email) && count.is_none())
+    }));
+    assert!(app.shown(&format!("unmanaged-warning {title} {body}")));
+    app.set_failures(MockFailures {
+        unlisted_accounts: vec![email.clone()],
+        usage_fetch_fails: true,
+        ..MockFailures::default()
+    });
+    app.advance(Duration::from_secs(60));
+    assert!(active_snapshot(&mut app).unwrap().stale);
+    assert!(app.shown(&format!("unmanaged-warning {title} {body}")));
+    app.set_failures(MockFailures::default());
+    app.advance(Duration::from_secs(60));
+    assert!(!app.shown(&format!("unmanaged-warning {title} {body}")));
+}
+
+#[gpui::test]
 fn refresh_fetches_now_and_the_poller_waits_for_its_cadence(cx: &mut TestAppContext) {
     let mut app = TestApp::with(cx, Options::scenario(MockScenario::single()));
     let first = active_snapshot(&mut app).expect("fetched at start");

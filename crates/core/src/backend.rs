@@ -136,6 +136,8 @@ pub struct AccountUsageView {
     pub history: Vec<BalancePoint>,
     /// Runtimes on the account the app does not manage.
     pub unmanaged_runtimes: u32,
+    #[serde(default)]
+    pub ownership_verified: bool,
     /// Estimated rate per managed session name (≈).
     pub session_rates: BTreeMap<String, f64>,
     pub last_error: Option<Error>,
@@ -441,6 +443,7 @@ pub fn usage_view(
         eta: usage.snapshot.and_then(|s| s.eta()),
         history: usage.history.points(),
         unmanaged_runtimes: usage.unmanaged_runtimes(known_sessions),
+        ownership_verified: usage.ownership_verified,
         session_rates: usage.attribution.rates(),
         last_error: usage.last_error.clone(),
     }
