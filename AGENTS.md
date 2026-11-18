@@ -14,7 +14,8 @@ disagree. The few rules that exist only here say so.
   asked to run it there, and a release build is on it unless `--mock` is given.
 - Never push to `main`. Stated only here: never use the admin bypass of the `main` ruleset unless
   asked.
-- Stated only here: no `Co-Authored-By` trailer in commits or pull requests.
+- Stated only here: no `Co-Authored-By` trailer that credits a coding agent (Claude, Devin and
+  the like) in commits or pull requests.
 
 ## Build, run, check
 
