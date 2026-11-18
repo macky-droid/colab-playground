@@ -10,13 +10,15 @@ mod stop;
 
 use ely_gpui_component::{
     buttons::{Button, ButtonVariant},
+    layout::{ScrollShadow, Scrollbar},
     motion::Spinner,
     theme::IconSize,
     typography::Caption,
 };
 use gpui::{
-    AnyElement, App, Entity, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, Window, div, rems,
+    AnyElement, App, Axis, Entity, InteractiveElement, IntoElement, ParentElement, Rems,
+    RenderOnce, ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Window, deferred,
+    div,
 };
 
 use crate::{
@@ -24,8 +26,10 @@ use crate::{
     ui::{Inputs, tagged},
 };
 
-pub use forward::{FORWARD_SUBMIT, RESERVED_NOTE};
-pub use new_session::{NEW_SESSION_CANCEL_RUN, NEW_SESSION_LIMIT, NEW_SESSION_START};
+pub use forward::{FORWARD_BODY, FORWARD_SUBMIT, RESERVED_NOTE};
+pub use new_session::{
+    NEW_SESSION_CANCEL_RUN, NEW_SESSION_FORM, NEW_SESSION_LIMIT, NEW_SESSION_START,
+};
 pub use plugin::{INSTALL_CONFIRM, REMOVE_CONFIRM};
 pub use quit::{QUIT_CHECKING, QUIT_LEAVE, QUIT_STOP_ALL, QUIT_UNCHECKED};
 pub use stop::{CANCEL_AUTO_STOP_CONFIRM, STOP_CONFIRM};
@@ -84,12 +88,83 @@ fn busy_line(id: &'static str, text: SharedString) -> impl IntoElement {
         .child(Caption::new(text))
 }
 
-/// Tall content scrolls inside the dialog.
-fn scrolled(id: &'static str, content: impl IntoElement) -> impl IntoElement {
-    div()
-        .id(id)
-        .max_h(rems(28.0))
-        .overflow_y_scroll()
-        .pr_2()
-        .child(content)
+/// What a dialog keeps around its scrolling content: the window margin above and below, its
+/// padding, title, action row and the gaps between them (about 209 px). Generous on purpose:
+/// too much only leaves the dialog a little short, too little makes the dialog's own body
+/// scroll as well.
+const DIALOG_CHROME: Rems = Rems(13.5);
+
+const MIN_SCROLLED: Rems = Rems(8.0);
+
+/// Ely's dialog card padding (`p_6`).
+const DIALOG_PADDING: Rems = Rems(1.5);
+
+/// `DIALOG_CHROME` counts only a title and an action row, so this must be the whole content of
+/// a dialog without a description. The thumb shows whenever the content runs past the room, not
+/// only on hover: a form that continues below must say so.
+#[derive(IntoElement)]
+struct Scrolled {
+    id: &'static str,
+    handle: Option<ScrollHandle>,
+    content: AnyElement,
+}
+
+fn scrolled(
+    id: &'static str,
+    handle: Option<&ScrollHandle>,
+    content: impl IntoElement,
+) -> Scrolled {
+    Scrolled {
+        id,
+        handle: handle.cloned(),
+        content: content.into_any_element(),
+    }
+}
+
+impl RenderOnce for Scrolled {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let rem = window.rem_size();
+        let room = (window.viewport_size().height - DIALOG_CHROME.to_pixels(rem))
+            .max(MIN_SCROLLED.to_pixels(rem));
+        let handle = match self.handle {
+            Some(handle) => handle,
+            None => window
+                .use_keyed_state(self.id, cx, |_, _| ScrollHandle::new())
+                .read(cx)
+                .clone(),
+        };
+        // The bar sits in the card's right padding, beside the content rather than over it
+        // (its track takes presses). The dialog's body clips to its content box on both axes,
+        // so the bar is drawn deferred, outside that clip.
+        let padding = DIALOG_PADDING.to_pixels(rem);
+        tagged(
+            self.id,
+            div()
+                .relative()
+                // A column, so the scrolling body shrinks to the room instead of clipping.
+                .flex()
+                .flex_col()
+                .max_h(room)
+                .mr(-padding)
+                .child(
+                    div()
+                        .id(self.id)
+                        .min_h_0()
+                        .flex()
+                        .flex_col()
+                        .overflow_y_scroll()
+                        .overflow_x_hidden()
+                        .track_scroll(&handle)
+                        // A scroll box measures its children at any width; held to its own,
+                        // text wraps when laid out as it does when drawn, and the height fits.
+                        .child(div().w_full().min_w_0().pr(padding).child(self.content)),
+                )
+                .child(ScrollShadow::new(&handle))
+                .child(deferred(Scrollbar::new(
+                    SharedString::from(format!("{}-bar", self.id)),
+                    &handle,
+                    Axis::Vertical,
+                ))),
+        )
+    }
 }
