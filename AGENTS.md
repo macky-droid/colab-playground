@@ -36,10 +36,10 @@ disagree. The few rules that exist only here say so.
 - [Goals and non-goals](docs/DESIGN.md#goals-and-non-goals-v1) and
   [Invariants](docs/DESIGN.md#invariants): a change that breaks one is wrong even if every test
   passes. If a rule cannot be followed, stop and report.
-- Part of the interface rules is enforced by the checks:
+- Part of these rules is enforced by the checks:
   [`crates/app/clippy.toml`](crates/app/clippy.toml) names what to use instead of each banned
   call, and [`crates/app/tests/lint.rs`](crates/app/tests/lint.rs) rejects unnamed numbers in UI
-  code.
+  code and a target OS named outside the modules that own it.
 - [Docs and comments](docs/DEVELOPMENT.md#docs-and-comments): the code wins over a description, no
   doc describes how the code works, comments say why.
 
