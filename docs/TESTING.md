@@ -11,7 +11,8 @@ The commands CI runs on each platform are in
   with the mock backend only.
 - `RealBackend` is tested against a fake `colab`, keyring and `ssh` (`crates/core/tests/fake/`).
   Those tests are unix-only: they run on Linux and macOS, not on Windows.
-- No test runs the real `colab` ([DESIGN.md](DESIGN.md), section 2). The ignored, Windows-only
+- No test runs the real `colab` ([hard safety rules](DESIGN.md#hard-safety-rules)). The ignored,
+  Windows-only
   `wsl_smoke` test only round-trips `printf` through WSL:
   `cargo test -p colab-playground-core --test wsl_smoke -- --ignored`.
 

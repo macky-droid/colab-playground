@@ -325,7 +325,7 @@ pub trait Backend: Send + Sync {
     /// A fresh readable name such as `a100-3f9c` (`prefix` defaults to the
     /// default accelerator).
     fn new_session_name(&self, prefix: Option<&str>) -> String;
-    /// Provisions a session on the active account (§4.4) with its guard.
+    /// Provisions a session on the active account with its guard.
     fn provision(
         &self,
         spec: ProvisionSpec,
