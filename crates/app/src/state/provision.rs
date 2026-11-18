@@ -76,7 +76,8 @@ pub struct NewSession {
     pub spec: ProvisionSpec,
     pub phase: ProvisionPhase,
     pub progress: ProvisionProgress,
-    /// New on each opening, so the form opens at the top.
+    /// New on each opening and reset when a failed or cancelled attempt is edited again, so the
+    /// form shows from the top.
     pub scroll: ScrollHandle,
 }
 
@@ -244,6 +245,7 @@ impl AppState {
         {
             session.phase = ProvisionPhase::Editing;
             session.progress = ProvisionProgress::default();
+            session.scroll.set_offset(gpui::Point::default());
             let name = session.spec.name.clone();
             self.set_input(InputSlot::SessionName, name);
             cx.notify();
