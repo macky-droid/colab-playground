@@ -16,7 +16,6 @@ use crate::{
     ui::{error_view, tagged},
 };
 
-/// Selector of the confirming button.
 pub const STOP_CONFIRM: &str = "stop-confirm";
 
 pub(super) fn render(
@@ -64,7 +63,6 @@ pub(super) fn render(
         .into_any_element()
 }
 
-/// Selector of the button that cancels the auto-stop.
 pub const CANCEL_AUTO_STOP_CONFIRM: &str = "cancel-auto-stop-confirm";
 
 /// Cancel auto-stop, confirmed once: afterwards the runtime bills until stopped by hand.

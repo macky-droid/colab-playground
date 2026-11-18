@@ -1,5 +1,3 @@
-//! English (United States).
-
 use super::{Messages, keys::*};
 
 pub(super) const MESSAGES: Messages = &[
@@ -436,6 +434,10 @@ pub(super) const MESSAGES: Messages = &[
     (
         ERR_CAPACITY_REFUSED,
         "Colab has no capacity for this right now.",
+    ),
+    (
+        ERR_ALLOCATION_TIMEOUT,
+        "Colab never answered the request for this hardware.",
     ),
     (
         ERR_SSH_BUSY,
@@ -981,10 +983,6 @@ pub(super) const MESSAGES: Messages = &[
         "Runtimes not started by this app keep billing, with no automatic stop:",
     ),
     (SWITCH_UNMANAGED_ITEM, "{name}"),
-    (
-        SWITCH_UNMANAGED_MORE,
-        "{count} more that could not be listed",
-    ),
     (RUNTIME_SET_AUTO_STOP, "Set auto-stop in {time}"),
     (AUTO_STOP_SET, "Auto-stop set for {time} from now"),
     (CANCEL_AUTO_STOP_TITLE, "Cancel auto-stop?"),
@@ -1081,5 +1079,21 @@ pub(super) const MESSAGES: Messages = &[
     (
         SESSIONS_EMPTY_PARTIAL_TITLE,
         "Nothing is running on the accounts that could be listed",
+    ),
+    (
+        SWITCH_UNMANAGED_UNKNOWN,
+        "Couldn't check whether the current account has runtimes that this app did not start. Any that are running keep billing, with no automatic stop. Check Sessions; if it can't list this account either, check Colab in your browser, signed in to this account.",
+    ),
+    (
+        PROV_RECONCILING,
+        "Checking whether the cancelled request left a runtime…",
+    ),
+    (
+        PROV_RECONCILED,
+        "Checked whether the cancelled request left a runtime",
+    ),
+    (
+        PROV_NO_ANSWER,
+        "Colab hasn't answered for {time}. Some requests take longer; you can also cancel now.",
     ),
 ];

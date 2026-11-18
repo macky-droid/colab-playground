@@ -35,10 +35,8 @@ pub const FALLBACK_CTX: u32 = 32_768;
 /// Smallest context the `ctx = 0` ladder goes down to.
 pub const MIN_AUTO_CTX: u32 = 8_192;
 
-/// A GGUF file in a repository.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GgufFile {
-    /// Path inside the repo.
     pub path: String,
     /// Size in bytes.
     pub size: u64,
@@ -56,7 +54,6 @@ pub struct GgufVariant {
 }
 
 impl GgufVariant {
-    /// F16 / BF16 / F32.
     pub fn is_full_precision(&self) -> bool {
         matches!(self.quant.as_str(), "F16" | "BF16" | "F32")
     }
@@ -70,7 +67,6 @@ impl GgufVariant {
     }
 }
 
-/// GGUF files of a repository, grouped.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GgufListing {
     /// Quantisations, largest first.
@@ -135,7 +131,6 @@ fn strip_shard_suffix(stem: &str) -> &str {
     stem
 }
 
-/// The quantisation label of a GGUF path, if recognisable.
 pub fn quant_label(path: &str) -> Option<String> {
     let base = path.rsplit('/').next().unwrap_or(path);
     if !base.to_ascii_lowercase().ends_with(".gguf") {
@@ -155,7 +150,6 @@ pub fn quant_label(path: &str) -> Option<String> {
     None
 }
 
-/// True for multimodal projector files.
 pub fn is_mmproj(path: &str) -> bool {
     path.rsplit('/')
         .next()
@@ -197,11 +191,9 @@ pub fn group(files: &[GgufFile]) -> GgufListing {
     listing
 }
 
-/// KV cache element type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum KvType {
-    /// 16-bit.
     F16,
     /// 8-bit blocks (34 bytes per 32 values).
     Q8_0,
@@ -228,7 +220,6 @@ impl KvType {
         }
     }
 
-    /// Parses `f16` / `q8_0` / `q4_0`.
     pub fn parse(s: &str) -> Option<KvType> {
         match s.to_ascii_lowercase().as_str() {
             "f16" => Some(KvType::F16),
@@ -239,7 +230,6 @@ impl KvType {
     }
 }
 
-/// Inputs of the fit.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FitInput {
     /// Total GPU memory in MiB.
@@ -256,12 +246,9 @@ pub struct FitInput {
     pub kv: Option<KvType>,
 }
 
-/// The chosen configuration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FitChoice {
-    /// Quantisation label.
     pub quant: String,
-    /// KV type.
     pub kv: KvType,
     /// Context to pass to llama.cpp.
     pub ctx: u32,

@@ -18,29 +18,21 @@ use crate::i18n::{keys, tr_args};
 /// The Hugging Face token's name in the vault.
 pub const HF_TOKEN: &str = "hf_token";
 
-/// The install confirmation.
 #[derive(Clone, Debug, PartialEq)]
 pub enum InstallPrompt {
     /// Checking the folder or cloning the repository.
     Checking,
-    /// What would be installed.
     Preview(Box<PluginPreview>),
-    /// Checking or installing failed.
     Failed(Error),
 }
 
-/// The remove confirmation.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RemovePrompt {
-    /// Plugin id.
     pub id: String,
-    /// Its name as shown.
     pub name: String,
-    /// Why the last attempt failed.
     pub error: Option<Error>,
 }
 
-/// Plugins and the token.
 #[derive(Default)]
 pub struct PluginsState {
     pub(crate) list: Load<Vec<PluginInfo>>,
@@ -54,12 +46,10 @@ pub fn is_git_source(text: &str) -> bool {
 }
 
 impl AppState {
-    /// Installed plugins.
     pub fn plugins(&self) -> &Load<Vec<PluginInfo>> {
         &self.plugins.list
     }
 
-    /// One installed plugin.
     pub fn plugin(&self, id: &str) -> Option<&PluginInfo> {
         self.plugins
             .list
@@ -86,7 +76,6 @@ impl AppState {
         &self.plugins.hf_token
     }
 
-    /// Lists plugins and checks whether a token is stored.
     pub fn load_plugins(&mut self, cx: &mut Context<Self>) {
         self.plugins.list.begin();
         self.run_backend(
@@ -148,7 +137,6 @@ impl AppState {
         );
     }
 
-    /// Deletes the stored token.
     pub fn delete_hf_token(&mut self, cx: &mut Context<Self>) {
         self.run_backend(
             Op::Secret,
@@ -167,7 +155,6 @@ impl AppState {
         );
     }
 
-    /// Checks a folder or Git URL and shows what would be installed.
     pub fn inspect_plugin(&mut self, source: String, cx: &mut Context<Self>) {
         let source = source.trim().to_owned();
         if source.is_empty() {
@@ -197,7 +184,6 @@ impl AppState {
         cx.notify();
     }
 
-    /// Installs the previewed plugin.
     pub fn confirm_install(&mut self, cx: &mut Context<Self>) {
         let Some(Overlay::InstallPlugin(InstallPrompt::Preview(preview))) = &self.overlay else {
             return;
@@ -233,7 +219,6 @@ impl AppState {
         );
     }
 
-    /// Enables or disables a plugin.
     pub fn set_plugin_enabled(&mut self, id: String, enabled: bool, cx: &mut Context<Self>) {
         let work_id = id.clone();
         self.run_backend(
@@ -263,7 +248,6 @@ impl AppState {
         cx.notify();
     }
 
-    /// Removes the plugin the confirmation is about.
     pub fn confirm_remove_plugin(&mut self, cx: &mut Context<Self>) {
         let Some(Overlay::RemovePlugin(prompt)) = &self.overlay else {
             return;
@@ -303,7 +287,6 @@ impl AppState {
             .to_owned()
     }
 
-    /// Whether `info` asks for the Hugging Face token.
     pub fn wants_hf_token(info: &PluginInfo) -> bool {
         info.manifest.needs.contains(&Capability::HfToken)
     }

@@ -78,12 +78,10 @@ pub fn age(cx: &App, then: SystemTime, now: SystemTime) -> SharedString {
     }
 }
 
-/// Items joined with the language's list separator.
 pub fn list(cx: &App, items: &[String]) -> String {
     items.join(&tr(cx, keys::FMT_LIST_SEPARATOR))
 }
 
-/// The catalog key of an accelerator's name.
 pub fn accelerator_key(accelerator: Accelerator) -> &'static str {
     match accelerator {
         Accelerator::None => keys::ACC_NONE,
@@ -97,7 +95,6 @@ pub fn accelerator_key(accelerator: Accelerator) -> &'static str {
     }
 }
 
-/// The catalog key of an install method's name.
 pub fn install_method_key(method: InstallMethod) -> &'static str {
     match method {
         InstallMethod::Uv => keys::INSTALL_UV,
@@ -131,7 +128,6 @@ pub fn hardware(cx: &App, gpu: Option<&str>, vram_mib: Option<u32>) -> Option<Sh
     }
 }
 
-/// One guard concern in words: which limit, and how far along.
 pub fn concern(cx: &App, concern: &Concern) -> SharedString {
     match concern {
         Concern::Limit {
@@ -162,7 +158,6 @@ pub fn concern(cx: &App, concern: &Concern) -> SharedString {
     }
 }
 
-/// Several concerns, joined.
 pub fn concerns(cx: &App, concerns: &[Concern]) -> SharedString {
     let items: Vec<String> = concerns
         .iter()
@@ -171,7 +166,6 @@ pub fn concerns(cx: &App, concerns: &[Concern]) -> SharedString {
     list(cx, &items).into()
 }
 
-/// The name of a guard limit.
 pub fn limit_key(limit: Limit) -> &'static str {
     match limit {
         Limit::Runtime => keys::LIMIT_RUNTIME,

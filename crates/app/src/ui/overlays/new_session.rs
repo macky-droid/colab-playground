@@ -23,7 +23,6 @@ use crate::{
     ui::{Inputs, error_view, progress, provision_form, tagged},
 };
 
-/// Selector of "Start session".
 pub const NEW_SESSION_START: &str = "new-session-start";
 /// Selector of Cancel while provisioning.
 pub const NEW_SESSION_CANCEL_RUN: &str = "new-session-cancel-run";
@@ -113,6 +112,11 @@ pub(super) fn render(
                         .child(progress::headline(&session.progress, cx)),
                 )
                 .child(progress::render(&session.progress, true, cx))
+                .children(progress::no_answer_note(
+                    &session.progress,
+                    state.backend_now(),
+                    cx,
+                ))
                 .child(InlineMessage::new(
                     Severity::Info,
                     tr(cx, keys::NEW_CANCEL_NOTE),
@@ -218,7 +222,6 @@ pub(super) fn render(
     })
 }
 
-/// Selector of the session-limit explanation.
 pub const NEW_SESSION_LIMIT: &str = "new-session-limit";
 
 /// The session cap is reached: what counts, that it is this app's own setting, and the way to

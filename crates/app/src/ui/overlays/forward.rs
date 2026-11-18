@@ -25,7 +25,6 @@ use crate::{
     ui::{Inputs, error_view, tagged},
 };
 
-/// Selector of the Forward button.
 pub const FORWARD_SUBMIT: &str = "forward-submit";
 /// Selector of the note shown for the reserved port.
 pub const RESERVED_NOTE: &str = "forward-reserved";
@@ -45,7 +44,6 @@ fn field(label: gpui::SharedString, control: impl IntoElement, cx: &App) -> impl
         .child(control)
 }
 
-/// Submits the dialog with what its fields hold.
 fn submit(handle: &Entity<AppState>, inputs: &Inputs, cx: &mut App) {
     let text = |input: &Entity<TextInput>, cx: &App| input.read(cx).text().to_owned();
     let (remote, local) = (

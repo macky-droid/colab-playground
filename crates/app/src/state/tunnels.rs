@@ -20,30 +20,24 @@ use gpui::Context;
 use super::{AppState, InputSlot, Op, Overlay, ops::key_of};
 use crate::i18n::{keys, tr};
 
-/// How often a forward's events are drained.
 const TUNNEL_TICK: Duration = Duration::from_millis(250);
 
 /// Ports the forward dialog starts with (the bundled model server's port; the user changes
 /// them freely).
 pub const FORWARD_START_PORT: u16 = 8000;
 
-/// The forward dialog.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ForwardForm {
-    /// The runtime to forward to.
     pub target: RuntimeRef,
-    /// Its session name.
     pub session: String,
     /// Port on the runtime.
     pub remote: u16,
     /// Port on this computer.
     pub local: u16,
-    /// Why the last attempt failed.
     pub error: Option<Error>,
 }
 
 impl ForwardForm {
-    /// The forward this form asks for, with an optional health path.
     pub fn spec(&self, health: Option<String>) -> TunnelSpec {
         TunnelSpec {
             account: self.target.account.clone(),
@@ -66,7 +60,6 @@ impl AppState {
         self.sessions.tunnels.values()
     }
 
-    /// Forwards to `target`.
     pub fn tunnels_for(&self, target: &RuntimeRef) -> Vec<&TunnelInfo> {
         self.sessions
             .tunnels
@@ -78,7 +71,6 @@ impl AppState {
             .collect()
     }
 
-    /// A forward by id.
     pub fn tunnel(&self, id: TunnelId) -> Option<&TunnelInfo> {
         self.sessions.tunnels.get(&id)
     }
@@ -287,7 +279,6 @@ impl AppState {
         );
     }
 
-    /// Removes a failed forward from the list.
     pub fn dismiss_forward(&mut self, id: TunnelId, cx: &mut Context<Self>) {
         self.sessions.tunnels.remove(&id);
         self.discard_tunnel(id, cx);

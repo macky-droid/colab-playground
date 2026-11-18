@@ -285,6 +285,7 @@ catalog_keys! {
     ERR_AUTH_REQUIRED => "app.err.auth_required",
     ERR_NOT_ENTITLED => "app.err.not_entitled",
     ERR_CAPACITY_REFUSED => "app.err.capacity_refused",
+    ERR_ALLOCATION_TIMEOUT => "app.err.allocation_timeout",
     ERR_SSH_BUSY => "app.err.ssh_busy",
     ERR_SESSION_GONE => "app.err.session_gone",
     ERR_CONNECTION_LOST => "app.err.connection_lost",
@@ -598,7 +599,6 @@ catalog_keys! {
     RUN_LIMIT_HINT => "app.b3.run_limit_hint",
     SWITCH_UNMANAGED => "app.b3.switch_unmanaged",
     SWITCH_UNMANAGED_ITEM => "app.b3.switch_unmanaged_item",
-    SWITCH_UNMANAGED_MORE => "app.b3.switch_unmanaged_more",
     UNIT_HOURS => "app.b3.unit_hours",
     UNIT_MINUTES => "app.b3.unit_minutes",
     UNIT_SECONDS => "app.b3.unit_seconds",
@@ -629,6 +629,10 @@ catalog_keys! {
     SUMMARY_INCOMPLETE => "app.b10.summary_incomplete",
     SUMMARY_NOT_COUNTED => "app.b10.summary_not_counted",
     SESSIONS_EMPTY_PARTIAL_TITLE => "app.b10.sessions_empty_partial_title",
+    SWITCH_UNMANAGED_UNKNOWN => "app.b10.switch_unmanaged_unknown",
+    PROV_RECONCILING => "app.b11.prov_reconciling",
+    PROV_RECONCILED => "app.b11.prov_reconciled",
+    PROV_NO_ANSWER => "app.b11.prov_no_answer",
 }
 
 /// A message table: `(key, message)` pairs; `{name}` marks an argument.
@@ -643,18 +647,13 @@ pub const CATALOGS: [(&str, Messages); 5] = [
     ("ko-KR", ko_kr::MESSAGES),
 ];
 
-/// A display language the app ships.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Language {
-    /// English (United States).
     EnUs,
-    /// Simplified Chinese.
     ZhCn,
     /// Traditional Chinese, Taiwan wording.
     ZhTw,
-    /// Japanese.
     JaJp,
-    /// Korean.
     KoKr,
 }
 
@@ -741,7 +740,6 @@ pub fn resolve(pref: LanguagePref, os_locale: Option<&str>) -> Language {
     }
 }
 
-/// Ely's `I18n` holding every catalog of the app, showing `language`.
 pub fn catalog(language: Language) -> I18n {
     CATALOGS
         .iter()
@@ -761,7 +759,6 @@ pub fn set_language(language: Language, cx: &mut App) {
     I18n::set_locale(language.tag(), cx);
 }
 
-/// The shown language.
 pub fn current(cx: &App) -> Language {
     let tag = cx.global::<I18n>().locale().tag;
     Language::ALL
@@ -770,12 +767,10 @@ pub fn current(cx: &App) -> Language {
         .unwrap_or_else(|| panic!("i18n: the app has no catalog for {tag}"))
 }
 
-/// The message for `key` in the shown language.
 pub fn tr(cx: &App, key: &str) -> SharedString {
     cx.global::<I18n>().text(key, &[])
 }
 
-/// The message for `key`, each `{name}` filled from `args`.
 pub fn tr_args(cx: &App, key: &str, args: &[(&str, &str)]) -> SharedString {
     cx.global::<I18n>().text(key, args)
 }
@@ -798,7 +793,6 @@ pub fn tr_lenient(cx: &App, key: &str, args: &[(&str, &str)]) -> SharedString {
     fill_lenient(template(cx, key), args).into()
 }
 
-/// `message` with each `{name}` that has an argument replaced.
 pub fn fill_lenient(message: &str, args: &[(&str, &str)]) -> String {
     let mut out = String::with_capacity(message.len());
     let mut rest = message;

@@ -167,7 +167,6 @@ fn a_long_email_stays_inside_the_account_slot(cx: &mut TestAppContext) {
     );
 }
 
-/// Opens the "Cancel auto-stop?" confirmation on the demo's A100 session.
 fn open_a_dialog(app: &mut TestApp<'_>) {
     app.click(Route::Sessions.nav_selector());
     app.click(&colab_playground::ui::pages::sessions::cancel_auto_stop_selector("a100-7f3a"));

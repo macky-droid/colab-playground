@@ -36,10 +36,8 @@ fn start_runtime() -> Duration {
         .unwrap_or(START_IDLE)
 }
 
-/// Applies an edit to the spec being shown.
 pub type SpecEdit = Rc<dyn Fn(&mut App, &dyn Fn(&mut ProvisionSpec))>;
 
-/// The selector around a field's control.
 pub fn field_selector(field: &str) -> String {
     format!("prov {field}")
 }

@@ -1,5 +1,3 @@
-//! 简体中文。
-
 use super::{Messages, keys::*};
 
 pub(super) const MESSAGES: Messages = &[
@@ -368,6 +366,7 @@ pub(super) const MESSAGES: Messages = &[
     (ERR_AUTH_REQUIRED, "Colab CLI 需要重新登录。"),
     (ERR_NOT_ENTITLED, "此账号无法使用该硬件。"),
     (ERR_CAPACITY_REFUSED, "Colab 目前没有可用资源。"),
+    (ERR_ALLOCATION_TIMEOUT, "Colab 一直没有回应这次硬件申请。"),
     (ERR_SSH_BUSY, "已有其他连接接入此运行时。"),
     (ERR_SESSION_GONE, "该运行时已不存在。"),
     (ERR_CONNECTION_LOST, "与运行时的连接已中断。"),
@@ -816,7 +815,6 @@ pub(super) const MESSAGES: Messages = &[
         "非本应用启动的运行时会继续计费，且不会自动停止：",
     ),
     (SWITCH_UNMANAGED_ITEM, "{name}"),
-    (SWITCH_UNMANAGED_MORE, "另有 {count} 个无法列出"),
     (RUNTIME_SET_AUTO_STOP, "设置 {time}后自动停止"),
     (AUTO_STOP_SET, "已设置 {time}后自动停止"),
     (CANCEL_AUTO_STOP_TITLE, "取消自动停止？"),
@@ -908,4 +906,14 @@ pub(super) const MESSAGES: Messages = &[
     (SUMMARY_INCOMPLETE, "不完整"),
     (SUMMARY_NOT_COUNTED, "未计入：{emails}"),
     (SESSIONS_EMPTY_PARTIAL_TITLE, "能列出的账号上没有运行时"),
+    (
+        SWITCH_UNMANAGED_UNKNOWN,
+        "无法确认当前账号上是否有非本应用启动的运行时。如果有，它们会继续计费，且不会自动停止。请到“会话”中查看；如果那里也无法列出此账号，请在浏览器中用此账号登录 Colab 查看。",
+    ),
+    (PROV_RECONCILING, "正在检查取消的申请是否留下了运行时…"),
+    (PROV_RECONCILED, "已检查取消的申请是否留下了运行时"),
+    (
+        PROV_NO_ANSWER,
+        "Colab 已有 {time}没有回应。有的申请要等更久，也可以现在取消。",
+    ),
 ];

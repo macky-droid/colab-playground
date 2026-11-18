@@ -1,5 +1,3 @@
-//! Korean.
-
 use super::{Messages, keys::*};
 
 pub(super) const MESSAGES: Messages = &[
@@ -421,6 +419,10 @@ pub(super) const MESSAGES: Messages = &[
     (
         ERR_CAPACITY_REFUSED,
         "지금은 Colab에 이를 위한 여유 리소스가 없습니다.",
+    ),
+    (
+        ERR_ALLOCATION_TIMEOUT,
+        "Colab이 이 하드웨어 요청에 끝내 응답하지 않았습니다.",
     ),
     (
         ERR_SSH_BUSY,
@@ -993,10 +995,6 @@ pub(super) const MESSAGES: Messages = &[
         "이 앱에서 시작하지 않은 런타임은 자동 중지 없이 계속 과금됩니다:",
     ),
     (SWITCH_UNMANAGED_ITEM, "{name}"),
-    (
-        SWITCH_UNMANAGED_MORE,
-        "목록을 가져오지 못한 런타임 {count}개 더",
-    ),
     (RUNTIME_SET_AUTO_STOP, "{time} 후 자동 중지 설정"),
     (
         AUTO_STOP_SET,
@@ -1099,5 +1097,21 @@ pub(super) const MESSAGES: Messages = &[
     (
         SESSIONS_EMPTY_PARTIAL_TITLE,
         "목록을 가져온 계정에서는 실행 중인 것이 없습니다",
+    ),
+    (
+        SWITCH_UNMANAGED_UNKNOWN,
+        "현재 계정에 이 앱에서 시작하지 않은 런타임이 있는지 확인하지 못했습니다. 실행 중인 런타임이 있다면 자동 중지 없이 계속 과금됩니다. [세션]에서 확인하십시오. 거기에서도 이 계정의 목록을 가져오지 못하면 브라우저에서 이 계정으로 로그인하여 Colab을 확인하십시오.",
+    ),
+    (
+        PROV_RECONCILING,
+        "취소한 요청으로 남은 런타임이 있는지 확인하는 중…",
+    ),
+    (
+        PROV_RECONCILED,
+        "취소한 요청으로 남은 런타임이 있는지 확인했습니다",
+    ),
+    (
+        PROV_NO_ANSWER,
+        "{time} 동안 Colab이 응답하지 않았습니다. 더 오래 걸리는 요청도 있으며, 지금 취소할 수도 있습니다.",
     ),
 ];

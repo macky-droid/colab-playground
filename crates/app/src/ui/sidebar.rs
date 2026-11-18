@@ -23,7 +23,6 @@ use crate::{
     ui::tagged,
 };
 
-/// Selector of the account switcher slot.
 pub const ACCOUNT_SLOT_SELECTOR: &str = "sidebar-account";
 /// Selector of the balance and burn-rate badge.
 pub const USAGE_SLOT_SELECTOR: &str = "sidebar-usage";

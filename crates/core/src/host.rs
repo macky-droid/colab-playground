@@ -44,7 +44,6 @@ use serde::{Deserialize, Serialize};
 use crate::clock::CancelToken;
 use crate::error::{Error, ErrorKind, Result};
 
-/// Where scripts run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Host {
@@ -111,7 +110,6 @@ pub const MAX_WSL_COMMAND_LINE: usize = 30_000;
 /// Windows `CREATE_NO_WINDOW` process creation flag.
 pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-/// What the child's stdin is connected to.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum StdinMode {
     /// `/dev/null` (the default). An unexpected prompt reads EOF instead of hanging.
@@ -133,26 +131,22 @@ pub struct ScriptRequest {
     pub args: Vec<String>,
     /// Extra environment variables. Keys must match `^[A-Za-z_][A-Za-z0-9_]*$`.
     pub env: Vec<(String, String)>,
-    /// Stdin wiring.
     pub stdin: StdinMode,
     /// Kill the script after this long ([`Host::run`] returns `Timeout`).
     pub timeout: Option<Duration>,
 }
 
 impl ScriptRequest {
-    /// A request for `script` with no arguments.
     pub fn new(script: impl Into<String>) -> Self {
         ScriptRequest {
             script: script.into(),
             ..Default::default()
         }
     }
-    /// Appends a positional argument.
     pub fn arg(mut self, a: impl Into<String>) -> Self {
         self.args.push(a.into());
         self
     }
-    /// Appends positional arguments.
     pub fn args<I, S>(mut self, args: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -161,57 +155,46 @@ impl ScriptRequest {
         self.args.extend(args.into_iter().map(Into::into));
         self
     }
-    /// Adds an environment variable.
     pub fn env(mut self, k: impl Into<String>, v: impl Into<String>) -> Self {
         self.env.push((k.into(), v.into()));
         self
     }
-    /// Feeds these bytes on stdin.
     pub fn stdin_bytes(mut self, data: impl Into<Vec<u8>>) -> Self {
         self.stdin = StdinMode::Bytes(data.into());
         self
     }
-    /// Keeps stdin open as a pipe.
     pub fn stdin_pipe(mut self) -> Self {
         self.stdin = StdinMode::Pipe;
         self
     }
-    /// Sets a timeout.
     pub fn timeout(mut self, d: Duration) -> Self {
         self.timeout = Some(d);
         self
     }
 }
 
-/// Which output stream a line came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Stream {
-    /// Standard output.
     Stdout,
-    /// Standard error.
     Stderr,
 }
 
 /// One line of output (without the trailing newline, lossily UTF-8 decoded).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Line {
-    /// Origin stream.
     pub stream: Stream,
     /// Text without `\n` / `\r\n`.
     pub text: String,
 }
 
-/// Returned by a line callback to keep going or kill the process tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineAction {
-    /// Keep running.
     Continue,
     /// Kill the process tree now (e.g. an unexpected interactive prompt).
     Kill,
 }
 
-/// Collected result of a finished script.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ScriptOutput {
     /// Exit code, `None` if terminated by a signal.
@@ -234,9 +217,7 @@ impl ScriptOutput {
 /// A fully specified process launch, computed without spawning anything.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Invocation {
-    /// Program to execute.
     pub program: String,
-    /// Its arguments.
     pub args: Vec<String>,
     /// Environment variables set on the spawned process itself.
     pub env: Vec<(String, String)>,
@@ -244,7 +225,6 @@ pub struct Invocation {
     pub no_window: bool,
 }
 
-/// True when `key` is a valid environment variable name.
 pub fn is_env_key(key: &str) -> bool {
     let mut chars = key.chars();
     matches!(chars.next(), Some(c) if c == '_' || c.is_ascii_alphabetic())
@@ -309,7 +289,6 @@ fn command_line_len(program: &str, args: &[String]) -> usize {
 }
 
 impl Host {
-    /// `Wsl { distro: None }` on Windows, `Local` elsewhere.
     pub fn detect() -> Host {
         if cfg!(windows) {
             Host::Wsl { distro: None }
@@ -389,13 +368,11 @@ impl Host {
         collect(&mut child, timeout, cancel, on_line)
     }
 
-    /// Runs a script to completion without a line callback.
     pub fn run_quiet(&self, req: ScriptRequest, cancel: &CancelToken) -> Result<ScriptOutput> {
         self.run(req, cancel, &mut |_| LineAction::Continue)
     }
 
-    /// Starts a long-lived script. The returned handle kills the process tree
-    /// when dropped.
+    /// The returned handle kills the process tree when dropped.
     pub fn spawn(&self, req: ScriptRequest) -> Result<HostChild> {
         if matches!(self, Host::Wsl { .. }) && !cfg!(windows) {
             return Err(
@@ -552,7 +529,6 @@ fi
 printf 'CPG home=%s\n' "$HOME"
 "#;
 
-/// What [`Host::probe`] found.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProbeReport {
     /// `wsl.exe` answered (Windows only).
@@ -561,19 +537,13 @@ pub struct ProbeReport {
     pub wsl_distros: Vec<String>,
     /// Paths of tools found on the host `PATH` (login shell).
     pub bash: Option<String>,
-    /// `ssh` path.
     pub ssh: Option<String>,
-    /// `ssh-keygen` path.
     pub ssh_keygen: Option<String>,
     /// `git` path (on the host; plugin clones use the local `git`).
     pub git: Option<String>,
-    /// `uv` path.
     pub uv: Option<String>,
-    /// `python3` path.
     pub python3: Option<String>,
-    /// `colab` path.
     pub colab: Option<String>,
-    /// `colab version` output.
     pub colab_version: Option<String>,
     /// Interpreter of the `colab` entry script (runs the account helper).
     pub helper_python: Option<String>,
@@ -581,7 +551,6 @@ pub struct ProbeReport {
     pub keyring_ok: bool,
     /// `~/.ssh/id_ed25519.pub` or `id_ecdsa.pub` exists.
     pub ssh_key_present: bool,
-    /// `$HOME` on the host.
     pub home: Option<String>,
     /// Problems encountered while probing (log text).
     pub errors: Vec<String>,
@@ -671,7 +640,6 @@ impl Toolchain {
         }
     }
 
-    /// True while `helper_python` still has to be derived.
     pub fn needs_resolution(&self) -> bool {
         self.helper_python.is_empty()
     }
@@ -729,7 +697,6 @@ fn colab_path_error(path: &str, reason: &str, interpreter: Option<&str>) -> Erro
     e
 }
 
-/// Parses the output of the resolution script (pure).
 pub fn parse_resolution(colab: &str, stdout: &str) -> Result<Toolchain> {
     let mut helper = None;
     let mut reason = None;
@@ -849,7 +816,6 @@ impl HostChild {
         self.exit
     }
 
-    /// Blocks until the process exits.
     pub fn wait(&mut self) -> Option<i32> {
         if let Some(code) = self.exit {
             return code;
@@ -859,13 +825,32 @@ impl HostChild {
         code
     }
 
+    /// The job's process group id, waiting up to `limit` for the wrapper to report it. The job
+    /// runs in a group of its own, so a kill that came before the report would miss it.
+    fn await_pgid(&mut self, limit: Duration) -> Option<u32> {
+        let deadline = Instant::now() + limit;
+        loop {
+            if let Some(id) = *self.pgid.lock().unwrap_or_else(|e| e.into_inner()) {
+                return Some(id);
+            }
+            if Instant::now() >= deadline || self.try_wait().is_some() {
+                return None;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+
     /// Kills the process tree (idempotent).
     pub fn kill(&mut self) {
         if self.try_wait().is_some() {
             return;
         }
-        let pgid = *self.pgid.lock().unwrap_or_else(|e| e.into_inner());
-        if let (false, Some(pgid)) = (self.direct, pgid) {
+        let pgid = if self.direct {
+            None
+        } else {
+            self.await_pgid(Duration::from_secs(5))
+        };
+        if let Some(pgid) = pgid {
             let req = ScriptRequest::new(KILL_SCRIPT).arg(pgid.to_string());
             if let Ok(inv) = self.host.invocation(&req, false)
                 && let Ok(mut killer) = spawn_invocation(&inv, Stdio::null())
@@ -971,6 +956,127 @@ fn decode_line(bytes: &[u8], utf16: bool) -> String {
         text.pop();
     }
     text
+}
+
+/// `$1`: how long to wait for the session bus socket, in tenths of a second.
+const KEEPALIVE_SCRIPT: &str = r#"case ${DBUS_SESSION_BUS_ADDRESS-} in
+unix:path=*)
+  sock=${DBUS_SESSION_BUS_ADDRESS#unix:path=}
+  sock=${sock%%[,;]*}
+  i=0
+  while [ ! -S "$sock" ] && [ "$i" -lt "$1" ]; do sleep 0.1; i=$((i + 1)); done
+  ;;
+esac
+printf '%s\n' __CPG_KEEPALIVE_READY__
+cat >/dev/null"#;
+
+/// Also printed when the wait for the bus runs out: a missing bus must not block the app.
+const KEEPALIVE_READY: &str = "__CPG_KEEPALIVE_READY__";
+
+const KEEPALIVE_BUS_WAIT_TENTHS: u32 = 100;
+
+/// The bus wait plus starting WSL itself.
+const KEEPALIVE_READY_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Keeps a WSL distribution running while it is held.
+///
+/// WSL stops a distribution shortly after its last command ends, and the user's
+/// keyring daemon stops with it. The next command starts a new daemon whose
+/// keyring is locked again, so background polls would ask for the keyring
+/// password again and again. One idle process, open between commands,
+/// keeps the distribution (and the unlocked keyring) up. It reads stdin until
+/// EOF: dropping the keepalive closes that pipe, and so does the app exiting
+/// for any reason, so it never outlives the app.
+///
+/// A freshly started distribution also brings its D-Bus session bus up a moment
+/// after the first command runs, and the keyring is reached through that bus: a
+/// command started before it finds no keyring at all. So each start of the idle
+/// process first waits for the bus, and [`HostKeepalive::ensure`] returns only
+/// then.
+///
+/// A no-op on [`Host::Local`], which nothing stops between commands.
+#[derive(Debug)]
+pub struct HostKeepalive {
+    host: Host,
+    child: Mutex<Option<HostChild>>,
+}
+
+impl HostKeepalive {
+    /// Spawns nothing until [`HostKeepalive::ensure`].
+    pub fn new(host: Host) -> HostKeepalive {
+        HostKeepalive {
+            host,
+            child: Mutex::new(None),
+        }
+    }
+
+    /// Restarts the process if it ended (after `wsl --shutdown`, for example). After
+    /// a start it returns only once the session bus is up, and callers that arrive
+    /// meanwhile wait for the same start.
+    pub fn ensure(&self) {
+        if !matches!(self.host, Host::Wsl { .. }) {
+            return;
+        }
+        let mut slot = self.child.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(child) = slot.as_mut()
+            && child.try_wait().is_none()
+        {
+            return;
+        }
+        *slot = self
+            .host
+            .spawn(keepalive_request(KEEPALIVE_BUS_WAIT_TENTHS))
+            .ok();
+        if let Some(child) = slot.as_ref() {
+            wait_until_ready(child, KEEPALIVE_READY_TIMEOUT);
+        }
+    }
+
+    pub fn is_running(&self) -> bool {
+        let mut slot = self.child.lock().unwrap_or_else(|e| e.into_inner());
+        slot.as_mut()
+            .is_some_and(|child| child.try_wait().is_none())
+    }
+}
+
+impl Drop for HostKeepalive {
+    fn drop(&mut self) {
+        let slot = self.child.get_mut().unwrap_or_else(|e| e.into_inner());
+        if let Some(mut child) = slot.take() {
+            // EOF ends it. Wait off the caller's thread, and only kill the process
+            // group (through another `wsl.exe`) if it is still there after that.
+            child.close_stdin();
+            thread::spawn(move || {
+                let deadline = Instant::now() + Duration::from_secs(5);
+                while child.try_wait().is_none() && Instant::now() < deadline {
+                    thread::sleep(Duration::from_millis(50));
+                }
+            });
+        }
+    }
+}
+
+fn keepalive_request(bus_wait_tenths: u32) -> ScriptRequest {
+    ScriptRequest::new(KEEPALIVE_SCRIPT)
+        .arg(bus_wait_tenths.to_string())
+        .stdin_pipe()
+}
+
+fn wait_until_ready(child: &HostChild, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return false;
+        }
+        match child.recv_line(left) {
+            Ok(line) if line.stream == Stream::Stdout && line.text == KEEPALIVE_READY => {
+                return true;
+            }
+            Ok(_) => {}
+            Err(_) => return false,
+        }
+    }
 }
 
 fn spawn_reader<R: Read + Send + 'static>(
@@ -1367,6 +1473,75 @@ mod tests {
         assert!(!out.stderr.contains("CPG-PGID"));
     }
 
+    #[test]
+    fn keepalive_runs_only_under_wsl_and_holds_stdin() {
+        let local = HostKeepalive::new(Host::Local);
+        local.ensure();
+        assert!(!local.is_running());
+        // Spawns nothing: tests never start `wsl.exe` (DESIGN.md, hard safety rules).
+        let wsl = HostKeepalive::new(Host::Wsl { distro: None });
+        assert!(!wsl.is_running());
+        let req = keepalive_request(KEEPALIVE_BUS_WAIT_TENTHS);
+        assert_eq!(req.stdin, StdinMode::Pipe);
+        assert_eq!(req.args, vec![KEEPALIVE_BUS_WAIT_TENTHS.to_string()]);
+        assert!(req.timeout.is_none());
+        let inv = Host::Wsl {
+            distro: Some("Ubuntu".into()),
+        }
+        .invocation(&req, true)
+        .unwrap();
+        assert_eq!(inv.program, "wsl.exe");
+        assert!(inv.no_window);
+    }
+
+    /// The keepalive script through the real bootstrap: ready at once without a
+    /// bus address, then up until stdin closes.
+    #[cfg(unix)]
+    #[test]
+    fn keepalive_script_ends_at_stdin_eof() {
+        let req = keepalive_request(100).env("DBUS_SESSION_BUS_ADDRESS", "");
+        let mut child = Host::Local.spawn(req).unwrap();
+        assert!(wait_until_ready(&child, Duration::from_secs(5)));
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(child.try_wait().is_none(), "ended before stdin closed");
+        child.close_stdin();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while child.try_wait().is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(child.try_wait(), Some(Some(0)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn keepalive_is_ready_once_the_session_bus_socket_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let sock = dir.path().join("bus");
+        let addr = format!("unix:path={},guid=0123", sock.display());
+        let req = keepalive_request(100).env("DBUS_SESSION_BUS_ADDRESS", addr);
+        let child = Host::Local.spawn(req).unwrap();
+        assert!(
+            !wait_until_ready(&child, Duration::from_millis(600)),
+            "ready before the bus socket existed"
+        );
+        let _bus = std::os::unix::net::UnixListener::bind(&sock).unwrap();
+        assert!(wait_until_ready(&child, Duration::from_secs(5)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn keepalive_stops_waiting_for_a_bus_that_never_comes() {
+        let dir = tempfile::tempdir().unwrap();
+        let addr = format!("unix:path={}", dir.path().join("never").display());
+        let req = keepalive_request(3).env("DBUS_SESSION_BUS_ADDRESS", addr);
+        let mut child = Host::Local.spawn(req).unwrap();
+        assert!(wait_until_ready(&child, Duration::from_secs(5)));
+        assert!(
+            child.try_wait().is_none(),
+            "the keepalive ended after the wait"
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn kill_takes_down_the_process_group() {
@@ -1383,6 +1558,17 @@ mod tests {
         child.kill();
         std::thread::sleep(Duration::from_secs(4));
         assert!(!marker.exists(), "background grandchild survived the kill");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_kill_right_after_the_spawn_waits_for_the_group_id() {
+        let mut child = Host::Local
+            .spawn(ScriptRequest::new("sleep 30").stdin_pipe())
+            .unwrap();
+        assert!(child.await_pgid(Duration::from_secs(5)).is_some());
+        child.kill();
+        assert!(child.try_wait().is_some());
     }
 
     #[cfg(unix)]

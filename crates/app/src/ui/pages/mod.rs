@@ -21,7 +21,6 @@ use crate::{
     ui::{Inputs, tagged},
 };
 
-/// The page for the current route.
 pub fn render(
     state: &AppState,
     handle: &Entity<AppState>,
@@ -50,7 +49,6 @@ pub fn render(
     }
 }
 
-/// Selector of the update notice.
 pub const UPDATE_NOTICE_SELECTOR: &str = "update-notice";
 
 /// A newer release, announced once per version above every page until dismissed for that
@@ -130,7 +128,6 @@ fn frame(route: Route, page: Page, cx: &App) -> AnyElement {
     .into_any_element()
 }
 
-/// A page titled with the route's name.
 pub fn page(route: Route, subtitle_key: &str, cx: &App) -> Page {
     Page::new(tr(cx, route.title_key())).subtitle(tr(cx, subtitle_key))
 }

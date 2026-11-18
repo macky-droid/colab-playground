@@ -1,10 +1,7 @@
-//! The pages of the shell.
-
 use ely_gpui_component::primitives::IconName;
 
 use crate::i18n::keys;
 
-/// One page of the sidebar navigation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Route {
     /// First-run checklist and quick actions.
@@ -16,7 +13,6 @@ pub enum Route {
     Plugins,
     /// Google accounts.
     Accounts,
-    /// Preferences.
     Settings,
 }
 
@@ -52,7 +48,6 @@ impl Route {
         }
     }
 
-    /// Its sidebar icon.
     pub fn icon(self) -> IconName {
         match self {
             Route::Overview => IconName::LayoutDashboard,

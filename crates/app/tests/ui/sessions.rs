@@ -2,14 +2,16 @@
 //! session limit, cancel), stopping any runtime on any account, forwards, the cost guard and
 //! quitting with runtimes still billing.
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use colab_playground::{
+    i18n::{self, Language},
     route::Route,
-    state::{EndReason, Overlay, ProvisionPhase},
+    state::{EndReason, Overlay, ProvisionPhase, ProvisionProgress},
     ui::{
         overlays::{FORWARD_SUBMIT, NEW_SESSION_LIMIT, NEW_SESSION_START, RESERVED_NOTE},
         pages::sessions::{NEW_SESSION_SELECTOR, forward_selector, stop_selector},
+        progress,
     },
 };
 use colab_playground_core::{
@@ -20,9 +22,9 @@ use colab_playground_core::{
     provision::ProvisionEvent,
     sessions::Accelerator,
 };
-use gpui::TestAppContext;
+use gpui::{Context, IntoElement, ParentElement, Render, Styled, TestAppContext, Window, div};
 
-use crate::support::{Options, TestApp};
+use crate::support::{Options, TestApp, mount};
 
 const STOP_CONFIRM: &str = "stop-confirm";
 
@@ -59,7 +61,6 @@ fn events(app: &mut TestApp<'_>) -> Vec<ProvisionEvent> {
     })
 }
 
-/// Opens the dialog on `scenario`, applies `edit` to the form and starts.
 fn provision(
     app: &mut TestApp<'_>,
     edit: impl FnOnce(&mut colab_playground_core::provision::ProvisionSpec),
@@ -228,6 +229,126 @@ fn cancelling_while_a_runtime_exists_leaves_nothing_billing(cx: &mut TestAppCont
     let left = app.mock.runtimes(&CancelToken::new()).expect("listing");
     assert!(left.runtimes.is_empty(), "nothing billed is left: {left:?}");
     assert!(runtime_names(&mut app).is_empty());
+}
+
+fn no_answer_for_a100() -> Options {
+    Options {
+        failures: MockFailures {
+            allocation_hangs: vec![Accelerator::A100],
+            ..MockFailures::default()
+        },
+        ..Options::scenario(MockScenario::single())
+    }
+}
+
+#[gpui::test]
+fn cancelling_a_request_colab_never_answers_ends_it_and_leaves_nothing(cx: &mut TestAppContext) {
+    let mut app = TestApp::with(cx, no_answer_for_a100());
+    on_sessions(&mut app);
+    app.click(NEW_SESSION_SELECTOR);
+    app.update(|state, cx| state.edit_new_session(|spec| spec.accelerator = Accelerator::A100, cx));
+    // Wait 1 is `colab new` waiting for an answer that never comes: cancel there. The mock's
+    // request still gets a VM, with no name, as a real one may after it is killed.
+    app.cancel_switch.arm(1);
+    app.click(NEW_SESSION_START);
+    assert_eq!(phase(&mut app), Some(ProvisionPhase::Cancelled));
+    assert!(!app.read(|state, _| state.is_provisioning()));
+    let events = events(&mut app);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, ProvisionEvent::Reconciling { attempt: 1 })),
+        "{events:?}"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, ProvisionEvent::OrphanDetected { released: true, .. })),
+        "the VM the request got anyway was stopped: {events:?}"
+    );
+    assert!(
+        !events.iter().any(|e| matches!(
+            e,
+            ProvisionEvent::AllocationFailed { .. } | ProvisionEvent::Retrying { .. }
+        )),
+        "a cancel is not a failed attempt: {events:?}"
+    );
+    assert!(app.shown("provision-cancelled"));
+    let left = app.mock.runtimes(&CancelToken::new()).expect("listing");
+    assert!(left.runtimes.is_empty(), "nothing billed is left: {left:?}");
+}
+
+#[gpui::test]
+fn a_request_colab_never_answers_fails_once_without_retrying(cx: &mut TestAppContext) {
+    let mut app = TestApp::with(cx, no_answer_for_a100());
+    provision(&mut app, |spec| {
+        spec.accelerator = Accelerator::A100;
+        spec.max_attempts = 3;
+    });
+    let Some(ProvisionPhase::Failed(error)) = phase(&mut app) else {
+        panic!("expected a failure, got {:?}", phase(&mut app));
+    };
+    assert_eq!(error.kind, ErrorKind::AllocationTimeout);
+    assert!(app.shown("error-provision"), "the failure is explained");
+    let events = events(&mut app);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, ProvisionEvent::Allocating { .. }))
+            .count(),
+        1,
+        "the CLI already retried for about ten minutes: {events:?}"
+    );
+    let left = app.mock.runtimes(&CancelToken::new()).expect("listing");
+    assert!(left.runtimes.is_empty(), "{left:?}");
+}
+
+/// A headless backend call runs to completion in one go, so a request still waiting cannot be
+/// caught in the app itself: the note is drawn on its own.
+struct NoAnswerNote {
+    progress: ProvisionProgress,
+    now: SystemTime,
+}
+
+impl Render for NoAnswerNote {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .size_full()
+            .children(progress::no_answer_note(&self.progress, Some(self.now), cx))
+    }
+}
+
+#[gpui::test]
+fn a_request_colab_leaves_unanswered_says_so_once_it_is_overdue(cx: &mut TestAppContext) {
+    let asked = SystemTime::UNIX_EPOCH + Duration::from_secs(1_767_225_600);
+    let mut asking = ProvisionProgress::default();
+    asking.push(
+        ProvisionEvent::Allocating {
+            attempt: 1,
+            max_attempts: 3,
+        },
+        Some(asked),
+    );
+    let mut answered = asking.clone();
+    answered.push(ProvisionEvent::Allocated { attempt: 1 }, Some(asked));
+    for (progress, after, shown) in [
+        (asking.clone(), 30, false),
+        (asking, 3 * 60, true),
+        (answered, 3 * 60, false),
+    ] {
+        let (_, cx) = mount(cx, move |_, cx| {
+            i18n::install(Language::EnUs, cx);
+            NoAnswerNote {
+                progress,
+                now: asked + Duration::from_secs(after),
+            }
+        });
+        assert_eq!(
+            cx.debug_bounds(progress::NO_ANSWER_SELECTOR).is_some(),
+            shown,
+            "{after} s after asking"
+        );
+    }
 }
 
 #[gpui::test]

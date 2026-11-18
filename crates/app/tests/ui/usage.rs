@@ -25,7 +25,6 @@ fn active_snapshot(app: &mut TestApp<'_>) -> Option<UsageSnapshot> {
     app.read(|state, _| state.active_usage().and_then(|usage| usage.snapshot))
 }
 
-/// The badge text the app should draw for `snapshot`.
 fn badge_text(app: &mut TestApp<'_>, snapshot: &UsageSnapshot) -> SharedString {
     app.cx.update(|_, cx| {
         tr_args(

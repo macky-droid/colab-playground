@@ -26,19 +26,16 @@ use serde::{Deserialize, Serialize};
 use crate::clock::{serde_dur, serde_secs};
 use crate::usage::UsageSnapshot;
 
-/// Fraction of a limit at which the guard starts warning.
 pub const WARN_FRACTION: f64 = 0.8;
 
 /// Usage older than this is considered stale for the balance floor.
 pub const USAGE_STALE_AFTER: Duration = Duration::from_secs(5 * 60);
 
-/// Cost limits for one session.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GuardPolicy {
     /// Absolute runtime limit (VM watchdog deadline and app-side stop).
     #[serde(default, with = "serde_dur::option")]
     pub max_runtime: Option<Duration>,
-    /// Compute units this session may spend.
     #[serde(default)]
     pub max_spend_cu: Option<f64>,
     /// Stop every session of the account when its balance falls to this.
@@ -50,14 +47,12 @@ pub struct GuardPolicy {
 }
 
 impl Default for GuardPolicy {
-    /// The policy pre-filled from [`crate::defaults::Defaults::default`].
     fn default() -> Self {
         crate::defaults::Defaults::default().guard_policy()
     }
 }
 
 impl GuardPolicy {
-    /// A policy with no limits at all.
     pub fn unlimited() -> Self {
         GuardPolicy {
             max_runtime: None,
@@ -73,7 +68,6 @@ impl GuardPolicy {
     }
 }
 
-/// Integrated spend of one session.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpendMeter {
     /// When the session started (integration origin).
@@ -85,7 +79,6 @@ pub struct SpendMeter {
     pub rate_known: bool,
     /// True if part of `spend_cu` was extrapolated over poll gaps.
     pub estimated: bool,
-    /// Integrated up to this instant.
     #[serde(with = "serde_secs")]
     pub integrated_to: SystemTime,
     /// Last observed per-session rate (CU/h), used to fill gaps.
@@ -96,7 +89,6 @@ pub struct SpendMeter {
 }
 
 impl SpendMeter {
-    /// A meter for a session that started at `started_at`.
     pub fn new(started_at: SystemTime) -> Self {
         SpendMeter {
             started_at,
@@ -141,13 +133,11 @@ impl SpendMeter {
         }
     }
 
-    /// Spend if known.
     pub fn spend(&self) -> Option<f64> {
         self.rate_known.then_some(self.spend_cu)
     }
 }
 
-/// Which limit a concern is about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Limit {
@@ -159,17 +149,13 @@ pub enum Limit {
     Balance,
 }
 
-/// Why the guard warns or stops.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Concern {
-    /// A limit is near or reached.
     Limit {
-        /// Which limit.
         limit: Limit,
         /// Current value (seconds or compute units).
         current: f64,
-        /// The configured limit.
         threshold: f64,
         /// Spend includes extrapolated intervals.
         estimated: bool,
@@ -181,11 +167,9 @@ pub enum Concern {
     },
 }
 
-/// Outcome of [`evaluate`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "decision", content = "concerns", rename_all = "snake_case")]
 pub enum Decision {
-    /// Within all limits.
     Ok,
     /// At least one limit is at 80 % or usage is unknown.
     Warn(Vec<Concern>),
@@ -194,14 +178,11 @@ pub enum Decision {
 }
 
 impl Decision {
-    /// True for [`Decision::Stop`].
     pub fn is_stop(&self) -> bool {
         matches!(self, Decision::Stop(_))
     }
 }
 
-/// Decides whether a session is fine, close to a limit, or must stop.
-///
 /// Pure: depends only on its arguments.
 pub fn evaluate(
     policy: &GuardPolicy,

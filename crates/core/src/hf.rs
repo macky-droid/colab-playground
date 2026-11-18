@@ -10,23 +10,18 @@ use crate::http::{HttpClient, encode_query};
 use crate::plugins::is_repo_id;
 use crate::quant::{GgufFile, GgufListing, group};
 
-/// Hub base URL.
 pub const HF_BASE: &str = "https://huggingface.co";
 
-/// A search hit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HfModel {
     /// Repo id (`owner/name`).
     pub id: String,
-    /// Download count.
     pub downloads: u64,
-    /// Likes.
     pub likes: u64,
     /// Gated (needs an accepted licence and a token).
     pub gated: bool,
 }
 
-/// Hub client.
 #[derive(Clone)]
 pub struct HfClient {
     http: Arc<dyn HttpClient>,
@@ -43,7 +38,6 @@ impl std::fmt::Debug for HfClient {
     }
 }
 
-/// Search URL (pure).
 pub fn search_url(base: &str, query: &str, limit: u32) -> String {
     format!(
         "{base}/api/models?search={}&filter=gguf&sort=downloads&direction=-1&limit={}",
@@ -52,12 +46,10 @@ pub fn search_url(base: &str, query: &str, limit: u32) -> String {
     )
 }
 
-/// Tree URL (pure).
 pub fn tree_url(base: &str, repo: &str) -> String {
     format!("{base}/api/models/{repo}/tree/main?recursive=true")
 }
 
-/// Parses the search response.
 pub fn parse_search(body: &[u8]) -> Result<Vec<HfModel>> {
     let v: Vec<serde_json::Value> = serde_json::from_slice(body)?;
     Ok(v.iter()
@@ -79,7 +71,7 @@ pub fn parse_search(body: &[u8]) -> Result<Vec<HfModel>> {
         .collect())
 }
 
-/// Parses the tree response into GGUF files (LFS size preferred).
+/// LFS size preferred.
 pub fn parse_tree(body: &[u8]) -> Result<Vec<GgufFile>> {
     let v: Vec<serde_json::Value> = serde_json::from_slice(body)?;
     Ok(v.iter()
@@ -101,7 +93,6 @@ pub fn parse_tree(body: &[u8]) -> Result<Vec<GgufFile>> {
 }
 
 impl HfClient {
-    /// A client for the public Hub.
     pub fn new(http: Arc<dyn HttpClient>, token: Option<String>) -> Self {
         HfClient {
             http,
@@ -139,7 +130,6 @@ impl HfClient {
         parse_search(&self.get(&search_url(&self.base, query, limit))?)
     }
 
-    /// Lists and groups the GGUF files of `repo`.
     pub fn gguf_files(&self, repo: &str) -> Result<GgufListing> {
         if !is_repo_id(repo) {
             return Err(Error::invalid("repo", "expected owner/name").with("value", repo));

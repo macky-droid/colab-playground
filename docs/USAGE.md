@@ -87,7 +87,10 @@ cargo run -p colab-playground -- --mock-scenario signed-out --mock-fail cli-miss
   and a runtime "opened in the browser"; one runtime on the second account.
   `single`: one account, nothing running. `signed-out`: first run, no account.
 - `--mock-fail a,b,…` injects failures: `cli-missing`, `install-fails`, `keyring`, `usage-fails`,
-  `login-invalid-code`, `login-unverified`, `not-entitled` (A100 and H100), `ssh-busy` (the first
+  `login-invalid-code`, `login-unverified`, `not-entitled` (A100 and H100), `no-answer` (Colab
+  never answers a request for an A100: after a minute the progress says how long it has waited,
+  after about ten minutes it fails, and cancelling it shows the cleanup of the runtime the request
+  got anyway), `ssh-busy` (the first
   forward gets HTTP 429), `plugin-fails` (at the download stage), `watchdog-restart-fails` (setting
   an auto-stop again after cancelling it cannot put the stop back on the runtime), `runtimes-fail`
   (runtimes cannot be listed), `update-available` and `update-check-fails` (the update check).
@@ -111,6 +114,8 @@ another folder to keep experiments apart.
   Linux). Per-account CLI state files are under `~/.local/share/colab-playground/accounts/` where
   the CLI runs (inside WSL on Windows; `$XDG_DATA_HOME` is honoured).
 - **Sign-ins and the Hugging Face token:** the keyring where the CLI runs (inside WSL on Windows).
+  On Windows the app keeps the WSL distribution running while it is open, so a password-protected
+  keyring asks to be unlocked once after WSL starts rather than at every background refresh.
 - **CLI location:** Settings → "Colab CLI location" picks the WSL distribution and, if detection
   fails, the path of `colab` (its Python interpreter is optional and otherwise found from it).
 - **Logs** go to standard error; `RUST_LOG` replaces the default filter

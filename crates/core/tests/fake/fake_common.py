@@ -35,6 +35,8 @@ SERVER = os.path.join(STATE, "server.json")
 
 DEFAULT_KNOBS = {
     "deny": [],                     # accelerators that get HTTP 400
+    "no_answer": [],                # accelerators whose `new` never gets an answer
+    "no_answer_hangs": False,       # ...and waits on (else: exits with the read timeout)
     "a100_sequence": [40960, 81920],  # VRAM of successive A100 allocations
     "login_name": "bob",            # account minted by a successful login
     "good_code": "good-code",       # the only accepted authorisation code

@@ -1,10 +1,4 @@
 //! HTTP access, behind a trait so tests and the mock never touch the network.
-//!
-//! [`HttpClient`] is used for Hugging Face lookups. The default implementation
-//! ([`UreqClient`]) needs the `http` cargo feature (on by default); without it
-//! [`NoHttp`] reports [`ErrorKind::HttpUnavailable`]. Local health probes of
-//! tunnelled endpoints use [`local_http_status`], a tiny std-only HTTP/1.1 GET
-//! against `127.0.0.1`.
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -13,10 +7,8 @@ use std::time::Duration;
 
 use crate::error::{Error, ErrorKind, Result};
 
-/// A response: status code and body bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HttpResponse {
-    /// HTTP status code.
     pub status: u16,
     /// Body bytes (capped by the client).
     pub body: Vec<u8>,
@@ -28,7 +20,6 @@ pub trait HttpClient: Send + Sync {
     fn get(&self, url: &str, headers: &[(&str, &str)]) -> Result<HttpResponse>;
 }
 
-/// A client that always fails with `HttpUnavailable`.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NoHttp;
 
@@ -38,7 +29,6 @@ impl HttpClient for NoHttp {
     }
 }
 
-/// HTTPS client based on `ureq` (feature `http`).
 #[cfg(feature = "http")]
 #[derive(Debug, Clone)]
 pub struct UreqClient {
@@ -86,7 +76,6 @@ impl HttpClient for UreqClient {
     }
 }
 
-/// The default client: [`UreqClient`] with the `http` feature, else [`NoHttp`].
 pub fn default_client() -> Arc<dyn HttpClient> {
     #[cfg(feature = "http")]
     {
@@ -126,7 +115,6 @@ pub fn local_http_status(port: u16, path: &str, timeout: Duration) -> Result<u16
     parse_status_line(&got)
 }
 
-/// True when something accepts TCP connections on `127.0.0.1:<port>`.
 pub fn local_port_open(port: u16, timeout: Duration) -> bool {
     TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], port)), timeout).is_ok()
 }

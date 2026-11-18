@@ -23,6 +23,14 @@ when changing either.
   **HTTP 400** ("Backend rejected accelerator"): retrying cannot help. **HTTP
   412** ("Allocation refused") means too many sessions or a temporary capacity
   limit: retrying later may help.
+- `colab new` can also get **no answer at all**. Each `POST /assign` waits 120 s
+  (google-auth's default read timeout), then the CLI retries 3 times with a
+  10/20/40 s backoff, re-checking the assignment by its notebook hash in
+  between. After about 9.5 minutes it exits 1 with a `ReadTimeout` traceback.
+  Seen on 2026-11-18 for an A100 on an account its owner reports has no
+  subscription, whose `ccu-info` listed A100 as eligible; an L4 had worked
+  30 s earlier. The `COLAB_CLI_ASSIGN_RETRIES`, `COLAB_CLI_RETRY_BACKOFF` and
+  `COLAB_CLI_REQUEST_TIMEOUT` environment variables tune that loop.
 - In 0.8.0 an unknown `--gpu` value is rejected; older releases silently fell
   back to A100. Validate locally either way.
 
