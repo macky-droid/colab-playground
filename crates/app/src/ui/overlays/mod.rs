@@ -10,14 +10,15 @@ mod stop;
 
 use ely_gpui_component::{
     buttons::{Button, ButtonVariant},
-    layout::ScrollArea,
+    layout::{ScrollShadow, Scrollbar},
     motion::Spinner,
-    theme::{ActiveTheme, IconSize},
+    theme::IconSize,
     typography::Caption,
 };
 use gpui::{
-    AnyElement, App, Entity, IntoElement, ParentElement, Rems, RenderOnce, ScrollHandle,
-    SharedString, Styled, Window, div,
+    AnyElement, App, Axis, Entity, InteractiveElement, IntoElement, ParentElement, Rems,
+    RenderOnce, ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Window, deferred,
+    div,
 };
 
 use crate::{
@@ -95,8 +96,12 @@ const DIALOG_CHROME: Rems = Rems(13.5);
 
 const MIN_SCROLLED: Rems = Rems(8.0);
 
+/// Ely's dialog card padding (`p_6`).
+const DIALOG_PADDING: Rems = Rems(1.5);
+
 /// `DIALOG_CHROME` counts only a title and an action row, so this must be the whole content of
-/// a dialog without a description.
+/// a dialog without a description. The thumb shows whenever the content runs past the room, not
+/// only on hover: a form that continues below must say so.
 #[derive(IntoElement)]
 struct Scrolled {
     id: &'static str,
@@ -121,21 +126,42 @@ impl RenderOnce for Scrolled {
         let rem = window.rem_size();
         let room = (window.viewport_size().height - DIALOG_CHROME.to_pixels(rem))
             .max(MIN_SCROLLED.to_pixels(rem));
-        // The bar's track takes presses at the right edge, so the content keeps clear of it.
-        let gutter = cx.theme().scrollbar_thickness().to_pixels(rem) * 2.0;
-        let area = ScrollArea::new(self.id).vertical().shadows();
-        let area = match &self.handle {
-            Some(handle) => area.track_scroll(handle),
-            None => area,
+        let handle = match self.handle {
+            Some(handle) => handle,
+            None => window
+                .use_keyed_state(self.id, cx, |_, _| ScrollHandle::new())
+                .read(cx)
+                .clone(),
         };
+        // The bar sits in the card's right padding, beside the content rather than over it
+        // (its track takes presses). The dialog's body clips to its content box on both axes,
+        // so the bar is drawn deferred, outside that clip.
+        let padding = DIALOG_PADDING.to_pixels(rem);
         tagged(
             self.id,
-            area
+            div()
+                .relative()
                 // A column, so the scrolling body shrinks to the room instead of clipping.
                 .flex()
                 .flex_col()
                 .max_h(room)
-                .child(div().pr(gutter).child(self.content)),
+                .mr(-padding)
+                .child(
+                    div()
+                        .id(self.id)
+                        .min_h_0()
+                        .overflow_y_scroll()
+                        .overflow_x_hidden()
+                        .track_scroll(&handle)
+                        .pr(padding)
+                        .child(self.content),
+                )
+                .child(ScrollShadow::new(&handle))
+                .child(deferred(Scrollbar::new(
+                    SharedString::from(format!("{}-bar", self.id)),
+                    &handle,
+                    Axis::Vertical,
+                ))),
         )
     }
 }

@@ -959,12 +959,14 @@ fn the_new_session_form_takes_the_room_the_window_has_and_scrolls_past_it(cx: &m
         "the wheel scrolls it"
     );
     let thumb = app.bounds("scrollbar-thumb").expect("a scrollbar shows");
+    let start = app.bounds(NEW_SESSION_START).expect("Start is drawn");
+    // Start ends where the content does; the card's padding beyond it is 24 px.
     assert!(
-        thumb.left() >= form.left()
-            && thumb.right() <= form.right()
+        thumb.left() >= start.right()
+            && thumb.right() <= start.right() + px(24.0)
             && thumb.top() >= form.top()
             && thumb.bottom() <= form.bottom(),
-        "the thumb {thumb:?} is the form's {form:?}"
+        "the thumb {thumb:?} runs beside the form {form:?}, in the card's padding"
     );
 }
 
@@ -1021,11 +1023,11 @@ fn the_forward_dialog_with_an_error_scrolls_inside_a_dialog_that_fits_the_window
     );
     let thumb = app.bounds("scrollbar-thumb").expect("a scrollbar shows");
     assert!(
-        thumb.left() >= body.left()
-            && thumb.right() <= body.right()
+        thumb.left() >= submit.right()
+            && thumb.right() <= submit.right() + px(24.0)
             && thumb.top() >= body.top()
             && thumb.bottom() <= body.bottom(),
-        "the thumb {thumb:?} is the body's {body:?}"
+        "the thumb {thumb:?} runs beside the body {body:?}, in the card's padding"
     );
     // A taller window gives the body room until the error and every field fit.
     app.resize(880.0, 780.0);
