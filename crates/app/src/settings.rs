@@ -32,10 +32,8 @@ pub enum LanguagePref {
     ZhCn,
     #[serde(rename = "zh-TW")]
     ZhTw,
-    /// Japanese.
     #[serde(rename = "ja-JP")]
     JaJp,
-    /// Korean.
     #[serde(rename = "ko-KR")]
     KoKr,
 }

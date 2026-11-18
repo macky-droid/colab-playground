@@ -649,9 +649,7 @@ pub enum Language {
     ZhCn,
     /// Traditional Chinese, Taiwan wording.
     ZhTw,
-    /// Japanese.
     JaJp,
-    /// Korean.
     KoKr,
 }
 
