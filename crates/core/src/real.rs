@@ -931,9 +931,9 @@ impl Inner {
         {
             stopped_by_cli = true;
         }
-        // Without an endpoint nothing can be released and no listing can show the runtime
-        // gone, so the session stays live until reconciliation can tell that it has ended.
-        if target.endpoint.is_empty() {
+        // The CLI did not end it and there is no endpoint to release, so its runtime may still
+        // be billing; the session stays live until reconciliation can tell that it has ended.
+        if !stopped_by_cli && target.endpoint.is_empty() {
             return Err(
                 Error::new(ErrorKind::OrphanSuspected).detail("the session's runtime is not known")
             );
