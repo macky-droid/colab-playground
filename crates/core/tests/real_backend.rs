@@ -994,10 +994,6 @@ fn switch_impact_never_counts_unlisted_runtimes_as_zero() {
     let f = fixture();
     let alice = f.adopt_alice();
     let bob = f.add_bob();
-    f.edit_server(|s| {
-        s["accounts"]["bob"]["assignments"]["browser-9"] =
-            json!({"accelerator": "L4", "variant": "GPU", "shape": "STANDARD"});
-    });
     // The helper answers, but reports that bob's runtimes could not be listed.
     f.knob("cli_api_broken", json!(true));
     let unknown = f.b.switch_impact(&alice.id).unwrap();
@@ -1008,6 +1004,18 @@ fn switch_impact_never_counts_unlisted_runtimes_as_zero() {
         f.b.switch_impact(&bob.id).unwrap().unmanaged_count,
         Some(0),
         "staying leaves nothing behind"
+    );
+
+    f.b.refresh_usage(&[], &nc()).unwrap();
+    // Opened in the browser after the reading, which still says zero.
+    f.edit_server(|s| {
+        s["accounts"]["bob"]["assignments"]["browser-9"] =
+            json!({"accelerator": "L4", "variant": "GPU", "shape": "STANDARD"});
+    });
+    assert_eq!(
+        f.b.switch_impact(&alice.id).unwrap().unmanaged_count,
+        None,
+        "a reading of zero is not a listing"
     );
 
     f.b.refresh_usage(&[], &nc()).unwrap();

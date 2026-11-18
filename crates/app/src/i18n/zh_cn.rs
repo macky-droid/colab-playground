@@ -911,7 +911,7 @@ pub(super) const MESSAGES: Messages = &[
     (SESSIONS_EMPTY_PARTIAL_TITLE, "能列出的账号上没有运行时"),
     (
         SWITCH_UNMANAGED_UNKNOWN,
-        "无法确认当前账号上是否有非本应用启动的运行时。如果有，它们会继续计费，且不会自动停止。请到“会话”中查看。",
+        "无法确认当前账号上是否有非本应用启动的运行时。如果有，它们会继续计费，且不会自动停止。请到“会话”中查看；如果那里也无法列出此账号，请在浏览器中打开 Colab 查看。",
     ),
     (PROV_RECONCILING, "正在检查取消的申请是否留下了运行时…"),
     (PROV_RECONCILED, "已检查取消的申请是否留下了运行时"),

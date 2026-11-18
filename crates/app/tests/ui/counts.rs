@@ -215,3 +215,24 @@ fn switching_never_says_nothing_is_running_when_the_runtimes_are_unknown(cx: &mu
         "the switch stays possible"
     );
 }
+
+#[gpui::test]
+fn switching_never_takes_a_usage_reading_of_zero_for_nothing_running(cx: &mut TestAppContext) {
+    let options = Options {
+        failures: MockFailures {
+            unlisted_accounts: vec!["ada@example.com".into()],
+            ..MockFailures::default()
+        },
+        ..Options::scenario(two_accounts_nothing_running())
+    };
+    let mut app = TestApp::with(cx, options);
+    let read = app.read(|state, _| state.usage_summary().known);
+    assert_eq!(read, 2, "usage was read and shows no runtime");
+    assert_eq!(
+        ask_to_switch(&mut app),
+        None,
+        "the reading is not a listing"
+    );
+    assert!(app.shown(SWITCH_UNMANAGED_UNKNOWN_SELECTOR));
+    assert!(!app.shown(SWITCH_NOTHING_SELECTOR));
+}

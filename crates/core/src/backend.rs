@@ -203,7 +203,8 @@ pub struct SwitchImpact {
     pub unmanaged_left_running: Vec<RuntimeRef>,
     /// How many unmanaged runtimes the current account has. Can exceed the
     /// list when they could not be listed (then known only from usage).
-    /// `None` when neither source could say: unknown, never zero.
+    /// `None` is unknown, never zero: they could not be listed and usage
+    /// shows none, which an earlier reading cannot vouch for.
     #[serde(default)]
     pub unmanaged_count: Option<u32>,
 }

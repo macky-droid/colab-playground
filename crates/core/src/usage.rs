@@ -295,6 +295,15 @@ impl AccountUsage {
             .map(|s| s.assignments.saturating_sub(known as u32))
             .unwrap_or(0)
     }
+
+    /// The unmanaged runtimes to report when they cannot be listed: `None`
+    /// unless a reading that is not stale shows at least one. The reading is
+    /// older than the question, and `known` may still count sessions that
+    /// have ended, so it can reveal a runtime but cannot vouch for none.
+    pub fn unmanaged_runtimes_if_any(&self, known: usize) -> Option<u32> {
+        let reading = self.snapshot.filter(|s| !s.stale)?;
+        Some(reading.assignments.saturating_sub(known as u32)).filter(|n| *n > 0)
+    }
 }
 
 /// Sums balances and rates of the accounts whose usage is known. Unknown
@@ -451,6 +460,15 @@ mod tests {
         let mut a = AccountUsage::default();
         a.record_success(u(80.0, 13.6, 3), t(0), &set(&["s1", "s2"]));
         assert_eq!(a.unmanaged_runtimes(2), 1);
+        assert_eq!(a.unmanaged_runtimes_if_any(2), Some(1));
+        assert_eq!(
+            a.unmanaged_runtimes_if_any(3),
+            None,
+            "a session that ended may hide a runtime"
+        );
+        assert_eq!(AccountUsage::default().unmanaged_runtimes_if_any(0), None);
+        a.record_failure(Error::new(crate::ErrorKind::Http), t(60));
+        assert_eq!(a.unmanaged_runtimes_if_any(2), None, "stale");
         let s1 = UsageSnapshot::new(u(10.0, 1.0, 1), t(0));
         let mut s2 = UsageSnapshot::new(u(5.0, 2.0, 1), t(0));
         s2.stale = true;

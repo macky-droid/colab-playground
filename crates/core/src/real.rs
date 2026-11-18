@@ -1004,13 +1004,11 @@ impl Backend for RealBackend {
                     unmanaged_count = Some(unmanaged_left_running.len() as u32);
                 }
                 None => {
-                    // Without a usage reading either, the count stays unknown.
                     let st = self.inner.st();
                     unmanaged_count = st
                         .usage
                         .get(f)
-                        .filter(|u| u.snapshot.is_some())
-                        .map(|u| u.unmanaged_runtimes(live.len()));
+                        .and_then(|u| u.unmanaged_runtimes_if_any(live.len()));
                 }
             }
         }

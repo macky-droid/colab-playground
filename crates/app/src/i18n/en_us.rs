@@ -1088,7 +1088,7 @@ pub(super) const MESSAGES: Messages = &[
     ),
     (
         SWITCH_UNMANAGED_UNKNOWN,
-        "Couldn't check whether the current account has runtimes that this app did not start. Any that are running keep billing, with no automatic stop. Check Sessions.",
+        "Couldn't check whether the current account has runtimes that this app did not start. Any that are running keep billing, with no automatic stop. Check Sessions; if it can't list this account either, check Colab in your browser.",
     ),
     (
         PROV_RECONCILING,

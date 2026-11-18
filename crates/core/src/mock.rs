@@ -98,8 +98,8 @@ pub struct MockFailures {
     pub update_available: bool,
     /// The update check fails (as if GitHub could not be reached).
     pub update_check_fails: bool,
-    /// Listing runtimes fails outright. `switch_impact` then counts unmanaged runtimes from
-    /// usage, or reports the count as unknown without a reading.
+    /// Listing runtimes fails outright. `switch_impact` then reports the unmanaged runtimes
+    /// usage shows, or an unknown count when it shows none.
     pub runtimes_listing_fails: bool,
     /// Accounts (by email) whose runtimes cannot be listed: listings leave their runtimes out
     /// and report each account in `RuntimesView::errors`. Leaving such an account affects
@@ -1229,8 +1229,7 @@ impl Backend for MockBackend {
                 let count = w
                     .usage
                     .get(f)
-                    .filter(|u| u.snapshot.is_some())
-                    .map(|u| u.unmanaged_runtimes(known));
+                    .and_then(|u| u.unmanaged_runtimes_if_any(known));
                 (vec![], count)
             }
             (Some(f), true) => {
@@ -2709,6 +2708,43 @@ mod tests {
             runtimes_listing_fails: true,
             ..MockFailures::default()
         });
+        assert_eq!(m.switch_impact(lin).unwrap().unmanaged_count, Some(1));
+
+        m.set_failures(MockFailures {
+            usage_fetch_fails: true,
+            ..unlisted()
+        });
+        m.refresh_usage(&[], &nc()).unwrap();
+        assert_eq!(
+            m.switch_impact(lin).unwrap().unmanaged_count,
+            None,
+            "a stale reading counts nothing"
+        );
+    }
+
+    #[test]
+    fn switch_impact_never_takes_a_usage_reading_of_zero_for_none_running() {
+        let idle = |email: &str| MockAccount {
+            email: email.into(),
+            balance_cu: 100.0,
+        };
+        let (m, _) = mock(MockScenario {
+            accounts: vec![idle("ada@example.com"), idle("lin@example.com")],
+            runtimes: vec![],
+        });
+        let accts = m.accounts(&nc()).unwrap();
+        let (ada, lin) = (&accts.accounts[0].id, &accts.accounts[1].id);
+        m.refresh_usage(&[], &nc()).unwrap();
+        assert_eq!(m.switch_impact(lin).unwrap().unmanaged_count, Some(0));
+
+        // Opened in the browser after the reading, which still says zero.
+        m.add_unmanaged_runtime(ada, Accelerator::T4);
+        m.set_failures(MockFailures {
+            unlisted_accounts: vec!["ada@example.com".into()],
+            ..MockFailures::default()
+        });
+        assert_eq!(m.switch_impact(lin).unwrap().unmanaged_count, None);
+        m.refresh_usage(&[], &nc()).unwrap();
         assert_eq!(m.switch_impact(lin).unwrap().unmanaged_count, Some(1));
     }
 
