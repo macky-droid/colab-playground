@@ -78,7 +78,8 @@ impl fmt::Display for BackendError {
 impl std::error::Error for BackendError {}
 
 impl BackendKind {
-    /// Debug builds default to mock, release builds to real (DESIGN.md section 2).
+    /// Debug builds default to mock, release builds to real (a hard safety rule in
+    /// `docs/DESIGN.md`).
     pub fn build_default() -> Self {
         if cfg!(debug_assertions) {
             BackendKind::Mock
@@ -328,7 +329,7 @@ pub fn build(
     }
 }
 
-/// Whether the shell shows the "Demo data" badge (DESIGN.md section 0).
+/// Whether the shell shows the "Demo data" badge (the product principle in `docs/DESIGN.md`).
 pub fn shows_demo_badge(flavor: Flavor) -> bool {
     flavor == Flavor::Mock
 }

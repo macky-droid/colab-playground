@@ -7,8 +7,6 @@
 //! All process spawning goes through [`host::Host`]. Errors are
 //! machine-readable ([`error::Error`]); no user-facing prose is produced here.
 
-#![warn(missing_docs)]
-
 pub mod accounts;
 pub mod backend;
 pub mod cli;
