@@ -114,6 +114,8 @@ another folder to keep experiments apart.
   Linux). Per-account CLI state files are under `~/.local/share/colab-playground/accounts/` where
   the CLI runs (inside WSL on Windows; `$XDG_DATA_HOME` is honoured).
 - **Sign-ins and the Hugging Face token:** the keyring where the CLI runs (inside WSL on Windows).
+  On Windows the app keeps the WSL distribution running while it is open, so a password-protected
+  keyring asks to be unlocked once after WSL starts rather than at every background refresh.
 - **CLI location:** Settings → "Colab CLI location" picks the WSL distribution and, if detection
   fails, the path of `colab` (its Python interpreter is optional and otherwise found from it).
 - **Logs** go to standard error; `RUST_LOG` replaces the default filter
