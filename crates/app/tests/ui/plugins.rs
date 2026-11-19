@@ -12,8 +12,8 @@ use colab_playground::{
         pages::{
             overview::{INSTALL_SELECTOR, deploy_selector},
             plugins::{
-                ENDPOINT_SELECTOR, INSTALL_CHECK, RUN_LOG_SELECTOR, RUN_START, RUN_STOP,
-                hf_result_selector, plugin_selector,
+                ENDPOINT_SELECTOR, INSTALL_CHECK, RUN_START, RUN_STOP, hf_result_selector,
+                plugin_selector,
             },
         },
     },
@@ -104,8 +104,10 @@ fn quick_deploy_runs_to_a_ready_endpoint(cx: &mut TestAppContext) {
 fn log_ends(app: &mut TestApp<'_>) -> (usize, String, String) {
     app.read(|state, _| {
         let log = &state.plugin_run().expect("a run").log;
-        let line = |ix: usize| log.line(ix).unwrap_or_default().to_owned();
-        (log.len(), line(0), line(log.len().saturating_sub(1)))
+        let mut lines = log.lines();
+        let oldest = lines.next().unwrap_or_default().to_owned();
+        let newest = lines.next_back().unwrap_or_default().to_owned();
+        (log.len(), oldest, newest)
     })
 }
 
@@ -117,7 +119,7 @@ fn a_long_log_keeps_its_newest_lines_whatever_adds_them(cx: &mut TestAppContext)
     app.click("hf-search");
     app.click(&hf_result_selector(REPO));
     app.click(RUN_START);
-    assert!(app.shown(RUN_LOG_SELECTOR), "the run's log");
+    assert!(matches!(run_phase(&mut app), Some(RunPhase::Ready(_))));
 
     // One event with more lines than are kept, as a poll of short lines brings.
     let batch = RUN_LOG_LINES_KEPT + 3;
@@ -133,7 +135,6 @@ fn a_long_log_keeps_its_newest_lines_whatever_adds_them(cx: &mut TestAppContext)
             format!("line {}", batch - 1)
         )
     );
-    assert!(app.shown(RUN_LOG_SELECTOR), "a full log is still drawn");
 
     // The line that says part of the log was left out takes the place of the oldest one.
     app.update(|state, cx| {

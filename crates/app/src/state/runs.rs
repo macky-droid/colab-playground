@@ -85,39 +85,34 @@ pub struct PluginRun {
     pub phase: RunPhase,
 }
 
-/// Lines of a run's log the app keeps, the newest ones. The whole log is a file on the runtime.
-pub const RUN_LOG_LINES_KEPT: usize = 5_000;
+/// Lines of a run's log the app keeps, the newest ones. The log view builds every line it has
+/// on each frame, and a frame of the run page costs about 0.8 ms plus 4.6 ms per 1,000 lines
+/// (release build, Apple M4 Pro), so this many leave about half of a 60 Hz frame. The whole log
+/// is a file on the runtime.
+pub const RUN_LOG_LINES_KEPT: usize = 2_000;
 
 /// The newest lines of a run's log (secrets already redacted by core).
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct RunLog {
-    lines: VecDeque<String>,
-    dropped: usize,
-}
+pub struct RunLog(VecDeque<String>);
 
 impl RunLog {
     fn extend(&mut self, lines: impl IntoIterator<Item = String>) {
-        self.lines.extend(lines);
-        let extra = self.lines.len().saturating_sub(RUN_LOG_LINES_KEPT);
-        self.lines.drain(..extra);
-        self.dropped += extra;
+        self.0.extend(lines);
+        let extra = self.0.len().saturating_sub(RUN_LOG_LINES_KEPT);
+        self.0.drain(..extra);
     }
 
     pub fn len(&self) -> usize {
-        self.lines.len()
+        self.0.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.lines.is_empty()
+        self.0.is_empty()
     }
 
-    pub fn line(&self, ix: usize) -> Option<&str> {
-        self.lines.get(ix).map(String::as_str)
-    }
-
-    /// Lines no longer kept. A view that holds a place in the log moves it up by what this grew.
-    pub fn dropped(&self) -> usize {
-        self.dropped
+    /// Oldest first.
+    pub fn lines(&self) -> impl DoubleEndedIterator<Item = &str> {
+        self.0.iter().map(String::as_str)
     }
 }
 

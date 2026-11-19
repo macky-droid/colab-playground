@@ -14,7 +14,7 @@ use ely_gpui_component::{
     data_display::{Badge, Tone},
     feedback::InlineMessage,
     forms::Switch,
-    layout::{Card, CardHeader, Page, Scrollbar, Well},
+    layout::{Card, CardHeader, Page, ScrollArea, Well},
     motion::ProgressBar,
     primitives::{IconName, Severity},
     terminal::AnsiText,
@@ -22,8 +22,7 @@ use ely_gpui_component::{
     typography::Caption,
 };
 use gpui::{
-    AnyElement, App, Axis, Entity, FontWeight, IntoElement, ListAlignment, ListState,
-    ParentElement, RenderOnce, SharedString, Styled, Window, div, list,
+    AnyElement, App, Entity, FontWeight, IntoElement, ParentElement, SharedString, Styled, div,
 };
 
 use crate::{
@@ -36,8 +35,6 @@ use crate::{
     },
 };
 
-/// Selector of the run's log.
-pub const RUN_LOG_SELECTOR: &str = "run-log";
 /// Selector of Cancel while running.
 pub const RUN_CANCEL: &str = "run-cancel";
 /// Selector of "Stop and end billing" after a failure.
@@ -127,7 +124,7 @@ pub(super) fn render(state: &AppState, handle: &Entity<AppState>, cx: &App) -> P
                 .w_full(),
         );
     }
-    page.child(log(run, handle, cx))
+    page.child(log(run, cx))
 }
 
 fn stages(run: &PluginRun, info: &PluginInfo, state: &AppState, cx: &App) -> AnyElement {
@@ -484,80 +481,25 @@ fn endpoint_card(
         .into_any_element()
 }
 
-fn log(run: &PluginRun, handle: &Entity<AppState>, cx: &App) -> AnyElement {
+fn log(run: &PluginRun, cx: &App) -> AnyElement {
+    let theme = cx.theme();
     if run.log.is_empty() {
         return div().into_any_element();
     }
+    let lines = run.log.lines().map(|line| AnsiText::new(line.to_owned()));
     Card::new()
         .header(CardHeader::new(tr(cx, keys::RUN_LOG)))
-        .child(Well::new().h(metrics::RUN_LOG_HEIGHT).child(LogLines {
-            state: handle.clone(),
-            count: run.log.len(),
-            dropped: run.log.dropped(),
-        }))
+        .child(
+            Well::new().h(metrics::RUN_LOG_HEIGHT).child(
+                ScrollArea::new("run-log").vertical().size_full().child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .font_family(theme.mono_family.clone())
+                        .children(lines),
+                ),
+            ),
+        )
         .w_full()
         .into_any_element()
-}
-
-/// The lines of the run's log. It builds only the lines in view: the page is drawn again on
-/// every frame while a stage's spinner turns, and the log has thousands of lines.
-#[derive(IntoElement)]
-struct LogLines {
-    state: Entity<AppState>,
-    count: usize,
-    dropped: usize,
-}
-
-struct LogScroll {
-    list: ListState,
-    /// `RunLog::dropped` when the list last took the log's lines.
-    dropped: usize,
-}
-
-impl RenderOnce for LogLines {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let (count, dropped) = (self.count, self.dropped);
-        let overdraw = cx.theme().list_overdraw().to_pixels(window.rem_size());
-        let scroll = window.use_keyed_state(RUN_LOG_SELECTOR, cx, |_, _| LogScroll {
-            list: ListState::new(count, ListAlignment::Top, overdraw),
-            dropped,
-        });
-        let lines = scroll.update(cx, |scroll, _| {
-            let known = scroll.list.item_count();
-            match dropped.checked_sub(scroll.dropped) {
-                Some(gone) => {
-                    // Told which lines left and which came, the list keeps the line at the
-                    // top of the view where it is.
-                    let gone = gone.min(known);
-                    scroll.list.splice(0..gone, 0);
-                    let known = known - gone;
-                    if count >= known {
-                        scroll.list.splice(known..known, count - known);
-                    } else {
-                        scroll.list.splice(count..known, 0);
-                    }
-                }
-                // The log of another run.
-                None => scroll.list.reset(count),
-            }
-            scroll.dropped = dropped;
-            scroll.list.clone()
-        });
-        let state = self.state;
-        let rows = list(lines.clone(), move |ix, _, cx| {
-            let run = state.read(cx).plugin_run();
-            let line = run.and_then(|run| run.log.line(ix)).unwrap_or_default();
-            div()
-                .w_full()
-                .min_w_0()
-                .child(AnsiText::new(line.to_owned()))
-                .into_any_element()
-        })
-        .size_full();
-        tagged(RUN_LOG_SELECTOR, rows)
-            .relative()
-            .size_full()
-            .font_family(cx.theme().mono_family.clone())
-            .child(Scrollbar::new("run-log-bar", &lines, Axis::Vertical).auto())
-    }
 }

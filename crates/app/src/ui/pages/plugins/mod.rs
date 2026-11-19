@@ -29,9 +29,7 @@ use crate::{
 };
 
 pub use form::{RUN_START, hf_result_selector};
-pub use run::{
-    ENDPOINT_SELECTOR, RUN_CANCEL, RUN_LOG_SELECTOR, RUN_SESSION_UNKNOWN_SELECTOR, RUN_STOP,
-};
+pub use run::{ENDPOINT_SELECTOR, RUN_CANCEL, RUN_SESSION_UNKNOWN_SELECTOR, RUN_STOP};
 
 /// Selector of the install source's Check button.
 pub const INSTALL_CHECK: &str = "plugin-check";
