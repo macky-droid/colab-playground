@@ -266,48 +266,31 @@ impl AppState {
         );
     }
 
-    /// How much time Extend adds to `runtime`'s auto-stop: the default runtime limit
-    /// (Settings, else core's own). The session's recorded limit is not used: it counts from
-    /// the session's start and grows with every extension.
-    pub fn extension_for(&self, runtime: &Runtime) -> Option<Duration> {
-        let _ = runtime;
-        self.rearm_duration()
-    }
-
-    /// Adds [`Self::extension_for`] to `target`'s auto-stop; it never moves earlier. Core's
-    /// `extend_session` sets the stop a given time from now, so the time still left is measured
-    /// on the backend clock inside the call and the extension is added to it. A runtime without
-    /// an auto-stop gets one that far from now.
+    /// Adds [`Self::rearm_duration`] to `target`'s auto-stop; it never moves earlier. Core reads
+    /// the time still left inside the call, not from the listing here, which can be older than
+    /// the last extension. A runtime without an auto-stop gets one that far from now.
     pub fn extend_session(&mut self, target: RuntimeRef, cx: &mut Context<Self>) {
-        let Some(runtime) = self.runtime(&target) else {
+        if self.runtime(&target).is_none() {
+            return;
+        }
+        let Some(by) = self.rearm_duration() else {
             return;
         };
-        let Some(by) = self.extension_for(runtime) else {
-            return;
-        };
-        let stop_at = runtime.auto_stop_at;
         let work_target = target.clone();
         self.run_backend(
             Op::Extend(key_of(&target)),
             cx,
-            move |backend, cancel| {
-                let left = stop_at
-                    .and_then(|at| at.duration_since(backend.now()).ok())
-                    .unwrap_or_default();
-                let total = left + by;
-                let info = backend.extend_session(&work_target, total, cancel)?;
-                Ok((info, total))
-            },
+            move |backend, cancel| backend.extend_session(&work_target, by, cancel),
             move |state, result, cx| {
                 match result {
-                    Ok((info, total)) => {
+                    Ok(set) => {
                         state.sessions.warnings.remove(&target);
                         let title = tr_args(
                             cx,
                             keys::EXTEND_DONE,
-                            &[("time", &format::duration(cx, total))],
+                            &[("time", &format::duration(cx, set.runtime))],
                         );
-                        state.toast_auto_stop(title, info.armed, cx);
+                        state.toast_auto_stop(title, set.watchdog.armed, cx);
                         state.load_runtimes(cx);
                     }
                     Err(error) => state.toast_error(&error, cx),
@@ -377,8 +360,10 @@ impl AppState {
         );
     }
 
-    /// How far ahead "Set auto-stop" puts the stop on a runtime that has none: the default
-    /// runtime limit (core's own default when Settings has none).
+    /// How much time Extend adds to a runtime's auto-stop, and how far ahead "Set auto-stop"
+    /// puts the stop on a runtime that has none: the default runtime limit (Settings, else
+    /// core's own). The session's recorded limit is not used: it counts from the session's
+    /// start and grows with every extension.
     pub fn rearm_duration(&self) -> Option<Duration> {
         self.defaults()
             .max_runtime
@@ -386,7 +371,7 @@ impl AppState {
     }
 
     /// Sets an auto-stop again on `target` (after it was cancelled), [`Self::rearm_duration`]
-    /// from now. Core's `extend_session` restarts the watchdog on the runtime; when that fails
+    /// from now. Core's `set_auto_stop` restarts the watchdog on the runtime; when that fails
     /// the limit still holds through the app-side guard, and the toast says so.
     pub fn set_auto_stop(&mut self, target: RuntimeRef, cx: &mut Context<Self>) {
         let Some(by) = self.rearm_duration() else {
@@ -396,7 +381,7 @@ impl AppState {
         self.run_backend(
             Op::Extend(key_of(&target)),
             cx,
-            move |backend, cancel| backend.extend_session(&work_target, by, cancel),
+            move |backend, cancel| backend.set_auto_stop(&work_target, by, cancel),
             move |state, result, cx| {
                 match result {
                     Ok(info) => {
@@ -410,7 +395,6 @@ impl AppState {
                     }
                     Err(error) => state.toast_error(&error, cx),
                 }
-                let _ = &target;
                 cx.notify();
             },
         );

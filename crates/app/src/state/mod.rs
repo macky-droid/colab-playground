@@ -346,6 +346,7 @@ impl AppState {
         match self.overlay {
             Some(Overlay::NewSession) => self.close_new_session(cx),
             Some(Overlay::Update(_)) => self.close_update_dialog(cx),
+            Some(Overlay::InstallPlugin(_)) => self.close_install_plugin(cx),
             Some(_) => {
                 self.overlay = None;
                 cx.notify();

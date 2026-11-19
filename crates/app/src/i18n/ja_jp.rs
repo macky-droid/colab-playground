@@ -39,11 +39,6 @@ pub(super) const MESSAGES: Messages = &[
         PLUGINS_SUBTITLE,
         "Colab ランタイムで実行するスクリプト（llama.cpp サーバーなど）。",
     ),
-    (PLUGINS_EMPTY_TITLE, "プラグインはまだありません"),
-    (
-        PLUGINS_EMPTY_BODY,
-        "同梱のプラグインとインストール済みのプラグインがここに表示されます。",
-    ),
     (
         ACCOUNTS_SUBTITLE,
         "Colab CLI が使用する Google アカウント。",
@@ -123,7 +118,6 @@ pub(super) const MESSAGES: Messages = &[
     (ACTION_CANCEL, "キャンセル"),
     (ACTION_CLOSE, "閉じる"),
     (ACTION_RETRY, "再試行"),
-    (ACTION_REFRESH, "更新"),
     (ACTION_CHECK_AGAIN, "再確認"),
     (ACTION_DISMISS, "閉じる"),
     (ACTION_INSTALL_CLI, "Colab CLI をインストール"),
@@ -458,7 +452,7 @@ pub(super) const MESSAGES: Messages = &[
     (HOST_PATH_PLACEHOLDER, "自動で検出"),
     (HOST_APPLY, "適用"),
     (
-        HOST_BOTH_NEEDED,
+        HOST_INTERPRETER_ALONE,
         "colab のパスも設定するか、インタープリターを空欄にしてください。",
     ),
     (
@@ -600,15 +594,6 @@ pub(super) const MESSAGES: Messages = &[
     (NS_TRY_AGAIN, "もう一度お試しください。"),
     (NS_RETRY_LATER, "しばらくしてからもう一度お試しください。"),
     (
-        NS_SWITCH_ACCOUNT,
-        "それを所有するアカウントに切り替えてください。",
-    ),
-    (
-        NS_ADD_ACCOUNT,
-        "先にアカウントを追加または保存してください。",
-    ),
-    (NS_SIGN_IN_AGAIN, "再ログインしてください。"),
-    (
         NS_UNLOCK_KEYRING,
         "システムのキーリングのロックを解除するか設定してから、再確認してください。",
     ),
@@ -622,7 +607,6 @@ pub(super) const MESSAGES: Messages = &[
         NS_CLOSE_CONNECTION,
         "このランタイムへのほかの接続を閉じてください。",
     ),
-    (NS_INSTALL_CLI, "Colab CLI をインストールしてください。"),
     (
         NS_INSTALL_WSL,
         "WSL と Linux ディストリビューションをインストールしてください。",
@@ -630,7 +614,6 @@ pub(super) const MESSAGES: Messages = &[
     (NS_UPDATE_APP, "Colab Playground を更新してください。"),
     (NS_CHECK_INPUT, "入力内容を確認してください。"),
     (NS_CHECK_NETWORK, "ネットワーク接続を確認してください。"),
-    (NS_REFRESH, "更新して現在の状態を確認してください。"),
     (
         NS_REVIEW_RUNTIMES,
         "ランタイムの一覧を確認してください。課金が続いているものがあるかもしれません。",
@@ -828,7 +811,6 @@ pub(super) const MESSAGES: Messages = &[
         PROV_READY_BELOW,
         "最小値を下回っていますが、選択どおり {hardware} を残しました。",
     ),
-    (PROV_FAILED, "中止しました：{why}"),
     // Port forwarding
     (FORWARD_TITLE, "ポートを転送"),
     (
@@ -997,6 +979,10 @@ pub(super) const MESSAGES: Messages = &[
     (RUN_PROVISIONING, "ランタイムを取得"),
     (RUN_STAGES, "進行状況"),
     (RUN_LOG, "ログ"),
+    (
+        RUN_LOG_SKIPPED,
+        "ログの一部はここに表示されていません。スクリプトの書き込みがアプリの読み取りより速かったためです。ログ全体はランタイムの {path} にあります。",
+    ),
     (RUN_OUTPUTS, "詳細"),
     (RUN_READY, "準備ができました。アドレスは下にあります。"),
     (RUN_FAILED, "デプロイに失敗しました"),

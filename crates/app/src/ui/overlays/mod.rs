@@ -11,13 +11,7 @@ mod quit;
 mod stop;
 mod update;
 
-use ely_gpui_component::{
-    buttons::{Button, ButtonVariant},
-    layout::{ScrollShadow, Scrollbar},
-    motion::Spinner,
-    theme::IconSize,
-    typography::Caption,
-};
+use ely_gpui_component::layout::{ScrollShadow, Scrollbar};
 use gpui::{
     AnyElement, App, Axis, Entity, InteractiveElement, IntoElement, ParentElement, RenderOnce,
     ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Window, deferred, div,
@@ -57,44 +51,11 @@ pub fn render(
         Overlay::NewSession => new_session::render(state, handle, inputs, cx)?,
         Overlay::Forward(form) => forward::render(form, state, handle, inputs, cx),
         Overlay::InstallPlugin(prompt) => plugin::install(prompt, state, handle, cx),
-        Overlay::RemovePlugin(prompt) => plugin::remove(prompt, state, handle, cx),
+        Overlay::RemovePlugin(prompt) => plugin::remove(prompt, handle, cx),
         Overlay::Quit(prompt) => quit::render(prompt, state, handle, cx),
         Overlay::Update(prompt) => update::render(prompt, state, handle, cx),
         Overlay::Feedback => feedback::render(state, handle, cx),
     })
-}
-
-fn close(handle: &Entity<AppState>) -> impl Fn(&mut Window, &mut App) + 'static {
-    let handle = handle.clone();
-    move |_, cx| handle.update(cx, |state, cx| state.close_overlay(cx))
-}
-
-fn cancel_button(label: SharedString, handle: Entity<AppState>) -> impl IntoElement {
-    cancel_button_when(label, handle, true)
-}
-
-/// The dismissing button, disabled while `enabled` is false.
-fn cancel_button_when(
-    label: SharedString,
-    handle: Entity<AppState>,
-    enabled: bool,
-) -> impl IntoElement {
-    tagged(
-        "overlay-cancel",
-        Button::new("overlay-cancel", label)
-            .variant(ButtonVariant::Ghost)
-            .disabled(!enabled)
-            .on_click(move |_, _, cx| handle.update(cx, |state, cx| state.close_overlay(cx))),
-    )
-}
-
-fn busy_line(id: &'static str, text: SharedString) -> impl IntoElement {
-    div()
-        .flex()
-        .items_center()
-        .gap_2()
-        .child(Spinner::new(id).size(IconSize::Sm))
-        .child(Caption::new(text))
 }
 
 /// `metrics::DIALOG_CHROME` counts only a title and an action row, so this must be the whole content of

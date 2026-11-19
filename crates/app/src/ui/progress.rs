@@ -7,9 +7,8 @@ use std::time::SystemTime;
 use colab_playground_core::provision::ProvisionEvent;
 use ely_gpui_component::{
     feedback::InlineMessage,
-    motion::Spinner,
-    primitives::{Icon, IconName, Severity},
-    theme::{ActiveTheme, IconSize, TextSize},
+    primitives::{IconName, Severity},
+    theme::{ActiveTheme, TextSize},
 };
 use gpui::{AnyElement, App, IntoElement, ParentElement, SharedString, Styled, div};
 
@@ -17,7 +16,10 @@ use crate::{
     errors, format,
     i18n::{keys, tr, tr_args},
     state::ProvisionProgress,
-    ui::tagged,
+    ui::{
+        parts::{step_icon, step_spinner},
+        tagged,
+    },
 };
 
 pub const PROGRESS_SELECTOR: &str = "provision-progress";
@@ -193,9 +195,7 @@ pub fn render(progress: &ProvisionProgress, live: bool, cx: &App) -> AnyElement 
         let current = last && live;
         let (text, tone) = sentence(event, !current, cx).unwrap_or_default();
         let marker = if current && tone == Tone::Busy {
-            Spinner::new(("provision-line", index))
-                .size(IconSize::Sm)
-                .into_any_element()
+            step_spinner(("provision-line", index))
         } else {
             let (icon, color) = match tone {
                 Tone::Busy | Tone::Info if current => (IconName::Dot, colors.fg_muted),
@@ -204,10 +204,7 @@ pub fn render(progress: &ProvisionProgress, live: bool, cx: &App) -> AnyElement 
                 Tone::Warn => (IconName::TriangleAlert, colors.warning),
                 Tone::Bad => (IconName::CircleX, colors.danger),
             };
-            Icon::new(icon)
-                .size(IconSize::Sm)
-                .color(color)
-                .into_any_element()
+            step_icon(icon, color)
         };
         div()
             .flex()

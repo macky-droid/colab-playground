@@ -34,16 +34,14 @@ use crate::hostfs::HostFs;
 use crate::http::HttpClient;
 use crate::paths::{DataLayout, HostPath};
 use crate::plugins::{
-    PluginInfo, PluginOrigin, PluginPreview, PluginStore, clone_git, contains_secret, redact,
-    redact_json, resolve_endpoints, resolve_inputs,
+    PluginInfo, PluginOrigin, PluginPreview, PluginStore, clear_staging, clone_git,
+    contains_secret, discard_preview, redact, redact_json, resolve_endpoints, resolve_inputs,
 };
 use crate::provision::{
     self, Hardware, ProvisionEvent, ProvisionOps, ProvisionOutcome, ProvisionSpec,
 };
 use crate::quant::GgufListing;
-use crate::sessions::{
-    Ledger, ServerSession, StopReason, StopRecord, TrackedSession, WatchdogInfo,
-};
+use crate::sessions::{Ledger, ServerSession, StopReason, TrackedSession, WatchdogInfo};
 use crate::tunnel::{TunnelCtx, TunnelEvent, TunnelId, TunnelInfo, TunnelManager, TunnelSpec};
 use crate::updater::{self, Installed, SelfUpdate, UpdateProgress};
 use crate::usage::{AccountUsage, poll_due};
@@ -471,10 +469,12 @@ mkdir -p -- "$(dirname -- "$1")" && cp -- "$src" "$1""#;
 const SLOT_TIMEOUT: Duration = Duration::from_secs(5);
 
 impl RealBackend {
-    /// Loads app-side files; spawns nothing.
+    /// Loads app-side files and removes what an earlier run left in the plugin staging
+    /// directory; spawns nothing.
     pub fn new(cfg: RealConfig) -> Result<RealBackend> {
         std::fs::create_dir_all(&cfg.local_dir)?;
         let probe_layout = DataLayout::new(cfg.local_dir.clone(), HostPath::new("/"));
+        clear_staging(&probe_layout.staging_dir());
         let state = State {
             accounts: AccountStore::load(&probe_layout.accounts_json())?,
             ledger: Ledger::load(&probe_layout.ledger_json())?,
@@ -636,9 +636,7 @@ impl Inner {
     fn live_names(&self, account: &AccountId) -> BTreeSet<String> {
         self.st()
             .ledger
-            .entries()
-            .iter()
-            .filter(|e| &e.account == account && e.stopped.is_none())
+            .live_of(account)
             .map(|e| e.name.clone())
             .collect()
     }
@@ -743,9 +741,7 @@ impl Inner {
 
     fn mark_stopped(&self, account: &AccountId, name: &str, reason: StopReason) {
         let now = self.now();
-        let _ = self.st().ledger.update(account, name, |e| {
-            e.stopped = Some(StopRecord { at: now, reason })
-        });
+        let _ = self.st().ledger.mark_stopped(account, name, now, reason);
     }
 
     /// Names recorded in an account's state file, by endpoint.
@@ -774,13 +770,7 @@ impl Inner {
 
     fn reconciliation_sample(&self) -> BTreeMap<AccountId, Vec<TrackedSession>> {
         let mut sample: BTreeMap<AccountId, Vec<TrackedSession>> = BTreeMap::new();
-        for entry in self
-            .st()
-            .ledger
-            .entries()
-            .iter()
-            .filter(|e| e.stopped.is_none())
-        {
+        for entry in self.st().ledger.all_live() {
             sample
                 .entry(entry.account.clone())
                 .or_default()
@@ -796,89 +786,32 @@ impl Inner {
         names: Option<&BTreeMap<String, String>>,
         sample: &BTreeMap<AccountId, Vec<TrackedSession>>,
     ) -> Vec<RuntimeRef> {
-        let mut st = self.st();
-        let live: Vec<_> = st
-            .ledger
-            .entries()
-            .iter()
-            .filter(|e| {
-                &e.account == account
-                    && e.stopped.is_none()
-                    && sample.get(account).is_some_and(|entries| {
-                        entries.iter().any(|sampled| {
-                            sampled.name == e.name
-                                && sampled.started_at() == e.started_at()
-                                && sampled.endpoint == e.endpoint
-                        })
-                    })
-            })
-            .cloned()
+        let listed: Vec<&str> = list.iter().map(|a| a.endpoint.as_str()).collect();
+        let names: Vec<(&str, &str)> = names
+            .into_iter()
+            .flatten()
+            .map(|(endpoint, name)| (endpoint.as_str(), name.as_str()))
             .collect();
-        let mut vanished = Vec::new();
-        let mut unmatched = Vec::new();
-        // A failed save keeps the change in memory and the next save writes it, so the
-        // round goes on: a session that ended is still reported.
-        for e in live {
-            let listed = |endpoint: &str| list.iter().any(|a| a.endpoint == endpoint);
-            let Some(endpoint) = e.endpoint.clone() else {
-                // The state file may still hold the record of an earlier session with this
-                // name, so only an endpoint the listing confirms is taken from it, and an
-                // unlisted one never ends the session.
-                let confirmed = names.and_then(|names| {
-                    names
-                        .iter()
-                        .find(|(endpoint, name)| *name == &e.name && listed(endpoint))
-                        .map(|(endpoint, _)| endpoint.clone())
-                });
-                match confirmed {
-                    Some(endpoint) => {
-                        let _ = st
-                            .ledger
-                            .update(account, &e.name, |e| e.endpoint = Some(endpoint));
-                    }
-                    None => unmatched.push(e.name),
-                }
-                continue;
-            };
-            if !listed(&endpoint) {
-                let _ = st.ledger.update(account, &e.name, |e| {
-                    e.stopped = Some(StopRecord {
-                        at: self.now(),
-                        reason: StopReason::Vanished,
-                    });
-                });
-                vanished.push(RuntimeRef {
-                    account: account.clone(),
-                    endpoint,
-                    name: Some(e.name),
-                });
-            }
-        }
-        // A session without an endpoint can only be a listed runtime that no other live
-        // session claims; with none left, its runtime has ended.
-        let claimed = |endpoint: &str| {
-            st.ledger.entries().iter().any(|e| {
-                &e.account == account
-                    && e.stopped.is_none()
-                    && e.endpoint.as_deref() == Some(endpoint)
+        let sampled = |e: &TrackedSession| {
+            sample.get(account).is_some_and(|entries| {
+                entries.iter().any(|sampled| {
+                    sampled.name == e.name
+                        && sampled.started_at() == e.started_at()
+                        && sampled.endpoint == e.endpoint
+                })
             })
         };
-        if !unmatched.is_empty() && list.iter().all(|a| claimed(&a.endpoint)) {
-            for name in unmatched {
-                let _ = st.ledger.update(account, &name, |e| {
-                    e.stopped = Some(StopRecord {
-                        at: self.now(),
-                        reason: StopReason::Vanished,
-                    });
-                });
-                vanished.push(RuntimeRef {
-                    account: account.clone(),
-                    endpoint: String::new(),
-                    name: Some(name),
-                });
-            }
-        }
-        vanished
+        self.st()
+            .ledger
+            .reconcile(account, sampled, &listed, &names, self.now())
+            .vanished
+            .into_iter()
+            .map(|(name, endpoint)| RuntimeRef {
+                account: account.clone(),
+                endpoint,
+                name: Some(name),
+            })
+            .collect()
     }
 
     fn reconcile_accounts(
@@ -896,9 +829,12 @@ impl Inner {
                 if let Ok(list) = result {
                     let names = self.state_names(&account, cancel);
                     vanished.extend(self.reconcile(&account, &list, names.as_ref(), &sample));
-                    if !self.st().ledger.entries().iter().any(|e| {
-                        e.account == account && e.stopped.is_none() && e.endpoint.is_none()
-                    }) {
+                    if !self
+                        .st()
+                        .ledger
+                        .live_of(&account)
+                        .any(|e| e.endpoint.is_none())
+                    {
                         verified.insert(account);
                     }
                 }
@@ -912,14 +848,7 @@ impl Inner {
         let name = target.name.clone().or_else(|| {
             self.st()
                 .ledger
-                .entries()
-                .iter()
-                .rev()
-                .find(|e| {
-                    e.account == target.account
-                        && e.endpoint.as_deref() == Some(&target.endpoint)
-                        && e.stopped.is_none()
-                })
+                .live_by_endpoint(&target.account, &target.endpoint)
                 .map(|e| e.name.clone())
         });
         if let Some(n) = &name {
@@ -1008,12 +937,7 @@ impl Inner {
             .iter()
             .map(|a| {
                 let usage = st.usage.get(&a.id).cloned().unwrap_or_default();
-                let known = st
-                    .ledger
-                    .entries()
-                    .iter()
-                    .filter(|e| e.account == a.id && e.stopped.is_none())
-                    .count();
+                let known = st.ledger.live_of(&a.id).count();
                 usage_view(&a.id, a.email.clone(), &usage, known)
             })
             .collect()
@@ -1426,17 +1350,11 @@ impl Backend for RealBackend {
             return Err(Error::new(ErrorKind::AccountNotFound).with("account", to));
         }
         let from = st.active.clone();
-        let sessions_left_running = st
-            .ledger
-            .entries()
-            .iter()
-            .filter(|e| {
-                e.stopped.is_none()
-                    && Some(&e.account) == from.as_ref()
-                    && from.as_ref() != Some(to)
-            })
-            .cloned()
-            .collect();
+        let sessions_left_running = from
+            .as_ref()
+            .filter(|from| *from != to)
+            .map(|from| st.ledger.live_of(from).cloned().collect())
+            .unwrap_or_default();
         drop(st);
         let tunnels_closing = if self.inner.st().active.as_ref() == Some(to) {
             vec![]
@@ -1459,9 +1377,7 @@ impl Backend for RealBackend {
                 .inner
                 .st()
                 .ledger
-                .entries()
-                .iter()
-                .filter(|e| &e.account == f && e.stopped.is_none())
+                .live_of(f)
                 .filter_map(|e| e.endpoint.clone())
                 .collect();
             // The helper reports a failure for one account inside an `Ok`, and
@@ -1574,11 +1490,7 @@ impl Backend for RealBackend {
         let now = self.inner.now();
         let st = self.inner.st();
         st.accounts.all().iter().any(|a| {
-            let has_sessions = st
-                .ledger
-                .entries()
-                .iter()
-                .any(|e| e.account == a.id && e.stopped.is_none());
+            let has_sessions = st.ledger.live_of(&a.id).next().is_some();
             let last = st.usage.get(&a.id).and_then(|u| u.last_attempt);
             poll_due(last, now, has_sessions, &st.defaults)
         })
@@ -1612,14 +1524,7 @@ impl Backend for RealBackend {
             for a in list {
                 let name = names.get(&a.endpoint).cloned().or_else(|| {
                     st.ledger
-                        .entries()
-                        .iter()
-                        .rev()
-                        .find(|e| {
-                            e.account == account
-                                && e.endpoint.as_deref() == Some(&a.endpoint)
-                                && e.stopped.is_none()
-                        })
+                        .live_by_endpoint(&account, &a.endpoint)
                         .map(|e| e.name.clone())
                 });
                 let tracked = name
@@ -1664,7 +1569,7 @@ impl Backend for RealBackend {
 
     fn new_session_name(&self, prefix: Option<&str>) -> String {
         let st = self.inner.st();
-        let taken: Vec<String> = st.ledger.entries().iter().map(|e| e.name.clone()).collect();
+        let taken = st.ledger.names();
         let p = prefix
             .map(str::to_owned)
             .unwrap_or_else(|| accelerator_prefix(st.defaults.accelerator));
@@ -1742,56 +1647,20 @@ impl Backend for RealBackend {
     fn extend_session(
         &self,
         target: &RuntimeRef,
+        by: Duration,
+        cancel: &CancelToken,
+    ) -> Result<Extension> {
+        self.move_auto_stop(target, |left| left + by, cancel)
+    }
+
+    fn set_auto_stop(
+        &self,
+        target: &RuntimeRef,
         runtime: Duration,
         cancel: &CancelToken,
     ) -> Result<WatchdogInfo> {
-        let name = target
-            .name
-            .clone()
-            .ok_or_else(|| Error::invalid("name", "the session has no local name"))?;
-        let (_g, cli, state) = self.inner.cli_for(&target.account, cancel)?;
-        // The VM decides: a running watchdog only gets the new deadline; one
-        // that is not running (cancelled, exited, never started) is started
-        // the way provisioning starts it.
-        let v = cli.exec_json(&state, &name, &[], &watchdog::status_snippet(), 60, cancel)?;
-        let mut reply = watchdog::parse_reply(&v, self.inner.now())?;
-        if reply.info.armed {
-            let env = vec![(
-                watchdog::ENV_DEADLINE.to_owned(),
-                runtime.as_secs().to_string(),
-            )];
-            let v = cli.exec_json(&state, &name, &env, &watchdog::extend_snippet(), 60, cancel)?;
-            reply = watchdog::parse_reply(&v, self.inner.now())?;
-        }
-        let info = if reply.info.armed {
-            reply.info
-        } else {
-            let tracked = self
-                .inner
-                .st()
-                .ledger
-                .live(&target.account, &name)
-                .map(|e| e.policy.clone());
-            let policy =
-                watchdog::restart_policy(tracked.as_ref(), reply.info.idle_timeout, runtime);
-            let started = self.inner.layout(cancel).and_then(|layout| {
-                let ops = self
-                    .inner
-                    .ops(&cli, &target.account, &state, layout.host_scratch());
-                provision::start_watchdog(&ops, &name, &policy)
-            });
-            match started {
-                Ok(Some(info)) if info.armed => info,
-                _ => watchdog::start_failed(&policy),
-            }
-        };
-        let now = self.inner.now();
-        let _ = self.inner.st().ledger.update(&target.account, &name, |e| {
-            e.watchdog = Some(info.clone());
-            let elapsed = now.duration_since(e.spend.started_at).unwrap_or_default();
-            e.policy.max_runtime = Some(elapsed + runtime);
-        });
-        Ok(info)
+        self.move_auto_stop(target, |_| runtime, cancel)
+            .map(|set| set.watchdog)
     }
 
     fn cancel_auto_stop(&self, target: &RuntimeRef, cancel: &CancelToken) -> Result<()> {
@@ -1811,15 +1680,7 @@ impl Backend for RealBackend {
 
     fn guard_poll(&self, cancel: &CancelToken) -> Result<GuardReport> {
         let mut report = GuardReport::default();
-        let live: Vec<TrackedSession> = self
-            .inner
-            .st()
-            .ledger
-            .entries()
-            .iter()
-            .filter(|e| e.stopped.is_none())
-            .cloned()
-            .collect();
+        let live: Vec<TrackedSession> = self.inner.st().ledger.all_live().cloned().collect();
         let ids: Vec<AccountId> = live
             .iter()
             .map(|e| e.account.clone())
@@ -1837,9 +1698,8 @@ impl Backend for RealBackend {
             .inner
             .st()
             .ledger
-            .entries()
-            .iter()
-            .filter(|e| e.stopped.is_none() && ids.contains(&e.account))
+            .all_live()
+            .filter(|e| ids.contains(&e.account))
             .cloned()
             .collect();
         let fresh: BTreeSet<AccountId> = match helper.usage_many(&ids, cancel) {
@@ -1955,7 +1815,7 @@ impl Backend for RealBackend {
             .into_iter()
             .find(|p| p.manifest.id == plugin)
             .ok_or_else(|| Error::new(ErrorKind::PluginNotFound).with("plugin", plugin))?;
-        let taken: Vec<String> = st.ledger.entries().iter().map(|e| e.name.clone()).collect();
+        let taken = st.ledger.names();
         Ok(run_template(&info, &st.defaults, &taken))
     }
 
@@ -1986,6 +1846,10 @@ impl Backend for RealBackend {
 
     fn install_plugin(&self, preview: &PluginPreview) -> Result<PluginInfo> {
         self.inner.st().plugins.install(preview)
+    }
+
+    fn discard_plugin_preview(&self, preview: &PluginPreview) {
+        discard_preview(preview);
     }
 
     fn set_plugin_enabled(&self, id: &str, enabled: bool) -> Result<()> {
@@ -2070,26 +1934,18 @@ impl Backend for RealBackend {
         let result = self.run_on(
             &plugin, &account, &session, env, &secrets, &endpoints, &events, cancel,
         );
-        match &result {
-            Err(e) if e.kind == ErrorKind::Cancelled && provisioned => {
-                let _ = self.inner.stop(
-                    &target(&self.inner),
-                    &StopOptions {
-                        reason: StopReason::Provision,
-                    },
-                    &CancelToken::new(),
-                );
-            }
-            Err(e) if e.kind != ErrorKind::Cancelled && provisioned && spec.stop_on_failure => {
-                let _ = self.inner.stop(
-                    &target(&self.inner),
-                    &StopOptions {
-                        reason: StopReason::Provision,
-                    },
-                    &CancelToken::new(),
-                );
-            }
-            _ => {}
+        // A cancelled run always gives back the runtime it provisioned.
+        if let Err(e) = &result
+            && provisioned
+            && (e.kind == ErrorKind::Cancelled || spec.stop_on_failure)
+        {
+            let _ = self.inner.stop(
+                &target(&self.inner),
+                &StopOptions {
+                    reason: StopReason::Provision,
+                },
+                &CancelToken::new(),
+            );
         }
         result
     }
@@ -2212,6 +2068,78 @@ const LEFTOVER_RETRY: Duration = Duration::from_millis(500);
 const LAUNCHER_TIMEOUT: Duration = Duration::from_secs(60);
 
 impl RealBackend {
+    fn move_auto_stop(
+        &self,
+        target: &RuntimeRef,
+        runtime_from_time_left: impl FnOnce(Duration) -> Duration,
+        cancel: &CancelToken,
+    ) -> Result<Extension> {
+        let name = target
+            .name
+            .clone()
+            .ok_or_else(|| Error::invalid("name", "the session has no local name"))?;
+        let (_g, cli, state) = self.inner.cli_for(&target.account, cancel)?;
+        // The VM decides: a running watchdog only gets the new deadline; one
+        // that is not running (cancelled, exited, never started) is started
+        // the way provisioning starts it.
+        let v = cli.exec_json(&state, &name, &[], &watchdog::status_snippet(), 60, cancel)?;
+        let mut reply = watchdog::parse_reply(&v, self.inner.now())?;
+        // The stop as the listing shows it, with the watchdog's own answer in
+        // place of the one last recorded.
+        let stop_at = match self.inner.st().ledger.live(&target.account, &name) {
+            Some(e) => TrackedSession {
+                watchdog: Some(reply.info.clone()),
+                ..e.clone()
+            }
+            .auto_stop_at(),
+            None => reply.info.enforced_deadline(),
+        };
+        let time_left = stop_at
+            .and_then(|at| at.duration_since(self.inner.now()).ok())
+            .unwrap_or_default();
+        let runtime = runtime_from_time_left(time_left);
+        if reply.info.armed {
+            let env = vec![(
+                watchdog::ENV_DEADLINE.to_owned(),
+                runtime.as_secs().to_string(),
+            )];
+            let v = cli.exec_json(&state, &name, &env, &watchdog::extend_snippet(), 60, cancel)?;
+            reply = watchdog::parse_reply(&v, self.inner.now())?;
+        }
+        let info = if reply.info.armed {
+            reply.info
+        } else {
+            let tracked = self
+                .inner
+                .st()
+                .ledger
+                .live(&target.account, &name)
+                .map(|e| e.policy.clone());
+            let policy =
+                watchdog::restart_policy(tracked.as_ref(), reply.info.idle_timeout, runtime);
+            let started = self.inner.layout(cancel).and_then(|layout| {
+                let ops = self
+                    .inner
+                    .ops(&cli, &target.account, &state, layout.host_scratch());
+                provision::start_watchdog(&ops, &name, &policy)
+            });
+            match started {
+                Ok(Some(info)) if info.armed => info,
+                _ => watchdog::start_failed(&policy),
+            }
+        };
+        let now = self.inner.now();
+        let _ = self.inner.st().ledger.update(&target.account, &name, |e| {
+            e.watchdog = Some(info.clone());
+            let elapsed = now.duration_since(e.spend.started_at).unwrap_or_default();
+            e.policy.max_runtime = Some(elapsed + runtime);
+        });
+        Ok(Extension {
+            runtime,
+            watchdog: info,
+        })
+    }
+
     /// Best effort: removes `secrets` from the CLI's history file for
     /// `session` (the CLI appends every executed cell there, including the
     /// prelude built from `--env`). Never fails a run; callers only warn.
@@ -2334,45 +2262,14 @@ impl RealBackend {
                 &nc,
             );
         };
-        let mut offset = 0u64;
-        let mut last: Option<RunStatus> = None;
-        let mut transient = 0u32;
-        let mut first = true;
-        loop {
-            let wait = if first {
-                Duration::from_secs(3).min(self.inner.cfg.run_poll_interval)
-            } else {
-                self.inner.cfg.run_poll_interval
-            };
-            first = false;
-            if self.inner.cfg.clock.sleep(wait, cancel).is_err() {
-                kill(&cli);
-                return Err(Error::cancelled());
-            }
+        let poll_at = |offset: u64| -> Result<vm::RunPoll> {
             let env = vec![
                 (vm::ENV_RUN_ID.into(), run_id.clone()),
                 (vm::ENV_LOG_OFFSET.into(), offset.to_string()),
             ];
-            let poll = match cli
+            let poll = cli
                 .exec_json(&state, session, &env, &vm::plugin_poll_snippet(), 60, &nc)
-                .and_then(|v| vm::parse_poll(&v))
-            {
-                Ok(p) => {
-                    transient = 0;
-                    p
-                }
-                Err(e)
-                    if matches!(
-                        e.kind,
-                        ErrorKind::ConnectionLost | ErrorKind::ExecTimeout | ErrorKind::Parse
-                    ) && transient < 5 =>
-                {
-                    transient += 1;
-                    continue;
-                }
-                Err(e) => return Err(e),
-            };
-            offset = poll.offset;
+                .and_then(|v| vm::parse_poll(&v))?;
             // The poll's printed output (log chunk, status) is recorded in the
             // CLI's history too. The VM side normally scrubs it already; if a
             // secret still came through, scrub the history again now.
@@ -2384,6 +2281,11 @@ impl RealBackend {
             if contains_secret(&poll.log, secrets) || contains_secret(&status_text, secrets) {
                 self.scrub_history(session, secrets, events);
             }
+            if poll.skipped > 0 {
+                let _ = events.send(PluginRunEvent::LogSkipped {
+                    path: format!("{}/run.log", vm::run_dir(&run_id)),
+                });
+            }
             if !poll.log.is_empty() {
                 let lines: Vec<String> = redact(&poll.log, secrets)
                     .lines()
@@ -2391,6 +2293,75 @@ impl RealBackend {
                     .collect();
                 let _ = events.send(PluginRunEvent::Log { lines });
             }
+            Ok(poll)
+        };
+        // The run is over, so what the script wrote last (after a failure, the error) is shown
+        // before the result. A script that reported its failure and is still alive may write
+        // more while it exits, so its log is read once more even when all of it was read.
+        // Best effort: the result does not depend on it, except that a run cancelled meanwhile
+        // ends as cancelled, as it does between two polls.
+        let show_rest_of_log = |mut poll: vm::RunPoll, mut exiting: bool| -> Result<()> {
+            for _ in 0..vm::LOG_BACKLOG_READS {
+                if poll.offset >= poll.size {
+                    if !(exiting && poll.alive) {
+                        break;
+                    }
+                    exiting = false;
+                }
+                if cancel.is_cancelled() {
+                    kill(&cli);
+                    return Err(Error::cancelled());
+                }
+                let Ok(next) = poll_at(poll.offset) else {
+                    break;
+                };
+                poll = next;
+            }
+            Ok(())
+        };
+        let mut offset = 0u64;
+        let mut last: Option<RunStatus> = None;
+        let mut transient = 0u32;
+        let mut first = true;
+        let mut catching_up = 0u32;
+        loop {
+            let wait = if catching_up > 0 {
+                Duration::ZERO
+            } else if first {
+                Duration::from_secs(3).min(self.inner.cfg.run_poll_interval)
+            } else {
+                self.inner.cfg.run_poll_interval
+            };
+            first = false;
+            if self.inner.cfg.clock.sleep(wait, cancel).is_err() {
+                kill(&cli);
+                return Err(Error::cancelled());
+            }
+            let poll = match poll_at(offset) {
+                Ok(p) => {
+                    transient = 0;
+                    p
+                }
+                Err(e)
+                    if matches!(
+                        e.kind,
+                        ErrorKind::ConnectionLost | ErrorKind::ExecTimeout | ErrorKind::Parse
+                    ) && transient < 5 =>
+                {
+                    transient += 1;
+                    catching_up = 0;
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
+            offset = poll.offset;
+            // More log than one poll returns is read at once, a bounded number of times, so
+            // that a script which never stops writing is still polled at the usual pace.
+            catching_up = if poll.offset < poll.size && catching_up < vm::LOG_BACKLOG_READS {
+                catching_up + 1
+            } else {
+                0
+            };
             if let Some(mut s) = poll.status.clone() {
                 if let Some(m) = s.message.as_mut() {
                     *m = redact(m, secrets);
@@ -2407,6 +2378,7 @@ impl RealBackend {
                 }
                 match s.state {
                     RunState::Ready => {
+                        show_rest_of_log(poll, false)?;
                         return Ok(PluginRunOutcome {
                             session: session.to_owned(),
                             account: account.clone(),
@@ -2416,6 +2388,7 @@ impl RealBackend {
                         });
                     }
                     RunState::Failed => {
+                        show_rest_of_log(poll, true)?;
                         return Err(Error::new(ErrorKind::PluginRunFailed)
                             .with("stage", s.stage.clone().unwrap_or_default())
                             .with("message", s.message.clone().unwrap_or_default()));
@@ -2424,6 +2397,7 @@ impl RealBackend {
                 }
             }
             if !poll.alive {
+                show_rest_of_log(poll, false)?;
                 let stage = last
                     .as_ref()
                     .and_then(|s| s.stage.clone())

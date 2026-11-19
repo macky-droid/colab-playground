@@ -11,6 +11,7 @@ use colab_playground_core::{
     backend::{Backend, BackendKind as Flavor},
     mock::{MockBackend, MockConfig, MockFailures, MockLoginFailure, MockScenario},
     real::{RealBackend, RealConfig},
+    sessions::Accelerator,
 };
 
 use crate::platform;
@@ -53,12 +54,13 @@ impl fmt::Display for BackendError {
             }
             BackendError::UnknownScenario(value) => write!(
                 f,
-                "--mock-scenario {value:?} is not one of demo, single, signed-out"
+                "--mock-scenario {value:?} is not one of {}",
+                names(SCENARIOS, ", ")
             ),
             BackendError::UnknownFailure(value) => write!(
                 f,
                 "--mock-fail {value:?} is not one of {}",
-                MockFlags::FAILURES.join(", ")
+                names(FAILURES, ", ")
             ),
             BackendError::UnknownArgument(arg) => write!(f, "unknown argument {arg:?}"),
             BackendError::MissingValue(flag) => write!(f, "{flag} needs a value"),
@@ -101,10 +103,6 @@ impl BackendKind {
             Some(value) => Err(BackendError::InvalidEnv(value.to_owned())),
         }
     }
-
-    pub fn is_mock(self) -> bool {
-        self == BackendKind::Mock
-    }
 }
 
 /// The mock's starting world and injected failures, from `--mock-scenario` and `--mock-fail`.
@@ -114,43 +112,66 @@ pub struct MockFlags {
     pub failures: MockFailures,
 }
 
-impl MockFlags {
-    /// Names accepted by `--mock-fail` (comma-separated).
-    pub const FAILURES: [&'static str; 18] = [
-        "cli-missing",
-        "install-fails",
-        "keyring",
-        "usage-fails",
-        "login-invalid-code",
-        "login-unverified",
-        "not-entitled",
-        "no-answer",
-        "ssh-busy",
-        "plugin-fails",
-        "watchdog-restart-fails",
-        "update-available",
-        "update-check-fails",
-        "update-unsupported",
-        "update-download-fails",
-        "update-unverified",
-        "update-install-fails",
-        "runtimes-fail",
-    ];
+type StartWorld = fn() -> MockScenario;
+type Inject = fn(&mut MockFailures);
 
-    /// Reads `--mock-scenario demo|single|signed-out` (default `demo`) and
-    /// `--mock-fail a,b`, as `--flag value` or `--flag=value`.
+const SCENARIOS: &[(&str, StartWorld)] = &[
+    ("demo", MockScenario::demo),
+    ("single", MockScenario::single),
+    ("signed-out", MockScenario::signed_out),
+];
+
+const FAILURES: &[(&str, Inject)] = &[
+    ("cli-missing", |f| f.cli_missing = true),
+    ("install-fails", |f| f.install_fails = true),
+    ("keyring", |f| f.keyring_unavailable = true),
+    ("usage-fails", |f| f.usage_fetch_fails = true),
+    ("login-invalid-code", |f| {
+        f.login = Some(MockLoginFailure::InvalidCode)
+    }),
+    ("login-unverified", |f| {
+        f.login = Some(MockLoginFailure::VerificationFailed)
+    }),
+    ("not-entitled", |f| {
+        f.not_entitled = vec![Accelerator::A100, Accelerator::H100]
+    }),
+    ("no-answer", |f| {
+        f.allocation_hangs = vec![Accelerator::A100]
+    }),
+    ("ssh-busy", |f| f.ssh_busy_attempts = 1),
+    ("plugin-fails", |f| {
+        f.plugin_fail_stage = Some("download".into())
+    }),
+    ("watchdog-restart-fails", |f| {
+        f.watchdog_restart_fails = true
+    }),
+    ("update-available", |f| f.update_available = true),
+    ("update-check-fails", |f| f.update_check_fails = true),
+    ("update-unsupported", |f| f.update_unsupported = true),
+    ("update-download-fails", |f| f.update_download_fails = true),
+    ("update-unverified", |f| f.update_unverified = true),
+    ("update-install-fails", |f| f.update_install_fails = true),
+    ("runtimes-fail", |f| f.runtimes_listing_fails = true),
+];
+
+fn names<T>(table: &[(&str, T)], separator: &str) -> String {
+    let names: Vec<&str> = table.iter().map(|(name, _)| *name).collect();
+    names.join(separator)
+}
+
+impl MockFlags {
+    /// Reads `--mock-scenario NAME` (default `demo`) and `--mock-fail a,b`, as `--flag value`
+    /// or `--flag=value`.
     pub fn parse<S: AsRef<str>>(args: &[S]) -> Result<Self, BackendError> {
         let mut flags = MockFlags {
             scenario: MockScenario::demo(),
             failures: MockFailures::default(),
         };
         if let Some(name) = flag_value(args, "--mock-scenario") {
-            flags.scenario = match name.as_str() {
-                "demo" => MockScenario::demo(),
-                "single" => MockScenario::single(),
-                "signed-out" => MockScenario::signed_out(),
-                _ => return Err(BackendError::UnknownScenario(name)),
+            let Some((_, scenario)) = SCENARIOS.iter().find(|(known, _)| *known == name) else {
+                return Err(BackendError::UnknownScenario(name));
             };
+            flags.scenario = scenario();
         }
         if let Some(list) = flag_value(args, "--mock-fail") {
             for name in list
@@ -158,39 +179,10 @@ impl MockFlags {
                 .map(str::trim)
                 .filter(|name| !name.is_empty())
             {
-                match name {
-                    "cli-missing" => flags.failures.cli_missing = true,
-                    "install-fails" => flags.failures.install_fails = true,
-                    "keyring" => flags.failures.keyring_unavailable = true,
-                    "usage-fails" => flags.failures.usage_fetch_fails = true,
-                    "not-entitled" => {
-                        flags.failures.not_entitled = vec![
-                            colab_playground_core::sessions::Accelerator::A100,
-                            colab_playground_core::sessions::Accelerator::H100,
-                        ]
-                    }
-                    "no-answer" => {
-                        flags.failures.allocation_hangs =
-                            vec![colab_playground_core::sessions::Accelerator::A100]
-                    }
-                    "ssh-busy" => flags.failures.ssh_busy_attempts = 1,
-                    "plugin-fails" => flags.failures.plugin_fail_stage = Some("download".into()),
-                    "update-available" => flags.failures.update_available = true,
-                    "update-check-fails" => flags.failures.update_check_fails = true,
-                    "update-unsupported" => flags.failures.update_unsupported = true,
-                    "update-download-fails" => flags.failures.update_download_fails = true,
-                    "update-unverified" => flags.failures.update_unverified = true,
-                    "update-install-fails" => flags.failures.update_install_fails = true,
-                    "runtimes-fail" => flags.failures.runtimes_listing_fails = true,
-                    "watchdog-restart-fails" => flags.failures.watchdog_restart_fails = true,
-                    "login-invalid-code" => {
-                        flags.failures.login = Some(MockLoginFailure::InvalidCode)
-                    }
-                    "login-unverified" => {
-                        flags.failures.login = Some(MockLoginFailure::VerificationFailed)
-                    }
-                    other => return Err(BackendError::UnknownFailure(other.to_owned())),
-                }
+                let Some((_, inject)) = FAILURES.iter().find(|(known, _)| *known == name) else {
+                    return Err(BackendError::UnknownFailure(name.to_owned()));
+                };
+                inject(&mut flags.failures);
             }
         }
         Ok(flags)
@@ -200,8 +192,9 @@ impl MockFlags {
 /// How to call the program, printed with any argument error.
 pub fn usage() -> String {
     format!(
-        "usage: colab-playground [--real | --mock [--mock-scenario demo|single|signed-out] [--mock-fail NAME[,NAME...]]]\n  --mock-fail names: {}",
-        MockFlags::FAILURES.join(", ")
+        "usage: colab-playground [--real | --mock [--mock-scenario {}] [--mock-fail NAME[,NAME...]]]\n  --mock-fail names: {}",
+        names(SCENARIOS, "|"),
+        names(FAILURES, ", ")
     )
 }
 

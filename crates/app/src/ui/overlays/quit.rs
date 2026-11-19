@@ -12,12 +12,14 @@ use ely_gpui_component::{
 };
 use gpui::{AnyElement, App, Entity, IntoElement, ParentElement, SharedString, Styled, div};
 
-use super::{busy_line, cancel_button_when, close};
 use crate::{
-    errors,
+    errors, format,
     i18n::{keys, tr, tr_args},
     state::{AppState, QuitPrompt},
-    ui::tagged,
+    ui::{
+        parts::{Layer, busy_line},
+        tagged,
+    },
 };
 
 pub const QUIT_STOP_ALL: &str = "quit-stop-all";
@@ -112,7 +114,7 @@ pub(super) fn render(
             InlineMessage::new(Severity::Info, tr(cx, text)),
         )
     });
-    let mut dialog = Dialog::new("quit", tr(cx, title), close(handle))
+    let mut dialog = Dialog::new("quit", tr(cx, title), Layer::Overlay.close(handle))
         .child(
             div()
                 .flex()
@@ -164,7 +166,7 @@ pub(super) fn render(
     dialog
         .action({
             let handle = handle.clone();
-            move |_| cancel_button_when(cancel, handle, !stopping)
+            move |_| Layer::Overlay.cancel_button_when(cancel, handle, !stopping)
         })
         .action(move |_| {
             tagged(
@@ -202,10 +204,7 @@ fn runtime_list(billing: &crate::state::Billing, state: &AppState, cx: &App) -> 
         .filter_map(|target| state.runtime(target))
         .map(|runtime| {
             let label = crate::state::runtime_label(runtime);
-            let email = runtime
-                .account_email
-                .clone()
-                .unwrap_or_else(|| tr(cx, keys::ACCOUNTS_NO_EMAIL).to_string());
+            let email = format::email(cx, runtime.account_email.as_deref());
             let mut row = div()
                 .flex()
                 .flex_wrap()

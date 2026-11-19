@@ -487,7 +487,10 @@ mod tests {
         a.observe(18.3, 1, &set(&["h"]));
         meter.record(t(1800), a.rate_of("h"));
         assert!((meter.spend().unwrap() - 9.15).abs() < 1e-9);
-        assert!(evaluate(&policy, t(1800), None, &meter).is_stop());
+        assert!(matches!(
+            evaluate(&policy, t(1800), None, &meter),
+            Decision::Stop(_)
+        ));
     }
 
     #[test]

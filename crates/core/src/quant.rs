@@ -18,7 +18,30 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{Error, ErrorKind, Result};
+use crate::{
+    error::{Error, ErrorKind, Result},
+    sessions::Accelerator,
+};
+
+/// Id of the bundled `llama-cpp` plugin's input for the context length (`plugins/llama-cpp`).
+pub const INPUT_CTX: &str = "ctx";
+/// Id of the bundled `llama-cpp` plugin's input for the quantisation.
+pub const INPUT_QUANT: &str = "quant";
+/// The quantisation that leaves the choice to the worker on the VM.
+pub const QUANT_AUTO: &str = "auto";
+
+/// GPU memory sizes (GiB) Colab hands out for an accelerator: an A100 is 40 or 80 GB, and
+/// which one cannot be requested. Empty for hardware without a GPU.
+pub fn vram_choices_gib(accelerator: Accelerator) -> &'static [u32] {
+    match accelerator {
+        Accelerator::T4 => &[15],
+        Accelerator::L4 => &[22],
+        Accelerator::A100 => &[40, 80],
+        Accelerator::H100 => &[80],
+        Accelerator::G4 => &[96],
+        Accelerator::None | Accelerator::TpuV5e1 | Accelerator::TpuV6e1 => &[],
+    }
+}
 
 /// MiB reserved for the CUDA context and driver.
 pub const RESERVE_MIB: f64 = 1024.0;
@@ -118,15 +141,18 @@ fn is_quant_token(t: &str) -> bool {
 }
 
 fn strip_shard_suffix(stem: &str) -> &str {
-    // "-00001-of-00003"
+    // "-00001-of-00003". Matched on bytes: the name can hold multi-byte
+    // characters, so a byte offset into it is not always a `str` boundary.
+    const SUFFIX_LEN: usize = 15;
     let b = stem.as_bytes();
-    if b.len() >= 15 {
-        let tail = &stem[stem.len() - 15..];
-        let tb = tail.as_bytes();
-        let digits = |r: std::ops::Range<usize>| tb[r].iter().all(u8::is_ascii_digit);
-        if tb[0] == b'-' && digits(1..6) && &tail[6..10] == "-of-" && digits(10..15) {
-            return &stem[..stem.len() - 15];
-        }
+    let Some(start) = b.len().checked_sub(SUFFIX_LEN) else {
+        return stem;
+    };
+    let tail = &b[start..];
+    let digits = |r: std::ops::Range<usize>| tail[r].iter().all(u8::is_ascii_digit);
+    if tail[0] == b'-' && digits(1..6) && &tail[6..10] == b"-of-" && digits(10..15) {
+        // The suffix is ASCII, so it starts on a boundary.
+        return &stem[..start];
     }
     stem
 }
@@ -347,7 +373,7 @@ pub fn fit_auto(listing: &GgufListing, input: &FitInput) -> Result<FitChoice> {
         }
     }
     Err(Error::new(ErrorKind::InvalidInput)
-        .with("field", "quant")
+        .with("field", INPUT_QUANT)
         .with("vram_mib", input.vram_mib)
         .detail("no quantisation fits this GPU"))
 }
@@ -358,7 +384,7 @@ pub fn fit_fixed(listing: &GgufListing, quant: &str, input: &FitInput) -> Result
     let Some(v) = listing.variant(quant) else {
         let available: Vec<&str> = listing.variants.iter().map(|v| v.quant.as_str()).collect();
         return Err(
-            Error::invalid("quant", format!("{quant} is not in the repository"))
+            Error::invalid(INPUT_QUANT, format!("{quant} is not in the repository"))
                 .with("value", quant)
                 .with("available", available.join(",")),
         );
@@ -380,7 +406,7 @@ pub fn fit_fixed(listing: &GgufListing, quant: &str, input: &FitInput) -> Result
         .map(|w| w.quant.as_str())
         .collect();
     Err(Error::invalid(
-        "quant",
+        INPUT_QUANT,
         format!("{quant} does not fit in {} MiB", input.vram_mib),
     )
     .with("value", quant)
@@ -426,6 +452,33 @@ mod tests {
     }
 
     #[test]
+    fn labels_of_non_ascii_names() {
+        // Multi-byte characters at the byte offsets where a shard suffix
+        // would start, and inside it.
+        assert_eq!(quant_label("模型模型模型模型模a.gguf"), None);
+        assert_eq!(quant_label("m-00001模模模.gguf"), None);
+        assert_eq!(
+            quant_label("模型模型模型模型-Q4_K_M.gguf").as_deref(),
+            Some("Q4_K_M")
+        );
+        assert_eq!(
+            quant_label("模型-Q8_0-00001-of-00003.gguf").as_deref(),
+            Some("Q8_0")
+        );
+        assert_eq!(strip_shard_suffix("模型-00001-of-00003"), "模型");
+
+        let l = group(&[
+            f("模型模型模型模型-Q4_K_M.gguf", 2 * GIB),
+            f("模型-Q8_0-00001-of-00002.gguf", 3 * GIB),
+            f("模型-Q8_0-00002-of-00002.gguf", GIB),
+            f("模型模型模型模型模a.gguf", GIB),
+        ]);
+        let quants: Vec<&str> = l.variants.iter().map(|v| v.quant.as_str()).collect();
+        assert_eq!(quants, ["Q8_0", "Q4_K_M"]);
+        assert_eq!(l.variants[0].files.len(), 2);
+    }
+
+    #[test]
     fn grouping_shards_and_mmproj() {
         let l = group(&[
             f("Q8_0/M-Q8_0-00001-of-00002.gguf", 20 * GIB),
@@ -468,7 +521,7 @@ mod tests {
         for v in vectors {
             let files: Vec<GgufFile> = v.files.iter().map(|(p, s)| f(p, *s)).collect();
             let listing = group(&files);
-            let r = if v.quant == "auto" {
+            let r = if v.quant == QUANT_AUTO {
                 fit_auto(&listing, &v.input)
             } else {
                 fit_fixed(&listing, &v.quant, &v.input)
