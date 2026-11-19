@@ -585,7 +585,8 @@ impl Host {
                 return report;
             }
         }
-        let req = ScriptRequest::new(PROBE_SCRIPT).timeout(Duration::from_secs(60));
+        let req =
+            ScriptRequest::new(with_shebang_python(PROBE_SCRIPT)).timeout(Duration::from_secs(60));
         match self.run_quiet(req, &cancel) {
             Ok(out) => report.apply_probe_output(&out.stdout),
             Err(e) => report.errors.push(e.to_string()),
@@ -603,6 +604,24 @@ fn parse_wsl_distros(stdout: &str) -> Vec<String> {
         .collect()
 }
 
+/// Shell function for the scripts below: prints the interpreter that runs the entry script
+/// `$1`, read from its shebang, or the `python` next to it for the `#!/bin/sh` launcher that
+/// `uv` and pip write. Prints nothing when the script names none.
+const SHEBANG_PYTHON: &str = r#"shebang_python() {
+  l1=$(head -n 1 -- "$1" 2>/dev/null)
+  l2=$(sed -n 2p -- "$1" 2>/dev/null)
+  case "$l1" in
+    '#!/bin/sh'*|'#!/usr/bin/env sh'*) case "$l2" in *exec*) printf %s "$(dirname -- "$1")/python" ;; esac ;;
+    '#!'*) set -- ${l1#??}; case "$1" in */env) command -v "$2" 2>/dev/null ;; *) printf %s "$1" ;; esac ;;
+  esac
+}
+"#;
+
+/// [`SHEBANG_PYTHON`] followed by `script`, which calls it.
+fn with_shebang_python(script: &str) -> String {
+    format!("{SHEBANG_PYTHON}{script}")
+}
+
 /// Probe script: prints `CPG key=value` lines.
 const PROBE_SCRIPT: &str = r#"for t in bash ssh ssh-keygen git uv python3 colab; do
   p=$(command -v "$t" 2>/dev/null) && printf 'CPG %s=%s\n' "$t" "$p"
@@ -611,13 +630,7 @@ if c=$(command -v colab 2>/dev/null); then
   v=$("$c" version 2>/dev/null | head -n 1)
   printf 'CPG colab_version=%s\n' "${v#Version: }"
   r=$(readlink -f "$c" 2>/dev/null || printf %s "$c")
-  l1=$(head -n 1 "$r" 2>/dev/null)
-  l2=$(sed -n 2p "$r" 2>/dev/null)
-  py=""
-  case "$l1" in
-    '#!/bin/sh'*|'#!/usr/bin/env sh'*) case "$l2" in *exec*) py="$(dirname "$r")/python" ;; esac ;;
-    '#!'*) py=${l1#??}; set -- $py; py=$1; case "$py" in */env) py=$(command -v "$2") ;; esac ;;
-  esac
+  py=$(shebang_python "$r")
   [ -n "$py" ] && printf 'CPG helper_python=%s\n' "$py"
   [ -n "$py" ] && "$py" -c 'import keyring' >/dev/null 2>&1 && printf 'CPG keyring=ok\n'
 fi
@@ -711,13 +724,7 @@ const RESOLVE_SCRIPT: &str = r#"c=$1
 r=$(readlink -f -- "$c" 2>/dev/null || printf %s "$c")
 [ -f "$r" ] || { echo "CPG reason=not_a_file"; exit 0; }
 [ -x "$r" ] || { echo "CPG reason=not_executable"; exit 0; }
-l1=$(head -n 1 -- "$r" 2>/dev/null)
-l2=$(sed -n 2p -- "$r" 2>/dev/null)
-py=""
-case "$l1" in
-  '#!/bin/sh'*|'#!/usr/bin/env sh'*) case "$l2" in *exec*) py="$(dirname -- "$r")/python" ;; esac ;;
-  '#!'*) py=${l1#??}; set -- $py; py=$1; case "$py" in */env) py=$(command -v "$2" 2>/dev/null) ;; esac ;;
-esac
+py=$(shebang_python "$r")
 case "$py" in *python*) ;; *) echo "CPG reason=no_python_shebang"; exit 0 ;; esac
 [ -x "$py" ] || { printf 'CPG interpreter=%s
 CPG reason=interpreter_missing
@@ -759,7 +766,7 @@ impl Toolchain {
         if !self.colab.starts_with('/') {
             return Err(colab_path_error(&self.colab, "not_absolute", None));
         }
-        let mut req = ScriptRequest::new(RESOLVE_SCRIPT)
+        let mut req = ScriptRequest::new(with_shebang_python(RESOLVE_SCRIPT))
             .arg(&self.colab)
             .timeout(Duration::from_secs(60));
         req.env = env.to_vec();
