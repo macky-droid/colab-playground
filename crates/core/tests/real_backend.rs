@@ -692,6 +692,65 @@ fn plugin_run_passes_secrets_only_via_env_and_redacts_them() {
     );
 }
 
+#[test]
+fn plugin_run_shows_the_whole_log_without_waiting_for_what_is_already_written() {
+    // `backlog` lines are written by each step of the script on top of the one a poll returns.
+    let run = |backlog: u64, fail: bool| {
+        let f = fixture();
+        f.adopt_alice();
+        f.knob("plugin_log_backlog", json!(backlog));
+        if fail {
+            f.knob("plugin_fail_stage", json!("download"));
+            f.knob("plugin_log_skipped", json!(3000));
+        }
+        let mut spec = f.b.plugin_run_template("llama-cpp").unwrap();
+        spec.inputs.insert(
+            "repo".into(),
+            InputValue::Text("unsloth/Qwen3-0.6B-GGUF".into()),
+        );
+        let (tx, rx) = channel();
+        let before = f.cfg.clock.now();
+        match f.b.run_plugin(spec, tx, &nc()) {
+            Ok(out) => assert!(!fail && out.status.state == RunState::Ready),
+            Err(e) => assert!(fail && e.is(ErrorKind::PluginRunFailed), "{e:?}"),
+        }
+        let took = f.cfg.clock.now().duration_since(before).unwrap();
+        let lines: Vec<String> = rx
+            .try_iter()
+            .filter_map(|e| match e {
+                PluginRunEvent::Log { lines } => Some(lines),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        (lines, took)
+    };
+    let (short, usual) = run(0, false);
+    assert_eq!(short.len(), 6, "{short:?}");
+
+    let whole = |steps: usize| -> Vec<String> {
+        (0..steps)
+            .flat_map(|step| {
+                std::iter::once(format!("poll {step} (debug secret=)"))
+                    .chain((0..3).map(move |i| format!("poll {step} line {i}")))
+            })
+            .collect()
+    };
+    let (lines, took) = run(3, false);
+    assert_eq!(lines, whole(6), "the lines written last are shown too");
+    assert_eq!(took, usual, "no wait before reading what is already there");
+    let (lines, _) = run(3, true);
+    assert!(
+        lines[0].starts_with("[colab-playground] 3 KiB of the log are not shown")
+            && lines[0].contains("/run.log"),
+        "{}",
+        lines[0]
+    );
+    let mut rest = whole(3);
+    rest.push("exiting after the failure".into());
+    assert_eq!(lines[1..], rest, "a failed run shows its last lines");
+}
+
 fn walk(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     if let Ok(rd) = std::fs::read_dir(dir) {
@@ -1395,6 +1454,101 @@ print("POLL " + result.strip())
     );
     let v: Value = serde_json::from_str(line.trim_start_matches("POLL __CPG_RESULT__ ")).unwrap();
     assert_eq!(v["status"]["outputs"]["k"][0], "***");
+}
+
+#[test]
+fn poll_snippet_reads_a_fast_growing_log_in_whole_lines_up_to_its_end() {
+    use colab_playground_core::{vm, watchdog};
+    let tmp = tempfile::tempdir().unwrap();
+    let base = tmp.path().join("vm").to_string_lossy().into_owned();
+    let poll = tmp.path().join("poll.py");
+    std::fs::write(
+        &poll,
+        vm::plugin_poll_snippet().replace(watchdog::VM_BASE, &base),
+    )
+    .unwrap();
+    let driver = tmp.path().join("driver.py");
+    std::fs::write(
+        &driver,
+        r#"import contextlib, io, json, os, sys
+poll_code, base, reads = open(sys.argv[1]).read(), sys.argv[2], int(sys.argv[3])
+os.makedirs(base + "/runs/r1")
+path = base + "/runs/r1/run.log"
+
+def poll(offset):
+    os.environ.update({"CPG_RUN_ID": "r1", "CPG_LOG_OFFSET": str(offset)})
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        exec(poll_code, {"__name__": "__main__"})
+    return json.loads(buf.getvalue().split("__CPG_RESULT__ ", 1)[1])
+
+def read_all(offset):
+    """What the app shows from `offset` on: the text, the bytes left out, the next offset."""
+    text, skipped = "", 0
+    for n in range(reads + 1):
+        r = poll(offset)
+        assert len(r["log"].encode()) <= 16384, "one poll stays small"
+        assert n == 0 or not r["skipped"], "bytes are left out once, not in the middle"
+        text, skipped, offset = text + r["log"], skipped + r["skipped"], r["offset"]
+        if offset >= r["size"]:
+            assert r["size"] == os.path.getsize(path)
+            return text, skipped, offset
+        assert r["log"].endswith("\n"), "a line is not split between two polls"
+    raise AssertionError("the end of the log was not reached in %d polls" % reads)
+
+def write(mode, first, count):
+    with open(path, mode) as fh:
+        for i in range(first, first + count):
+            fh.write("line %06d %s\u00e9\n" % (i, "x" * (i % 97)))
+
+# More than one poll holds, less than the app keeps: all of it, with nothing left out.
+write("w", 0, 2000)
+size = os.path.getsize(path)
+assert 16384 * 4 < size < 16384 * 16
+text, skipped, offset = read_all(0)
+assert (text, skipped, offset) == (open(path, encoding="utf-8").read(), 0, size)
+assert poll(offset)["log"] == "" and poll(offset)["offset"] == offset
+
+# Far more than the app keeps: the middle is left out and counted, the end is all there.
+write("a", 2000, 20000)
+with open(path, "a") as fh:
+    fh.write("Traceback: the error, no newline after it")
+whole = open(path, "rb").read()
+text, skipped, end = read_all(offset)
+assert skipped > 0 and end == len(whole)
+shown = whole[offset + skipped:].decode()
+assert text == shown and shown.startswith("line ") and shown.endswith("no newline after it")
+assert len(shown.encode()) > 16384 * 15
+
+# A log that became shorter than the offset is read from its start.
+write("w", 0, 3)
+assert read_all(end)[0] == open(path, encoding="utf-8").read()
+print("OK")
+"#,
+    )
+    .unwrap();
+    let s = |p: &Path| p.to_string_lossy().into_owned();
+    let out = Host::Local
+        .run_program(
+            "python3",
+            &[
+                "-B".to_owned(),
+                s(&driver),
+                s(&poll),
+                base,
+                vm::LOG_BACKLOG_READS.to_string(),
+            ],
+            &[("PYTHONDONTWRITEBYTECODE".to_owned(), "1".to_owned())],
+            &nc(),
+            Some(Duration::from_secs(60)),
+        )
+        .unwrap();
+    assert!(
+        out.success() && out.stdout.contains("OK"),
+        "{}\n{}",
+        out.stdout,
+        out.stderr
+    );
 }
 
 #[test]

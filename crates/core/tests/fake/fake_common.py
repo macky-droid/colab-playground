@@ -42,6 +42,8 @@ DEFAULT_KNOBS = {
     "good_code": "good-code",       # the only accepted authorisation code
     "plugin_fail_stage": None,      # plugin runs fail at this stage
     "plugin_stages": ["detect", "plan", "download", "server", "warmup"],
+    "plugin_log_backlog": 0,        # lines a plugin run writes on top of the one read by each poll
+    "plugin_log_skipped": 0,        # bytes the first poll of a plugin run reports as left out
     "ssh_busy": False,              # proxy-mode answers HTTP 429
     "watchdog_start_fails": False,  # a started watchdog exits at once
     "keyring_locked": False,        # keyring reads fail
