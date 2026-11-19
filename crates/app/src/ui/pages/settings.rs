@@ -184,18 +184,21 @@ pub const UPDATE_OPEN_SELECTOR: &str = "update-open";
 pub const UPDATE_INSTALL_SELECTOR: &str = "update-install";
 pub const UPDATE_AUTO_SELECTOR: &str = "update-auto";
 
+/// The states of the update status that also decide what "Check for updates" shows.
+const STATUS_CHECKING: &str = "checking";
+const STATUS_FAILED: &str = "failed";
+
 /// The update status, "Check for updates", and for a newer release "Download and restart" or,
 /// when this copy cannot replace itself, "Open download page" with the reason. Selector of the
 /// status: `update-status <state>`.
 fn updates_row(state: &AppState, handle: &Entity<AppState>, cx: &App) -> SettingsRow {
     use crate::state::UpdateCheck;
-    let checking = matches!(state.update_check(), UpdateCheck::Checking);
     let available = state.update_available();
     let unverified = available
         .as_ref()
         .is_some_and(|(version, _)| state.update_unverified(version));
     let (name, status): (&str, SharedString) = match (state.update_check(), &available) {
-        (UpdateCheck::Checking, _) => ("checking", tr(cx, keys::UPDATE_CHECKING)),
+        (UpdateCheck::Checking, _) => (STATUS_CHECKING, tr(cx, keys::UPDATE_CHECKING)),
         (_, Some((version, _))) if unverified => (
             "unverified",
             tr_args(cx, keys::UPDATE_UNVERIFIED_STATUS, &[("version", version)]),
@@ -218,7 +221,7 @@ fn updates_row(state: &AppState, handle: &Entity<AppState>, cx: &App) -> Setting
             ),
         },
         (UpdateCheck::Failed(error), None) => (
-            "failed",
+            STATUS_FAILED,
             tr_args(
                 cx,
                 keys::UPDATE_FAILED,
@@ -228,7 +231,7 @@ fn updates_row(state: &AppState, handle: &Entity<AppState>, cx: &App) -> Setting
         (UpdateCheck::UpToDate, None) => ("up-to-date", tr(cx, keys::UPDATE_UP_TO_DATE)),
         _ => ("idle", tr(cx, keys::UPDATE_NOT_CHECKED)),
     };
-    let failed = matches!(state.update_check(), UpdateCheck::Failed(_)) && available.is_none();
+    let (checking, failed) = (name == STATUS_CHECKING, name == STATUS_FAILED);
     let check = handle.clone();
     let mut controls = div()
         .flex()
