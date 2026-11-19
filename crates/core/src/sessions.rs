@@ -289,17 +289,14 @@ impl Ledger {
         &self.entries
     }
 
-    /// The name of every entry, ended ones included.
     pub fn names(&self) -> Vec<String> {
         self.entries.iter().map(|e| e.name.clone()).collect()
     }
 
-    /// Every live (not stopped) entry, oldest first.
     pub fn all_live(&self) -> impl DoubleEndedIterator<Item = &TrackedSession> {
         self.entries.iter().filter(|e| e.stopped.is_none())
     }
 
-    /// The live entries of `account`, oldest first.
     pub fn live_of<'a>(
         &'a self,
         account: &AccountId,
@@ -307,12 +304,11 @@ impl Ledger {
         self.all_live().filter(move |e| &e.account == account)
     }
 
-    /// The live entry for `account`/`name`.
+    /// The live (not stopped) entry for `account`/`name`.
     pub fn live(&self, account: &AccountId, name: &str) -> Option<&TrackedSession> {
         self.live_of(account).rev().find(|e| e.name == name)
     }
 
-    /// The live entry of `account` whose runtime is `endpoint`.
     pub fn live_by_endpoint(&self, account: &AccountId, endpoint: &str) -> Option<&TrackedSession> {
         self.live_of(account)
             .rev()
@@ -356,7 +352,6 @@ impl Ledger {
         Ok(found)
     }
 
-    /// Ends the live entry for `account`/`name`.
     pub fn mark_stopped(
         &mut self,
         account: &AccountId,

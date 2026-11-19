@@ -449,7 +449,6 @@ impl World {
         }
     }
 
-    /// Names a new session must not get: those of the runtimes and of every recorded session.
     fn taken_names(&self) -> Vec<String> {
         let mut taken: Vec<String> = self
             .runtimes

@@ -617,7 +617,6 @@ const SHEBANG_PYTHON: &str = r#"shebang_python() {
 }
 "#;
 
-/// [`SHEBANG_PYTHON`] followed by `script`, which calls it.
 fn with_shebang_python(script: &str) -> String {
     format!("{SHEBANG_PYTHON}{script}")
 }

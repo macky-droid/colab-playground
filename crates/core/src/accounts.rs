@@ -586,7 +586,6 @@ impl RemoteAssignment {
     }
 }
 
-/// The error the helper reported in `reply`: a whole reply, or one account's item of it.
 fn helper_error(reply: &serde_json::Value) -> Error {
     let text = |key: &str| reply.get("error")?.get(key)?.as_str();
     let error = Error::new(ErrorKind::from_str_lossy(text("kind").unwrap_or("other")))
@@ -597,7 +596,6 @@ fn helper_error(reply: &serde_json::Value) -> Error {
     }
 }
 
-/// The items of a reply's `accounts` list that name their account, each with that id.
 fn per_account(reply: &serde_json::Value) -> impl Iterator<Item = (&str, &serde_json::Value)> {
     let items = reply.get("accounts").and_then(|a| a.as_array());
     items
