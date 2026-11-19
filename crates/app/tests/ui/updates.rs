@@ -211,6 +211,18 @@ fn an_automatic_failure_stays_quiet(cx: &mut TestAppContext) {
     );
     app.click(Route::Settings.nav_selector());
     assert!(app.shown("update-status failed"), "shown in About");
+    assert_eq!(
+        app.saved_settings().and_then(|s| s.update_checked_at),
+        None,
+        "a failed check is not recorded as a completed daily check"
+    );
+    later(&mut app, Duration::from_secs(600));
+    assert_eq!(app.mock.update_checks(), 1, "throttled within the hour");
+
+    app.set_failures(available());
+    later(&mut app, Duration::from_secs(3600));
+    assert_eq!(app.mock.update_checks(), 2, "retried after an hour");
+    assert!(app.shown(UPDATE_MARK_SELECTOR));
 }
 
 #[gpui::test]

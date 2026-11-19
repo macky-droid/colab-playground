@@ -504,7 +504,9 @@ pub(super) const MESSAGES: Messages = &[
         ERR_PORT_RESERVED,
         "ポート {port} は Colab が予約しています。",
     ),
-    (ERR_INVALID_INPUT, "入力に無効なものがあります。"),
+    (ERR_INVALID_INPUT, "{field} の値「{value}」が無効です。"),
+    (ERR_INVALID_INPUT_FIELD, "{field} の入力が無効です。"),
+    (ERR_INVALID_INPUT_PLAIN, "入力に無効なものがあります。"),
     (
         ERR_NO_ACTIVE_ACCOUNT,
         "ログインしているアカウントがありません。",
@@ -562,7 +564,14 @@ pub(super) const MESSAGES: Messages = &[
         ERR_ORPHAN_SUSPECTED,
         "ランタイムがまだ実行中で、課金が続いている可能性があります。",
     ),
-    (ERR_MANIFEST_INVALID, "プラグインの説明ファイルが無効です。"),
+    (
+        ERR_MANIFEST_INVALID,
+        "プラグインの説明ファイルが無効です（{field}：{reason}）。",
+    ),
+    (
+        ERR_MANIFEST_INVALID_PLAIN,
+        "プラグインの説明ファイルが無効です。",
+    ),
     (
         ERR_PLUGIN_EXISTS,
         "このプラグインはすでにインストールされています。",
@@ -571,7 +580,22 @@ pub(super) const MESSAGES: Messages = &[
         ERR_PLUGIN_NOT_FOUND,
         "そのプラグインはインストールされていません。",
     ),
-    (ERR_PLUGIN_RUN_FAILED, "プラグインがエラーで停止しました。"),
+    (
+        ERR_PLUGIN_RUN_FAILED,
+        "プラグインが {stage} でエラーにより停止しました：{message}",
+    ),
+    (
+        ERR_PLUGIN_RUN_FAILED_MESSAGE,
+        "プラグインがエラーで停止しました：{message}",
+    ),
+    (
+        ERR_PLUGIN_RUN_FAILED_STAGE,
+        "プラグインが {stage} でエラーにより停止しました。",
+    ),
+    (
+        ERR_PLUGIN_RUN_FAILED_PLAIN,
+        "プラグインがエラーで停止しました。",
+    ),
     (ERR_HEALTH_CHECK_FAILED, "サービスが応答しませんでした。"),
     (
         ERR_GIT_FAILED,

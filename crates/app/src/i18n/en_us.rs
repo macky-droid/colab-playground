@@ -468,7 +468,9 @@ pub(super) const MESSAGES: Messages = &[
         "Port {port} on this computer is already in use.",
     ),
     (ERR_PORT_RESERVED, "Port {port} is reserved by Colab."),
-    (ERR_INVALID_INPUT, "Some input isn't valid."),
+    (ERR_INVALID_INPUT, "Invalid value \"{value}\" for {field}."),
+    (ERR_INVALID_INPUT_FIELD, "Invalid input for {field}."),
+    (ERR_INVALID_INPUT_PLAIN, "Some input isn't valid."),
     (ERR_NO_ACTIVE_ACCOUNT, "No account is signed in."),
     (
         ERR_ACTIVE_NOT_ADOPTED,
@@ -516,11 +518,30 @@ pub(super) const MESSAGES: Messages = &[
     ),
     (
         ERR_MANIFEST_INVALID,
+        "The plugin's description file isn't valid ({field}: {reason}).",
+    ),
+    (
+        ERR_MANIFEST_INVALID_PLAIN,
         "The plugin's description file isn't valid.",
     ),
     (ERR_PLUGIN_EXISTS, "This plugin is already installed."),
     (ERR_PLUGIN_NOT_FOUND, "That plugin isn't installed."),
-    (ERR_PLUGIN_RUN_FAILED, "The plugin stopped with an error."),
+    (
+        ERR_PLUGIN_RUN_FAILED,
+        "The plugin stopped with an error at {stage}: {message}",
+    ),
+    (
+        ERR_PLUGIN_RUN_FAILED_MESSAGE,
+        "The plugin stopped with an error: {message}",
+    ),
+    (
+        ERR_PLUGIN_RUN_FAILED_STAGE,
+        "The plugin stopped with an error at {stage}.",
+    ),
+    (
+        ERR_PLUGIN_RUN_FAILED_PLAIN,
+        "The plugin stopped with an error.",
+    ),
     (ERR_HEALTH_CHECK_FAILED, "The service didn't answer."),
     (ERR_GIT_FAILED, "The Git repository couldn't be downloaded."),
     (ERR_INSTALL_FAILED, "Installing the Colab CLI failed."),
