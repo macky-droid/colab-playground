@@ -29,11 +29,6 @@ mkdir -p -- "$d" || exit 1
 t="$1.cpg.$$"
 cat > "$t" && mv -f -- "$t" "$1""#;
 
-const COPY_IF_EXISTS: &str = r#"[ -f "$1" ] || { echo absent; exit 0; }
-umask 077
-mkdir -p -- "$(dirname -- "$2")" || exit 1
-cp -- "$1" "$2" && echo copied"#;
-
 const REMOVE: &str = r#"rm -f -- "$1""#;
 
 impl<'a> HostFs<'a> {
@@ -83,22 +78,6 @@ impl<'a> HostFs<'a> {
         } else {
             Err(Error::new(ErrorKind::Io).detail(tail(&out.stderr, 300)))
         }
-    }
-
-    pub fn copy_if_exists(
-        &self,
-        src: &HostPath,
-        dst: &HostPath,
-        cancel: &CancelToken,
-    ) -> Result<bool> {
-        let out = self.host.run_quiet(
-            self.req(COPY_IF_EXISTS).arg(src.as_str()).arg(dst.as_str()),
-            cancel,
-        )?;
-        if !out.success() {
-            return Err(Error::new(ErrorKind::Io).detail(tail(&out.stderr, 300)));
-        }
-        Ok(out.stdout.lines().any(|l| l.trim() == "copied"))
     }
 
     /// Removes a file (missing is fine).

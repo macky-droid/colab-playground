@@ -36,7 +36,7 @@ use crate::provision::{
 };
 use crate::quant::{FitInput, GgufFile, GgufListing, fit_auto, group};
 use crate::sessions::{
-    Accelerator, Ledger, ServerSession, StopReason, StopRecord, TrackedSession, WatchdogInfo,
+    Accelerator, Ledger, ServerSession, StopReason, TrackedSession, WatchdogInfo,
 };
 use crate::tunnel::{TunnelEvent, TunnelId, TunnelInfo, TunnelSpec, TunnelState};
 use crate::updater::{Installed, SelfUpdate, Unsupported, UpdateProgress};
@@ -338,6 +338,20 @@ struct MRuntime {
     watchdog_alive: bool,
 }
 
+impl MRuntime {
+    fn is(&self, account: &AccountId, name: &str) -> bool {
+        &self.account == account && self.name.as_deref() == Some(name)
+    }
+
+    fn hardware(&self) -> String {
+        if self.accelerator == Accelerator::None {
+            "CPU".into()
+        } else {
+            self.accelerator.as_str().into()
+        }
+    }
+}
+
 struct World {
     cli_installed: bool,
     accounts: Vec<MAccount>,
@@ -436,6 +450,24 @@ impl World {
         }
     }
 
+    fn taken_names(&self) -> Vec<String> {
+        let mut taken: Vec<String> = self
+            .runtimes
+            .iter()
+            .filter_map(|r| r.name.clone())
+            .collect();
+        taken.extend(self.ledger.names());
+        taken
+    }
+
+    fn runtime(&self, account: &AccountId, name: &str) -> Option<&MRuntime> {
+        self.runtimes.iter().find(|r| r.is(account, name))
+    }
+
+    fn runtime_mut(&mut self, account: &AccountId, name: &str) -> Option<&mut MRuntime> {
+        self.runtimes.iter_mut().find(|r| r.is(account, name))
+    }
+
     fn unmanaged_on(&self, account: &AccountId) -> Vec<RuntimeRef> {
         self.runtimes
             .iter()
@@ -492,12 +524,7 @@ impl World {
     }
 
     fn live_names(&self, id: &AccountId) -> BTreeSet<String> {
-        self.ledger
-            .entries()
-            .iter()
-            .filter(|e| &e.account == id && e.stopped.is_none())
-            .map(|e| e.name.clone())
-            .collect()
+        self.ledger.live_of(id).map(|e| e.name.clone()).collect()
     }
 
     fn endpoint(&mut self) -> String {
@@ -529,96 +556,22 @@ impl World {
         if self.listing_fails_for(id) {
             return (false, Vec::new());
         }
-        let live: Vec<_> = self
-            .ledger
-            .entries()
-            .iter()
-            .filter(|e| &e.account == id && e.stopped.is_none())
-            .cloned()
+        let runtimes = || self.runtimes.iter().filter(|r| &r.account == id);
+        let listed: Vec<&str> = runtimes().map(|r| r.endpoint.as_str()).collect();
+        let names: Vec<(&str, &str)> = runtimes()
+            .filter_map(|r| Some((r.endpoint.as_str(), r.name.as_deref()?)))
             .collect();
-        let mut vanished = Vec::new();
-        let mut unmatched = Vec::new();
-        let mut verified = true;
-        for e in live {
-            let endpoint = e.endpoint.clone().or_else(|| {
-                self.runtimes
-                    .iter()
-                    .find(|r| &r.account == id && r.name.as_deref() == Some(&e.name))
-                    .map(|r| r.endpoint.clone())
-            });
-            let Some(endpoint) = endpoint else {
-                unmatched.push(e.name);
-                continue;
-            };
-            if self
-                .runtimes
-                .iter()
-                .any(|r| &r.account == id && r.endpoint == endpoint)
-            {
-                if e.endpoint.is_none()
-                    && self
-                        .ledger
-                        .update(id, &e.name, |e| e.endpoint = Some(endpoint))
-                        .is_err()
-                {
-                    verified = false;
-                }
-            } else {
-                if self
-                    .ledger
-                    .update(id, &e.name, |e| {
-                        e.stopped = Some(StopRecord {
-                            at: now,
-                            reason: StopReason::Vanished,
-                        })
-                    })
-                    .is_err()
-                {
-                    verified = false;
-                }
-                vanished.push(RuntimeRef {
-                    account: id.clone(),
-                    endpoint,
-                    name: Some(e.name),
-                });
-            }
-        }
-        // Like the real backend: a session without an endpoint can only be a runtime that
-        // no other live session claims.
-        let claimed = |endpoint: &str| {
-            self.ledger.entries().iter().any(|e| {
-                &e.account == id && e.stopped.is_none() && e.endpoint.as_deref() == Some(endpoint)
+        let outcome = self.ledger.reconcile(id, |_| true, &listed, &names, now);
+        let vanished = outcome
+            .vanished
+            .into_iter()
+            .map(|(name, endpoint)| RuntimeRef {
+                account: id.clone(),
+                endpoint,
+                name: Some(name),
             })
-        };
-        let all_claimed = self
-            .runtimes
-            .iter()
-            .filter(|r| &r.account == id)
-            .all(|r| claimed(&r.endpoint));
-        if all_claimed {
-            for name in unmatched {
-                if self
-                    .ledger
-                    .update(id, &name, |e| {
-                        e.stopped = Some(StopRecord {
-                            at: now,
-                            reason: StopReason::Vanished,
-                        })
-                    })
-                    .is_err()
-                {
-                    verified = false;
-                }
-                vanished.push(RuntimeRef {
-                    account: id.clone(),
-                    endpoint: String::new(),
-                    name: Some(name),
-                });
-            }
-        } else if !unmatched.is_empty() {
-            verified = false;
-        }
-        (verified, vanished)
+            .collect();
+        (!outcome.unsettled, vanished)
     }
 
     fn record_usage(&mut self, id: &AccountId, now: SystemTime, verified: bool) {
@@ -643,12 +596,7 @@ impl World {
             .iter()
             .map(|a| {
                 let u = self.usage.get(&a.id).cloned().unwrap_or_default();
-                let known = self
-                    .ledger
-                    .entries()
-                    .iter()
-                    .filter(|e| e.account == a.id && e.stopped.is_none())
-                    .count();
+                let known = self.ledger.live_of(&a.id).count();
                 usage_view(&a.id, Some(a.email.clone()), &u, known)
             })
             .collect()
@@ -909,20 +857,12 @@ impl MockBackend {
         }
         let name = target.name.clone().or_else(|| {
             w.ledger
-                .entries()
-                .iter()
-                .find(|e| {
-                    e.account == target.account
-                        && e.endpoint.as_deref() == Some(&target.endpoint)
-                        && e.stopped.is_none()
-                })
+                .live_by_endpoint(&target.account, &target.endpoint)
                 .map(|e| e.name.clone())
         });
         if let Some(n) = name {
             w.close_session_tunnels(&target.account, &n);
-            let _ = w.ledger.update(&target.account, &n, |e| {
-                e.stopped = Some(StopRecord { at: now, reason })
-            });
+            let _ = w.ledger.mark_stopped(&target.account, &n, now, reason);
         }
         Ok(())
     }
@@ -944,11 +884,7 @@ impl ProvisionOps for MockOps<'_> {
             .map(|r| ServerSession {
                 name: r.name.clone(),
                 endpoint: r.endpoint.clone(),
-                hardware: if r.accelerator == Accelerator::None {
-                    "CPU".into()
-                } else {
-                    r.accelerator.as_str().into()
-                },
+                hardware: r.hardware(),
                 accelerator: Some(r.accelerator),
                 shape: if r.high_mem {
                     "High-RAM".into()
@@ -1024,9 +960,7 @@ impl ProvisionOps for MockOps<'_> {
         self.m.step(cancel)?;
         let w = self.m.w();
         let r = w
-            .runtimes
-            .iter()
-            .find(|r| r.account == self.account && r.name.as_deref() == Some(name))
+            .runtime(&self.account, name)
             .ok_or_else(|| Error::new(ErrorKind::SessionGone))?;
         Ok(Hardware {
             gpu: mock_gpu(r.accelerator, r.vram_mib),
@@ -1039,8 +973,7 @@ impl ProvisionOps for MockOps<'_> {
         let mut w = self.m.w();
         w.settle(now);
         let before = w.runtimes.len();
-        w.runtimes
-            .retain(|r| !(r.account == self.account && r.name.as_deref() == Some(name)));
+        w.runtimes.retain(|r| !r.is(&self.account, name));
         Ok(if w.runtimes.len() < before {
             StopOutcome::Terminated
         } else {
@@ -1069,9 +1002,7 @@ impl ProvisionOps for MockOps<'_> {
             return Err(Error::new(ErrorKind::Other).detail("the watchdog process is not running"));
         }
         let rt = w
-            .runtimes
-            .iter_mut()
-            .find(|r| r.account == self.account && r.name.as_deref() == Some(name))
+            .runtime_mut(&self.account, name)
             .ok_or_else(|| Error::new(ErrorKind::SessionGone))?;
         rt.watchdog_alive = true;
         Ok(Some(WatchdogInfo {
@@ -1208,11 +1139,7 @@ impl MockBackend {
         // moving the deadline of a running watchdog and starting it again.
         let (alive, tracked, vm_idle, stop_at) = {
             let w = self.w();
-            let rt = w
-                .runtimes
-                .iter()
-                .find(|r| r.account == target.account && r.name.as_deref() == Some(&name))
-                .ok_or_else(gone)?;
+            let rt = w.runtime(&target.account, &name).ok_or_else(gone)?;
             let e = w.ledger.live(&target.account, &name).ok_or_else(gone)?;
             (
                 rt.watchdog_alive,
@@ -1424,13 +1351,11 @@ impl Backend for MockBackend {
             } else {
                 vec![]
             },
-            sessions_left_running: w
-                .ledger
-                .entries()
-                .iter()
-                .filter(|e| switching && e.stopped.is_none() && Some(&e.account) == from.as_ref())
-                .cloned()
-                .collect(),
+            sessions_left_running: from
+                .as_ref()
+                .filter(|_| switching)
+                .map(|from| w.ledger.live_of(from).cloned().collect())
+                .unwrap_or_default(),
             unmanaged_left_running,
         })
     }
@@ -1553,11 +1478,7 @@ impl Backend for MockBackend {
                 account_email: w.email(&r.account),
                 on_active_account: w.active.as_ref() == Some(&r.account),
                 accelerator: Some(r.accelerator),
-                hardware: if r.accelerator == Accelerator::None {
-                    "CPU".into()
-                } else {
-                    r.accelerator.as_str().into()
-                },
+                hardware: r.hardware(),
                 high_mem: r.high_mem,
                 managed: tracked.is_some(),
                 estimated_rate_cu_per_hour: rate.filter(|_| tracked.is_some()),
@@ -1580,8 +1501,7 @@ impl Backend for MockBackend {
 
     fn new_session_name(&self, prefix: Option<&str>) -> String {
         let w = self.w();
-        let mut taken: Vec<String> = w.runtimes.iter().filter_map(|r| r.name.clone()).collect();
-        taken.extend(w.ledger.entries().iter().map(|e| e.name.clone()));
+        let taken = w.taken_names();
         let p = prefix
             .map(str::to_owned)
             .unwrap_or_else(|| accelerator_prefix(w.defaults.accelerator));
@@ -1614,9 +1534,7 @@ impl Backend for MockBackend {
         w.reserved = w.reserved.saturating_sub(1);
         let outcome = r?;
         let endpoint = w
-            .runtimes
-            .iter()
-            .find(|r| r.account == account && r.name.as_deref() == Some(&outcome.name))
+            .runtime(&account, &outcome.name)
             .map(|r| r.endpoint.clone());
         w.ledger.upsert(TrackedSession {
             name: outcome.name.clone(),
@@ -1673,11 +1591,7 @@ impl Backend for MockBackend {
         self.step(cancel)?;
         let mut w = self.w();
         // The cancelled watchdog exits without releasing the runtime.
-        if let Some(rt) = w
-            .runtimes
-            .iter_mut()
-            .find(|r| r.account == target.account && r.name.as_deref() == Some(&name))
-        {
+        if let Some(rt) = w.runtime_mut(&target.account, &name) {
             rt.watchdog_alive = false;
         }
         w.ledger.update(&target.account, &name, |e| {
@@ -1698,13 +1612,7 @@ impl Backend for MockBackend {
         let live: Vec<TrackedSession> = {
             let mut w = self.w();
             w.settle(now);
-            let live: Vec<TrackedSession> = w
-                .ledger
-                .entries()
-                .iter()
-                .filter(|e| e.stopped.is_none())
-                .cloned()
-                .collect();
+            let live: Vec<TrackedSession> = w.ledger.all_live().cloned().collect();
             let ids: BTreeSet<AccountId> = live.iter().map(|e| e.account.clone()).collect();
             for id in &ids {
                 let (verified, vanished) = w.reconcile(id, now);
@@ -1712,9 +1620,8 @@ impl Backend for MockBackend {
                 w.record_usage(id, now, verified);
             }
             w.ledger
-                .entries()
-                .iter()
-                .filter(|e| e.stopped.is_none() && ids.contains(&e.account))
+                .all_live()
+                .filter(|e| ids.contains(&e.account))
                 .cloned()
                 .collect()
         };
@@ -1777,11 +1684,7 @@ impl Backend for MockBackend {
         spec.validate()?;
         self.require_active(&spec.account)?;
         let mut w = self.w();
-        if !w
-            .runtimes
-            .iter()
-            .any(|r| r.account == spec.account && r.name.as_deref() == Some(&spec.session))
-        {
+        if !w.runtime(&spec.account, &spec.session).is_some() {
             return Err(Error::new(ErrorKind::SessionGone).with("session", &spec.session));
         }
         if w.tunnels
@@ -1847,7 +1750,7 @@ impl Backend for MockBackend {
             .into_iter()
             .find(|p| p.manifest.id == plugin)
             .ok_or_else(|| Error::new(ErrorKind::PluginNotFound).with("plugin", plugin))?;
-        let taken: Vec<String> = w.runtimes.iter().filter_map(|r| r.name.clone()).collect();
+        let taken = w.taken_names();
         Ok(run_template(&info, &w.defaults, &taken))
     }
 
@@ -1909,12 +1812,7 @@ impl Backend for MockBackend {
         let endpoints = resolve_endpoints(&plugin.manifest, &resolved.values)?;
         let (session, provisioned) = match &spec.target {
             RunTarget::Existing { name } => {
-                if !self
-                    .w()
-                    .runtimes
-                    .iter()
-                    .any(|r| r.account == account && r.name.as_deref() == Some(name))
-                {
+                if !self.w().runtime(&account, name).is_some() {
                     return Err(Error::new(ErrorKind::SessionGone).with("session", name));
                 }
                 (name.clone(), false)
@@ -1930,9 +1828,7 @@ impl Backend for MockBackend {
         };
         let endpoint_of = |m: &MockBackend| {
             m.w()
-                .runtimes
-                .iter()
-                .find(|r| r.account == account && r.name.as_deref() == Some(&session))
+                .runtime(&account, &session)
                 .map(|r| r.endpoint.clone())
         };
         let stop_it = |m: &MockBackend| {
@@ -1954,9 +1850,7 @@ impl Backend for MockBackend {
         });
         let vram = self
             .w()
-            .runtimes
-            .iter()
-            .find(|r| r.account == account && r.name.as_deref() == Some(&session))
+            .runtime(&account, &session)
             .and_then(|r| r.vram_mib);
         let fail_stage = self.w().failures.plugin_fail_stage.clone();
         let stages: Vec<String> = plugin
@@ -2430,12 +2324,7 @@ mod tests {
                 let names = w.live_names(&account);
                 for name in names {
                     w.ledger
-                        .update(&account, &name, |e| {
-                            e.stopped = Some(StopRecord {
-                                at: m.now_(),
-                                reason: StopReason::User,
-                            })
-                        })
+                        .mark_stopped(&account, &name, m.now_(), StopReason::User)
                         .unwrap();
                 }
                 account

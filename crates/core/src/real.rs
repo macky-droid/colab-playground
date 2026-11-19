@@ -41,9 +41,7 @@ use crate::provision::{
     self, Hardware, ProvisionEvent, ProvisionOps, ProvisionOutcome, ProvisionSpec,
 };
 use crate::quant::GgufListing;
-use crate::sessions::{
-    Ledger, ServerSession, StopReason, StopRecord, TrackedSession, WatchdogInfo,
-};
+use crate::sessions::{Ledger, ServerSession, StopReason, TrackedSession, WatchdogInfo};
 use crate::tunnel::{TunnelCtx, TunnelEvent, TunnelId, TunnelInfo, TunnelManager, TunnelSpec};
 use crate::updater::{self, Installed, SelfUpdate, UpdateProgress};
 use crate::usage::{AccountUsage, poll_due};
@@ -638,9 +636,7 @@ impl Inner {
     fn live_names(&self, account: &AccountId) -> BTreeSet<String> {
         self.st()
             .ledger
-            .entries()
-            .iter()
-            .filter(|e| &e.account == account && e.stopped.is_none())
+            .live_of(account)
             .map(|e| e.name.clone())
             .collect()
     }
@@ -745,9 +741,7 @@ impl Inner {
 
     fn mark_stopped(&self, account: &AccountId, name: &str, reason: StopReason) {
         let now = self.now();
-        let _ = self.st().ledger.update(account, name, |e| {
-            e.stopped = Some(StopRecord { at: now, reason })
-        });
+        let _ = self.st().ledger.mark_stopped(account, name, now, reason);
     }
 
     /// Names recorded in an account's state file, by endpoint.
@@ -776,13 +770,7 @@ impl Inner {
 
     fn reconciliation_sample(&self) -> BTreeMap<AccountId, Vec<TrackedSession>> {
         let mut sample: BTreeMap<AccountId, Vec<TrackedSession>> = BTreeMap::new();
-        for entry in self
-            .st()
-            .ledger
-            .entries()
-            .iter()
-            .filter(|e| e.stopped.is_none())
-        {
+        for entry in self.st().ledger.all_live() {
             sample
                 .entry(entry.account.clone())
                 .or_default()
@@ -798,89 +786,32 @@ impl Inner {
         names: Option<&BTreeMap<String, String>>,
         sample: &BTreeMap<AccountId, Vec<TrackedSession>>,
     ) -> Vec<RuntimeRef> {
-        let mut st = self.st();
-        let live: Vec<_> = st
-            .ledger
-            .entries()
-            .iter()
-            .filter(|e| {
-                &e.account == account
-                    && e.stopped.is_none()
-                    && sample.get(account).is_some_and(|entries| {
-                        entries.iter().any(|sampled| {
-                            sampled.name == e.name
-                                && sampled.started_at() == e.started_at()
-                                && sampled.endpoint == e.endpoint
-                        })
-                    })
-            })
-            .cloned()
+        let listed: Vec<&str> = list.iter().map(|a| a.endpoint.as_str()).collect();
+        let names: Vec<(&str, &str)> = names
+            .into_iter()
+            .flatten()
+            .map(|(endpoint, name)| (endpoint.as_str(), name.as_str()))
             .collect();
-        let mut vanished = Vec::new();
-        let mut unmatched = Vec::new();
-        // A failed save keeps the change in memory and the next save writes it, so the
-        // round goes on: a session that ended is still reported.
-        for e in live {
-            let listed = |endpoint: &str| list.iter().any(|a| a.endpoint == endpoint);
-            let Some(endpoint) = e.endpoint.clone() else {
-                // The state file may still hold the record of an earlier session with this
-                // name, so only an endpoint the listing confirms is taken from it, and an
-                // unlisted one never ends the session.
-                let confirmed = names.and_then(|names| {
-                    names
-                        .iter()
-                        .find(|(endpoint, name)| *name == &e.name && listed(endpoint))
-                        .map(|(endpoint, _)| endpoint.clone())
-                });
-                match confirmed {
-                    Some(endpoint) => {
-                        let _ = st
-                            .ledger
-                            .update(account, &e.name, |e| e.endpoint = Some(endpoint));
-                    }
-                    None => unmatched.push(e.name),
-                }
-                continue;
-            };
-            if !listed(&endpoint) {
-                let _ = st.ledger.update(account, &e.name, |e| {
-                    e.stopped = Some(StopRecord {
-                        at: self.now(),
-                        reason: StopReason::Vanished,
-                    });
-                });
-                vanished.push(RuntimeRef {
-                    account: account.clone(),
-                    endpoint,
-                    name: Some(e.name),
-                });
-            }
-        }
-        // A session without an endpoint can only be a listed runtime that no other live
-        // session claims; with none left, its runtime has ended.
-        let claimed = |endpoint: &str| {
-            st.ledger.entries().iter().any(|e| {
-                &e.account == account
-                    && e.stopped.is_none()
-                    && e.endpoint.as_deref() == Some(endpoint)
+        let sampled = |e: &TrackedSession| {
+            sample.get(account).is_some_and(|entries| {
+                entries.iter().any(|sampled| {
+                    sampled.name == e.name
+                        && sampled.started_at() == e.started_at()
+                        && sampled.endpoint == e.endpoint
+                })
             })
         };
-        if !unmatched.is_empty() && list.iter().all(|a| claimed(&a.endpoint)) {
-            for name in unmatched {
-                let _ = st.ledger.update(account, &name, |e| {
-                    e.stopped = Some(StopRecord {
-                        at: self.now(),
-                        reason: StopReason::Vanished,
-                    });
-                });
-                vanished.push(RuntimeRef {
-                    account: account.clone(),
-                    endpoint: String::new(),
-                    name: Some(name),
-                });
-            }
-        }
-        vanished
+        self.st()
+            .ledger
+            .reconcile(account, sampled, &listed, &names, self.now())
+            .vanished
+            .into_iter()
+            .map(|(name, endpoint)| RuntimeRef {
+                account: account.clone(),
+                endpoint,
+                name: Some(name),
+            })
+            .collect()
     }
 
     fn reconcile_accounts(
@@ -898,9 +829,12 @@ impl Inner {
                 if let Ok(list) = result {
                     let names = self.state_names(&account, cancel);
                     vanished.extend(self.reconcile(&account, &list, names.as_ref(), &sample));
-                    if !self.st().ledger.entries().iter().any(|e| {
-                        e.account == account && e.stopped.is_none() && e.endpoint.is_none()
-                    }) {
+                    if !self
+                        .st()
+                        .ledger
+                        .live_of(&account)
+                        .any(|e| e.endpoint.is_none())
+                    {
                         verified.insert(account);
                     }
                 }
@@ -914,14 +848,7 @@ impl Inner {
         let name = target.name.clone().or_else(|| {
             self.st()
                 .ledger
-                .entries()
-                .iter()
-                .rev()
-                .find(|e| {
-                    e.account == target.account
-                        && e.endpoint.as_deref() == Some(&target.endpoint)
-                        && e.stopped.is_none()
-                })
+                .live_by_endpoint(&target.account, &target.endpoint)
                 .map(|e| e.name.clone())
         });
         if let Some(n) = &name {
@@ -1010,12 +937,7 @@ impl Inner {
             .iter()
             .map(|a| {
                 let usage = st.usage.get(&a.id).cloned().unwrap_or_default();
-                let known = st
-                    .ledger
-                    .entries()
-                    .iter()
-                    .filter(|e| e.account == a.id && e.stopped.is_none())
-                    .count();
+                let known = st.ledger.live_of(&a.id).count();
                 usage_view(&a.id, a.email.clone(), &usage, known)
             })
             .collect()
@@ -1428,17 +1350,11 @@ impl Backend for RealBackend {
             return Err(Error::new(ErrorKind::AccountNotFound).with("account", to));
         }
         let from = st.active.clone();
-        let sessions_left_running = st
-            .ledger
-            .entries()
-            .iter()
-            .filter(|e| {
-                e.stopped.is_none()
-                    && Some(&e.account) == from.as_ref()
-                    && from.as_ref() != Some(to)
-            })
-            .cloned()
-            .collect();
+        let sessions_left_running = from
+            .as_ref()
+            .filter(|from| *from != to)
+            .map(|from| st.ledger.live_of(from).cloned().collect())
+            .unwrap_or_default();
         drop(st);
         let tunnels_closing = if self.inner.st().active.as_ref() == Some(to) {
             vec![]
@@ -1461,9 +1377,7 @@ impl Backend for RealBackend {
                 .inner
                 .st()
                 .ledger
-                .entries()
-                .iter()
-                .filter(|e| &e.account == f && e.stopped.is_none())
+                .live_of(f)
                 .filter_map(|e| e.endpoint.clone())
                 .collect();
             // The helper reports a failure for one account inside an `Ok`, and
@@ -1576,11 +1490,7 @@ impl Backend for RealBackend {
         let now = self.inner.now();
         let st = self.inner.st();
         st.accounts.all().iter().any(|a| {
-            let has_sessions = st
-                .ledger
-                .entries()
-                .iter()
-                .any(|e| e.account == a.id && e.stopped.is_none());
+            let has_sessions = st.ledger.live_of(&a.id).next().is_some();
             let last = st.usage.get(&a.id).and_then(|u| u.last_attempt);
             poll_due(last, now, has_sessions, &st.defaults)
         })
@@ -1614,14 +1524,7 @@ impl Backend for RealBackend {
             for a in list {
                 let name = names.get(&a.endpoint).cloned().or_else(|| {
                     st.ledger
-                        .entries()
-                        .iter()
-                        .rev()
-                        .find(|e| {
-                            e.account == account
-                                && e.endpoint.as_deref() == Some(&a.endpoint)
-                                && e.stopped.is_none()
-                        })
+                        .live_by_endpoint(&account, &a.endpoint)
                         .map(|e| e.name.clone())
                 });
                 let tracked = name
@@ -1666,7 +1569,7 @@ impl Backend for RealBackend {
 
     fn new_session_name(&self, prefix: Option<&str>) -> String {
         let st = self.inner.st();
-        let taken: Vec<String> = st.ledger.entries().iter().map(|e| e.name.clone()).collect();
+        let taken = st.ledger.names();
         let p = prefix
             .map(str::to_owned)
             .unwrap_or_else(|| accelerator_prefix(st.defaults.accelerator));
@@ -1777,15 +1680,7 @@ impl Backend for RealBackend {
 
     fn guard_poll(&self, cancel: &CancelToken) -> Result<GuardReport> {
         let mut report = GuardReport::default();
-        let live: Vec<TrackedSession> = self
-            .inner
-            .st()
-            .ledger
-            .entries()
-            .iter()
-            .filter(|e| e.stopped.is_none())
-            .cloned()
-            .collect();
+        let live: Vec<TrackedSession> = self.inner.st().ledger.all_live().cloned().collect();
         let ids: Vec<AccountId> = live
             .iter()
             .map(|e| e.account.clone())
@@ -1803,9 +1698,8 @@ impl Backend for RealBackend {
             .inner
             .st()
             .ledger
-            .entries()
-            .iter()
-            .filter(|e| e.stopped.is_none() && ids.contains(&e.account))
+            .all_live()
+            .filter(|e| ids.contains(&e.account))
             .cloned()
             .collect();
         let fresh: BTreeSet<AccountId> = match helper.usage_many(&ids, cancel) {
@@ -1921,7 +1815,7 @@ impl Backend for RealBackend {
             .into_iter()
             .find(|p| p.manifest.id == plugin)
             .ok_or_else(|| Error::new(ErrorKind::PluginNotFound).with("plugin", plugin))?;
-        let taken: Vec<String> = st.ledger.entries().iter().map(|e| e.name.clone()).collect();
+        let taken = st.ledger.names();
         Ok(run_template(&info, &st.defaults, &taken))
     }
 
@@ -2040,26 +1934,18 @@ impl Backend for RealBackend {
         let result = self.run_on(
             &plugin, &account, &session, env, &secrets, &endpoints, &events, cancel,
         );
-        match &result {
-            Err(e) if e.kind == ErrorKind::Cancelled && provisioned => {
-                let _ = self.inner.stop(
-                    &target(&self.inner),
-                    &StopOptions {
-                        reason: StopReason::Provision,
-                    },
-                    &CancelToken::new(),
-                );
-            }
-            Err(e) if e.kind != ErrorKind::Cancelled && provisioned && spec.stop_on_failure => {
-                let _ = self.inner.stop(
-                    &target(&self.inner),
-                    &StopOptions {
-                        reason: StopReason::Provision,
-                    },
-                    &CancelToken::new(),
-                );
-            }
-            _ => {}
+        // A cancelled run always gives back the runtime it provisioned.
+        if let Err(e) = &result
+            && provisioned
+            && (e.kind == ErrorKind::Cancelled || spec.stop_on_failure)
+        {
+            let _ = self.inner.stop(
+                &target(&self.inner),
+                &StopOptions {
+                    reason: StopReason::Provision,
+                },
+                &CancelToken::new(),
+            );
         }
         result
     }

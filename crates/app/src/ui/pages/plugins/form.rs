@@ -112,16 +112,20 @@ pub(super) fn render(
                 .disabled(running || limited)
                 .on_click(move |_, _, cx| {
                     let mut texts = Vec::new();
-                    for (id, secret) in &ids {
+                    for (id, _) in &ids {
                         if let Some(field) = inputs.field(id) {
                             texts.push((id.clone(), field.read(cx).text().to_owned()));
-                            if *secret {
-                                field.update(cx, |input, cx| input.set_text(String::new(), cx));
-                            }
                         }
                     }
                     let name = inputs.run_session_name.read(cx).text().to_owned();
-                    handle.update(cx, |state, cx| state.start_run(texts, name, cx));
+                    if !handle.update(cx, |state, cx| state.start_run(texts, name, cx)) {
+                        return;
+                    }
+                    for (id, secret) in &ids {
+                        if *secret && let Some(field) = inputs.field(id) {
+                            field.update(cx, |input, cx| input.set_text(String::new(), cx));
+                        }
+                    }
                 }),
         )
     };
