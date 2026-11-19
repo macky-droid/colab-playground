@@ -113,6 +113,9 @@ fn log_ends(app: &mut TestApp<'_>) -> (usize, String, String) {
 fn a_long_log_keeps_its_newest_lines_whatever_adds_them(cx: &mut TestAppContext) {
     let mut app = TestApp::with(cx, Options::scenario(MockScenario::single()));
     open_deploy_form(&mut app);
+    app.fill(|inputs| inputs.hf_query.clone(), "qwen3");
+    app.click("hf-search");
+    app.click(&hf_result_selector(REPO));
     app.click(RUN_START);
     assert!(app.shown(RUN_LOG_SELECTOR), "the run's log");
 
