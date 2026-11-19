@@ -585,6 +585,49 @@ fn set_auto_stop_after_cancel_starts_the_watchdog_again() {
 }
 
 #[test]
+fn staged_plugin_copies_do_not_outlive_their_preview() {
+    let mut f = fixture();
+    let src = f.root.join("plugin-src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(
+        src.join("plugin.toml"),
+        "api = 1\nid = \"demo\"\nversion = \"0.1.0\"\n[name]\nen = \"Demo\"\n[run]\nscript = \"main.py\"\n",
+    )
+    .unwrap();
+    std::fs::write(src.join("main.py"), "print('hi')\n").unwrap();
+    let staging = f.cfg.local_dir.join("staging");
+    let staged = || -> Vec<PathBuf> {
+        std::fs::read_dir(&staging)
+            .map(|entries| entries.flatten().map(|e| e.path()).collect())
+            .unwrap_or_default()
+    };
+
+    // Closing the confirmation drops the copy.
+    let preview = f.b.inspect_plugin_folder(&src).unwrap();
+    assert_eq!(staged(), std::slice::from_ref(&preview.staged_dir));
+    f.b.discard_plugin_preview(&preview);
+    assert!(staged().is_empty());
+
+    // So does an install that fails.
+    let preview = f.b.inspect_plugin_folder(&src).unwrap();
+    std::fs::remove_file(preview.staged_dir.join("main.py")).unwrap();
+    assert!(f.b.install_plugin(&preview).is_err());
+    assert!(staged().is_empty());
+
+    // What a run that did not get to either left behind goes at the next start.
+    f.b.inspect_plugin_folder(&src).unwrap();
+    std::fs::create_dir_all(staging.join("git-0123456789abcdef").join(".git")).unwrap();
+    assert_eq!(staged().len(), 2);
+    f.b = RealBackend::new(f.cfg.clone()).unwrap();
+    assert!(staged().is_empty());
+
+    let preview = f.b.inspect_plugin_folder(&src).unwrap();
+    f.b.install_plugin(&preview).unwrap();
+    assert!(staged().is_empty());
+    assert!(f.b.plugins().iter().any(|p| p.manifest.id == "demo"));
+}
+
+#[test]
 fn plugin_run_passes_secrets_only_via_env_and_redacts_them() {
     let f = fixture();
     f.adopt_alice();

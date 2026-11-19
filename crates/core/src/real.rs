@@ -34,8 +34,8 @@ use crate::hostfs::HostFs;
 use crate::http::HttpClient;
 use crate::paths::{DataLayout, HostPath};
 use crate::plugins::{
-    PluginInfo, PluginOrigin, PluginPreview, PluginStore, clone_git, contains_secret, redact,
-    redact_json, resolve_endpoints, resolve_inputs,
+    PluginInfo, PluginOrigin, PluginPreview, PluginStore, clear_staging, clone_git,
+    contains_secret, discard_preview, redact, redact_json, resolve_endpoints, resolve_inputs,
 };
 use crate::provision::{
     self, Hardware, ProvisionEvent, ProvisionOps, ProvisionOutcome, ProvisionSpec,
@@ -471,10 +471,12 @@ mkdir -p -- "$(dirname -- "$1")" && cp -- "$src" "$1""#;
 const SLOT_TIMEOUT: Duration = Duration::from_secs(5);
 
 impl RealBackend {
-    /// Loads app-side files; spawns nothing.
+    /// Loads app-side files and removes what an earlier run left in the plugin staging
+    /// directory; spawns nothing.
     pub fn new(cfg: RealConfig) -> Result<RealBackend> {
         std::fs::create_dir_all(&cfg.local_dir)?;
         let probe_layout = DataLayout::new(cfg.local_dir.clone(), HostPath::new("/"));
+        clear_staging(&probe_layout.staging_dir());
         let state = State {
             accounts: AccountStore::load(&probe_layout.accounts_json())?,
             ledger: Ledger::load(&probe_layout.ledger_json())?,
@@ -1986,6 +1988,10 @@ impl Backend for RealBackend {
 
     fn install_plugin(&self, preview: &PluginPreview) -> Result<PluginInfo> {
         self.inner.st().plugins.install(preview)
+    }
+
+    fn discard_plugin_preview(&self, preview: &PluginPreview) {
+        discard_preview(preview);
     }
 
     fn set_plugin_enabled(&self, id: &str, enabled: bool) -> Result<()> {

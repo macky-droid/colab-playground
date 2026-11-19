@@ -827,24 +827,73 @@ pub fn git_clone_args(url: &str, dest: &str) -> Result<Vec<String>> {
 }
 
 /// Clones `url` with the **local** `git` into a new directory under `staging`
-/// and returns that directory.
+/// and returns that directory. A clone that does not finish (git fails, a
+/// cancel, the timeout) leaves no directory behind.
 pub fn clone_git(url: &str, staging: &Path, cancel: &CancelToken) -> Result<PathBuf> {
-    let dest = staging.join(format!("git-{}", crate::accounts::nonce()));
+    let dest = staging.join(format!("{CHECKOUT_PREFIX}{}", crate::accounts::nonce()));
     std::fs::create_dir_all(staging)?;
     let args = git_clone_args(url, &dest.to_string_lossy())?;
     let env = vec![
         ("GIT_TERMINAL_PROMPT".to_owned(), "0".to_owned()),
         ("GIT_LFS_SKIP_SMUDGE".to_owned(), "1".to_owned()),
     ];
-    let out =
-        Host::Local.run_program("git", &args, &env, cancel, Some(Duration::from_secs(300)))?;
-    if !out.success() {
+    let cloned = Host::Local
+        .run_program("git", &args, &env, cancel, Some(Duration::from_secs(300)))
+        .and_then(|out| {
+            if out.success() {
+                Ok(())
+            } else {
+                Err(Error::new(ErrorKind::GitFailed)
+                    .with("url", url)
+                    .detail(tail(&out.stderr, 600)))
+            }
+        });
+    finished_checkout(dest, cloned)
+}
+
+/// The checkout at `dest` if `cloned` says it is complete; otherwise what git wrote there
+/// before it stopped is removed.
+fn finished_checkout(dest: PathBuf, cloned: Result<()>) -> Result<PathBuf> {
+    if let Err(error) = cloned {
         let _ = std::fs::remove_dir_all(&dest);
-        return Err(Error::new(ErrorKind::GitFailed)
-            .with("url", url)
-            .detail(tail(&out.stderr, 600)));
+        return Err(error);
     }
     Ok(dest)
+}
+
+/// Name prefixes of what the staging directory holds: the copy a preview is
+/// installed from, and a Git checkout being inspected.
+const STAGE_PREFIX: &str = "stage-";
+const CHECKOUT_PREFIX: &str = "git-";
+
+/// Removes what earlier runs left in `staging`: nothing in it outlives the
+/// install dialog that made it, so anything found when the app starts is a
+/// leftover (the app quit or crashed with the dialog open). Entries with
+/// other names are not this module's and stay.
+pub fn clear_staging(staging: &Path) {
+    let Ok(entries) = std::fs::read_dir(staging) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with(STAGE_PREFIX) || name.starts_with(CHECKOUT_PREFIX) {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+/// Removes the staged copy of a preview that will not be installed (the
+/// dialog was closed). Only a directory [`PluginStore::inspect_folder`] named
+/// is removed.
+pub fn discard_preview(preview: &PluginPreview) {
+    let staged = preview
+        .staged_dir
+        .file_name()
+        .is_some_and(|name| name.to_string_lossy().starts_with(STAGE_PREFIX));
+    if staged {
+        let _ = std::fs::remove_dir_all(&preview.staged_dir);
+    }
 }
 
 #[derive(Debug)]
@@ -954,13 +1003,12 @@ impl PluginStore {
         {
             return Err(Error::new(ErrorKind::PluginExists).with("plugin", &manifest.id));
         }
-        let staged = staging.join(format!("stage-{}", crate::accounts::nonce()));
-        write_plugin_files(
-            &staged,
-            &manifest,
-            &std::fs::read(path.join("plugin.toml"))?,
-            &script,
-        )?;
+        let toml = std::fs::read(path.join("plugin.toml"))?;
+        let staged = staging.join(format!("{STAGE_PREFIX}{}", crate::accounts::nonce()));
+        if let Err(error) = write_plugin_files(&staged, &manifest, &toml, &script) {
+            let _ = std::fs::remove_dir_all(&staged);
+            return Err(error);
+        }
         Ok(PluginPreview {
             replaces_version: self.get(&manifest.id).map(|p| p.manifest.version.clone()),
             script_bytes: script.len() as u64,
@@ -971,7 +1019,15 @@ impl PluginStore {
     }
 
     /// Installs a previewed plugin (replacing a user plugin with the same id).
+    /// The preview's staged copy is used up either way: a failed install
+    /// needs a new preview.
     pub fn install(&mut self, preview: &PluginPreview) -> Result<PluginInfo> {
+        let installed = self.install_staged(preview);
+        discard_preview(preview);
+        installed
+    }
+
+    fn install_staged(&mut self, preview: &PluginPreview) -> Result<PluginInfo> {
         let (manifest, script) = load_dir(&preview.staged_dir)?;
         if manifest != preview.manifest {
             return Err(invalid("plugin.toml", "changed since it was previewed"));
@@ -991,7 +1047,6 @@ impl PluginStore {
             let _ = std::fs::remove_dir_all(&target);
             std::fs::rename(&tmp, &target)?;
         }
-        let _ = std::fs::remove_dir_all(&preview.staged_dir);
         self.plugins.retain(|p| p.manifest.id != manifest.id);
         self.plugins.push(LoadedPlugin {
             manifest: manifest.clone(),
@@ -1308,7 +1363,9 @@ kind = "openai"
             .unwrap();
         assert_eq!(preview.manifest.id, "demo");
         assert_eq!(preview.replaces_version, None);
+        assert!(preview.staged_dir.exists());
         store.install(&preview).unwrap();
+        assert!(!preview.staged_dir.exists(), "the staged copy is used up");
         store.set_enabled("demo", false).unwrap();
         let reloaded = PluginStore::load(
             Some(&data.join("plugins")),
@@ -1322,6 +1379,136 @@ kind = "openai"
         reloaded.remove("demo").unwrap();
         assert!(reloaded.remove("llama-cpp").is_err());
         assert!(!data.join("plugins").join("demo").exists());
+    }
+
+    /// A plugin folder and a store whose data directory is next to it.
+    fn folder_and_store(tmp: &Path, manifest: &str) -> (PathBuf, PathBuf, PluginStore) {
+        let src = tmp.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("plugin.toml"), manifest).unwrap();
+        std::fs::write(src.join("main.py"), "print('hi')\n").unwrap();
+        let data = tmp.join("data");
+        let store = PluginStore::load(
+            Some(&data.join("plugins")),
+            Some(&data.join("plugins.json")),
+        )
+        .unwrap();
+        (src, data.join("staging"), store)
+    }
+
+    fn folder_origin(src: &Path) -> PluginOrigin {
+        PluginOrigin::Folder {
+            path: src.display().to_string(),
+        }
+    }
+
+    fn entries(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn a_failed_install_leaves_no_staged_copy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (src, staging, mut store) = folder_and_store(tmp.path(), MINIMAL);
+
+        // The staged manifest no longer is the one that was previewed.
+        let preview = store
+            .inspect_folder(&src, &staging, folder_origin(&src))
+            .unwrap();
+        std::fs::write(
+            preview.staged_dir.join("plugin.toml"),
+            MINIMAL.replace("0.1.0", "0.2.0"),
+        )
+        .unwrap();
+        let error = store.install(&preview).unwrap_err();
+        assert!(error.is(ErrorKind::ManifestInvalid), "{error:?}");
+        assert_eq!(entries(&staging), Vec::<String>::new());
+
+        // The id belongs to a bundled plugin.
+        let mut preview = store
+            .inspect_folder(&src, &staging, folder_origin(&src))
+            .unwrap();
+        let bundled = MINIMAL.replace("id = \"demo\"", "id = \"llama-cpp\"");
+        std::fs::write(preview.staged_dir.join("plugin.toml"), &bundled).unwrap();
+        preview.manifest = Manifest::parse(&bundled).unwrap();
+        let error = store.install(&preview).unwrap_err();
+        assert!(error.is(ErrorKind::PluginExists), "{error:?}");
+        assert_eq!(entries(&staging), Vec::<String>::new());
+
+        // The staged script cannot be read any more.
+        let preview = store
+            .inspect_folder(&src, &staging, folder_origin(&src))
+            .unwrap();
+        std::fs::remove_file(preview.staged_dir.join("main.py")).unwrap();
+        assert!(store.install(&preview).is_err());
+        assert_eq!(entries(&staging), Vec::<String>::new());
+        assert!(store.get("demo").is_none());
+    }
+
+    #[test]
+    fn a_discarded_preview_leaves_no_staged_copy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (src, staging, store) = folder_and_store(tmp.path(), MINIMAL);
+        let preview = store
+            .inspect_folder(&src, &staging, folder_origin(&src))
+            .unwrap();
+        let other = store
+            .inspect_folder(&src, &staging, folder_origin(&src))
+            .unwrap();
+        discard_preview(&preview);
+        assert!(!preview.staged_dir.exists());
+        assert!(other.staged_dir.exists(), "only its own copy goes");
+
+        // A preview that names some other directory removes nothing.
+        let mut elsewhere = other.clone();
+        elsewhere.staged_dir = src.clone();
+        discard_preview(&elsewhere);
+        assert!(src.join("plugin.toml").exists());
+    }
+
+    #[test]
+    fn leftovers_in_staging_are_cleared() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (src, staging, store) = folder_and_store(tmp.path(), MINIMAL);
+        clear_staging(&staging); // nothing there yet: not an error
+        store
+            .inspect_folder(&src, &staging, folder_origin(&src))
+            .unwrap();
+        std::fs::create_dir_all(staging.join("git-0123456789abcdef").join(".git")).unwrap();
+        std::fs::create_dir_all(staging.join("kept")).unwrap();
+        assert_eq!(entries(&staging).len(), 3);
+        clear_staging(&staging);
+        assert_eq!(entries(&staging), ["kept"]);
+    }
+
+    #[test]
+    fn an_unfinished_checkout_is_removed() {
+        let tmp = tempfile::tempdir().unwrap();
+        for stopped in [
+            Error::cancelled(),
+            Error::new(ErrorKind::Timeout),
+            Error::new(ErrorKind::GitFailed),
+        ] {
+            let dest = tmp.path().join("git-partial");
+            std::fs::create_dir_all(dest.join(".git")).unwrap();
+            let kind = stopped.kind;
+            let error = finished_checkout(dest.clone(), Err(stopped)).unwrap_err();
+            assert_eq!(error.kind, kind);
+            assert!(!dest.exists(), "{kind:?}");
+        }
+        let dest = tmp.path().join("git-complete");
+        std::fs::create_dir_all(&dest).unwrap();
+        assert_eq!(finished_checkout(dest.clone(), Ok(())).unwrap(), dest);
+        assert!(dest.exists());
     }
 
     #[cfg(unix)]

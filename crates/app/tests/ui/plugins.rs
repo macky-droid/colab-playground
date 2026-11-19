@@ -254,6 +254,48 @@ fn a_plugin_from_a_folder_is_installed_after_confirming(cx: &mut TestAppContext)
 }
 
 #[gpui::test]
+fn closing_the_install_confirmation_drops_the_staged_copy(cx: &mut TestAppContext) {
+    let fixture = tempfile::tempdir().expect("a fixture folder");
+    std::fs::write(fixture.path().join("plugin.toml"), FIXTURE_MANIFEST).expect("manifest");
+    std::fs::write(fixture.path().join("run.sh"), "#!/bin/bash\necho hello\n").expect("script");
+    let mut app = TestApp::new(cx);
+    app.click(Route::Plugins.nav_selector());
+    let folder = fixture.path().display().to_string();
+
+    let check = |app: &mut TestApp| {
+        app.fill(|inputs| inputs.plugin_source.clone(), &folder);
+        app.click(INSTALL_CHECK);
+        let Some(Overlay::InstallPlugin(InstallPrompt::Preview(preview))) =
+            app.read(|state, _| state.overlay().cloned())
+        else {
+            panic!("expected the confirmation");
+        };
+        assert!(preview.staged_dir.join("run.sh").exists());
+        preview.staged_dir.clone()
+    };
+
+    let staged = check(&mut app);
+    app.press("escape");
+    assert!(app.read(|state, _| state.overlay().is_none()));
+    assert!(!staged.exists(), "Escape leaves nothing staged");
+
+    let staged = check(&mut app);
+    app.update(|state, cx| state.close_overlay(cx));
+    assert!(!staged.exists(), "neither does Cancel or the close button");
+    assert!(app.read(|state, _| state.plugin("hello-web").is_none()));
+
+    // A failed install has used the copy up as well.
+    let staged = check(&mut app);
+    std::fs::remove_file(staged.join("run.sh")).expect("the staged script");
+    app.click(INSTALL_CONFIRM);
+    assert!(matches!(
+        app.read(|state, _| state.overlay().cloned()),
+        Some(Overlay::InstallPlugin(InstallPrompt::Failed(_)))
+    ));
+    assert!(!staged.exists());
+}
+
+#[gpui::test]
 fn secrets_never_show_up_anywhere(cx: &mut TestAppContext) {
     const SECRET: &str = "sk-very-secret-4711";
     const TOKEN: &str = "hf_token-secret-0815";
