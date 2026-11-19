@@ -290,7 +290,7 @@ fn closing_during_a_refresh_lists_what_is_already_known(cx: &mut TestAppContext)
     assert!(app.shown("quit-runtime a100-7f3a"));
     assert!(
         !app.shown(QUIT_CHECKING),
-        "it has runtimes to ask about, so it will not close by itself"
+        "it has runtimes to ask about, so it does not say it is only checking"
     );
     app.settle();
     assert!(!app.read(|state, _| state.quit_approved()));
