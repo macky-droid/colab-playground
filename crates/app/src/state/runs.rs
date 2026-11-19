@@ -105,7 +105,8 @@ impl PluginRun {
 /// and a script can write for as long as its runtime lives.
 const RUN_LOG_LINES_KEPT: usize = 5_000;
 
-/// Makes room in `log` before more lines are added to it.
+/// Runs before an event's lines are added, so `log` holds up to one event's lines more than
+/// [`RUN_LOG_LINES_KEPT`].
 fn drop_oldest_log_lines(log: &mut Vec<String>) {
     let extra = log.len().saturating_sub(RUN_LOG_LINES_KEPT);
     log.drain(..extra);
