@@ -207,7 +207,7 @@ pub(super) fn render(
         ));
         if near_auto_stop
             && runtime.on_active_account
-            && let Some(by) = state.extension_for(runtime)
+            && let Some(by) = state.rearm_duration()
         {
             let extend = handle.clone();
             let target = runtime.id.clone();
@@ -301,7 +301,7 @@ fn actions(
     // Actions that cannot apply are left out; only forwarding stays visible (disabled, with
     // the reason) on runtimes this app cannot address by name.
     if named && runtime.auto_stop_at.is_some() {
-        if let Some(by) = state.extension_for(runtime) {
+        if let Some(by) = state.rearm_duration() {
             let (handle, target) = (handle.clone(), target.clone());
             let busy = state.is_busy(Op::Extend(key_of(&target)));
             row = row.child(tagged(

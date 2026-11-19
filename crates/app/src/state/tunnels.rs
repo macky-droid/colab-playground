@@ -93,25 +93,6 @@ impl AppState {
         cx.notify();
     }
 
-    /// Changes the dialog's ports (tests; the dialog reads its fields on submit).
-    pub fn set_forward_ports(
-        &mut self,
-        remote: Option<u16>,
-        local: Option<u16>,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(Overlay::Forward(form)) = &mut self.overlay {
-            if let Some(remote) = remote {
-                form.remote = remote;
-            }
-            if let Some(local) = local {
-                form.local = local;
-            }
-            form.error = None;
-            cx.notify();
-        }
-    }
-
     /// Opens the forward the dialog describes (ports as typed); the dialog closes once it is
     /// up and shows why otherwise. Port 8080 on the runtime is refused with the reason.
     pub fn submit_forward(
@@ -186,7 +167,7 @@ impl AppState {
                                 healthy: None,
                             },
                         );
-                        let open = state.drain_tunnel(&received);
+                        let open = state.drain_tunnel(&received).open;
                         let failed = match state.sessions.tunnels.get(&id).map(|t| &t.state) {
                             Some(TunnelState::Failed { error }) => Some(error.clone()),
                             _ => None,
@@ -221,13 +202,27 @@ impl AppState {
         }
     }
 
-    /// Drains what `received` holds; false once the backend dropped the sender.
-    fn drain_tunnel(&mut self, received: &Receiver<TunnelEvent>) -> bool {
+    /// Drains what `received` holds.
+    fn drain_tunnel(&mut self, received: &Receiver<TunnelEvent>) -> Drained {
+        let mut changed = false;
         loop {
             match received.try_recv() {
-                Ok(event) => self.apply_tunnel_event(event),
-                Err(TryRecvError::Empty) => return true,
-                Err(TryRecvError::Disconnected) => return false,
+                Ok(event) => {
+                    self.apply_tunnel_event(event);
+                    changed = true;
+                }
+                Err(TryRecvError::Empty) => {
+                    return Drained {
+                        open: true,
+                        changed,
+                    };
+                }
+                Err(TryRecvError::Disconnected) => {
+                    return Drained {
+                        open: false,
+                        changed,
+                    };
+                }
             }
         }
     }
@@ -291,15 +286,25 @@ pub fn forward_key(spec: &TunnelSpec) -> u64 {
     key_of(&(&spec.account, &spec.session, spec.remote_port))
 }
 
+/// What one drain of a forward's events found.
+struct Drained {
+    /// False once the backend dropped the sender.
+    open: bool,
+    /// An event arrived, so the forward may look different now.
+    changed: bool,
+}
+
 /// Keeps draining a live forward's events until the backend drops the sender.
 fn watch_tunnel(received: Receiver<TunnelEvent>, cx: &mut Context<AppState>) {
     cx.spawn(async move |this, cx| {
         loop {
             cx.background_executor().timer(TUNNEL_TICK).await;
             let open = this.update(cx, |state, cx| {
-                let open = state.drain_tunnel(&received);
-                cx.notify();
-                open
+                let drained = state.drain_tunnel(&received);
+                if drained.changed {
+                    cx.notify();
+                }
+                drained.open
             });
             if !matches!(open, Ok(true)) {
                 break;

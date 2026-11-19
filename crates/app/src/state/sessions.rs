@@ -266,15 +266,7 @@ impl AppState {
         );
     }
 
-    /// How much time Extend adds to `runtime`'s auto-stop: the default runtime limit
-    /// (Settings, else core's own). The session's recorded limit is not used: it counts from
-    /// the session's start and grows with every extension.
-    pub fn extension_for(&self, runtime: &Runtime) -> Option<Duration> {
-        let _ = runtime;
-        self.rearm_duration()
-    }
-
-    /// Adds [`Self::extension_for`] to `target`'s auto-stop; it never moves earlier. Core's
+    /// Adds [`Self::rearm_duration`] to `target`'s auto-stop; it never moves earlier. Core's
     /// `extend_session` sets the stop a given time from now, so the time still left is measured
     /// on the backend clock inside the call and the extension is added to it. A runtime without
     /// an auto-stop gets one that far from now.
@@ -282,7 +274,7 @@ impl AppState {
         let Some(runtime) = self.runtime(&target) else {
             return;
         };
-        let Some(by) = self.extension_for(runtime) else {
+        let Some(by) = self.rearm_duration() else {
             return;
         };
         let stop_at = runtime.auto_stop_at;
@@ -377,8 +369,10 @@ impl AppState {
         );
     }
 
-    /// How far ahead "Set auto-stop" puts the stop on a runtime that has none: the default
-    /// runtime limit (core's own default when Settings has none).
+    /// How much time Extend adds to a runtime's auto-stop, and how far ahead "Set auto-stop"
+    /// puts the stop on a runtime that has none: the default runtime limit (Settings, else
+    /// core's own). The session's recorded limit is not used: it counts from the session's
+    /// start and grows with every extension.
     pub fn rearm_duration(&self) -> Option<Duration> {
         self.defaults()
             .max_runtime
@@ -410,7 +404,6 @@ impl AppState {
                     }
                     Err(error) => state.toast_error(&error, cx),
                 }
-                let _ = &target;
                 cx.notify();
             },
         );

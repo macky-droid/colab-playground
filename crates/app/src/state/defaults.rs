@@ -78,7 +78,8 @@ impl AppState {
         self.rebuild_backend(cx);
     }
 
-    /// Sets where `colab` and its interpreter are (both or neither); rebuilds the backend.
+    /// Sets where `colab` and its interpreter are; rebuilds the backend. The interpreter may be
+    /// left out: core then derives it from `colab`'s shebang.
     pub fn set_toolchain(
         &mut self,
         colab: Option<String>,
@@ -97,7 +98,7 @@ impl AppState {
     pub fn warn_host_paths(&mut self, cx: &mut Context<Self>) {
         let toast = ely_gpui_component::feedback::Toast::new(crate::i18n::tr(
             cx,
-            crate::i18n::keys::HOST_BOTH_NEEDED,
+            crate::i18n::keys::HOST_INTERPRETER_ALONE,
         ))
         .severity(ely_gpui_component::primitives::Severity::Warning);
         self.toast(toast, cx);

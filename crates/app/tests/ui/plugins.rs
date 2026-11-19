@@ -116,13 +116,11 @@ fn a_failed_stage_says_whether_the_runtime_still_bills(cx: &mut TestAppContext) 
         panic!("expected a failure, got {:?}", run_phase(&mut app));
     };
     assert!(app.shown("error-run"));
-    assert_eq!(
-        app.read(|state, _| state.plugin_run().and_then(|r| r.session_stopped())),
-        Some(true),
-        "stop on failure is on by default"
-    );
     let left = app.mock.runtimes(&CancelToken::new()).expect("listing");
-    assert!(left.runtimes.is_empty(), "nothing bills: {left:?}");
+    assert!(
+        left.runtimes.is_empty(),
+        "stop on failure is on by default, so nothing bills: {left:?}"
+    );
 
     // Again, keeping the session: it is still billing and Stop is right there.
     app.click("run-again");

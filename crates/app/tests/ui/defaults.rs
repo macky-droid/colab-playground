@@ -70,7 +70,7 @@ fn a_colab_path_alone_is_enough_and_an_interpreter_alone_is_refused(cx: &mut Tes
         "/opt/colab/bin/python",
     );
     app.click("host-apply");
-    let warning = app.text(keys::HOST_BOTH_NEEDED);
+    let warning = app.text(keys::HOST_INTERPRETER_ALONE);
     assert!(app.toasts().contains(&warning), "{:?}", app.toasts());
     assert_eq!(app.saved_settings().and_then(|s| s.colab_python), None);
 
