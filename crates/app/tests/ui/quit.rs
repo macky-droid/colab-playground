@@ -1,6 +1,8 @@
 //! Closing before the app knows what runs: the quit prompt waits for the check, then quits if
 //! nothing bills, or stays and shows what bills or that the app could not check.
 //!
+//! A close while a listing refreshes the list shown waits for that listing in the same way.
+//!
 //! Start-up runs without a window ([`Launch`]), since opening one runs the executor and the
 //! start-up loads would arrive first. The prompt's wording is checked in a window, closing
 //! after a failed listing (the close lists again and waits for that).
@@ -9,7 +11,10 @@ use colab_playground::{
     state::{AppState, Overlay, QuitPrompt},
     ui::overlays::{QUIT_CHECKING, QUIT_LEAVE, QUIT_STOP_ALL, QUIT_UNCHECKED},
 };
-use colab_playground_core::mock::{MockAccount, MockFailures, MockScenario};
+use colab_playground_core::{
+    mock::{MockAccount, MockFailures, MockScenario},
+    sessions::Accelerator,
+};
 use gpui::{Entity, TestAppContext};
 
 use crate::support::{Launch, Options, TestApp};
@@ -221,4 +226,72 @@ fn while_checking_the_prompt_says_it_closes_by_itself(cx: &mut TestAppContext) {
     assert!(!app.shown(QUIT_UNCHECKED));
     app.settle();
     assert!(app.read(|state, _| state.quit_approved()));
+}
+
+/// Closes the app while a listing refreshes a list that shows nothing billing, drawn before
+/// that listing arrives.
+fn close_during_a_refresh(app: &mut TestApp<'_>) {
+    assert_eq!(app.read(|state, _| state.billing()), Default::default());
+    app.update_and_draw(|state, cx| {
+        state.load_runtimes(cx);
+        state.request_quit(cx);
+        assert!(
+            !state.quit_approved(),
+            "the list shown is older than the listing under way"
+        );
+        assert!(quit_prompt(state).expect("the prompt waits").waiting);
+    });
+    assert!(app.shown(QUIT_CHECKING), "it says it closes by itself");
+}
+
+#[gpui::test]
+fn closing_during_a_refresh_quits_once_it_finds_nothing(cx: &mut TestAppContext) {
+    let mut app = TestApp::with(cx, Options::scenario(MockScenario::single()));
+    close_during_a_refresh(&mut app);
+    app.settle();
+    assert!(
+        app.read(|state, _| state.quit_approved()),
+        "no second click needed"
+    );
+}
+
+#[gpui::test]
+fn closing_during_a_refresh_that_finds_a_runtime_keeps_the_prompt(cx: &mut TestAppContext) {
+    let mut app = TestApp::with(cx, Options::scenario(MockScenario::single()));
+    let account = app
+        .read(|state, _| {
+            state
+                .accounts()
+                .ready()
+                .and_then(|view| view.active.clone())
+        })
+        .expect("an active account");
+    // Billing, and not in the list shown yet: like a runtime whose start has just finished.
+    app.mock.add_unmanaged_runtime(&account, Accelerator::T4);
+    close_during_a_refresh(&mut app);
+    app.settle();
+    assert!(!app.read(|state, _| state.quit_approved()));
+    let prompt = app
+        .read(|state, _| quit_prompt(state))
+        .expect("the prompt stays");
+    assert!(!prompt.waiting, "the check is over");
+    assert_eq!(app.read(|state, _| state.billing().unwatched.len()), 1);
+    assert!(app.shown("quit-unmanaged T4"));
+    assert!(!app.shown(QUIT_CHECKING));
+}
+
+#[gpui::test]
+fn closing_during_a_refresh_lists_what_is_already_known(cx: &mut TestAppContext) {
+    let mut app = TestApp::new(cx);
+    app.update_and_draw(|state, cx| {
+        state.load_runtimes(cx);
+        state.request_quit(cx);
+    });
+    assert!(app.shown("quit-runtime a100-7f3a"));
+    assert!(
+        !app.shown(QUIT_CHECKING),
+        "it has runtimes to ask about, so it will not close by itself"
+    );
+    app.settle();
+    assert!(!app.read(|state, _| state.quit_approved()));
 }

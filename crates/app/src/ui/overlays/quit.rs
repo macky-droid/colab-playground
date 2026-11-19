@@ -46,9 +46,12 @@ pub(super) fn render(
     let billing = &live;
     let list_failed = matches!(state.runtimes(), crate::state::Load::Failed(_));
     let stopping = state.is_stopping_all();
+    // A prompt that waits with nothing to show is waiting for a listing that refreshes the
+    // list shown, which the list itself does not say.
+    let checking = billing.checking || (prompt.waiting && !billing.any());
     let title = if billing.known() {
         keys::QUIT_TITLE
-    } else if billing.checking {
+    } else if checking {
         keys::QUIT_TITLE_CHECKING
     } else if billing.unknown {
         keys::QUIT_TITLE_UNCHECKED
@@ -97,7 +100,7 @@ pub(super) fn render(
     });
     // While checking. A prompt waiting on the check closes by itself if it finds nothing; with
     // nothing known to bill yet, the line says so.
-    let checking = billing.checking.then(|| {
+    let checking_line = checking.then(|| {
         let text = if prompt.waiting && !billing.known() {
             keys::QUIT_CHECKING
         } else {
@@ -120,7 +123,7 @@ pub(super) fn render(
                         .map(|(severity, text)| InlineMessage::new(severity, text)),
                 )
                 .children(unchecked)
-                .children(checking),
+                .children(checking_line),
         )
         .child(runtime_list(billing, state, cx))
         .child(Paragraph::new(tr(cx, keys::QUIT_LEAVE_EXPLAINED)))
@@ -156,7 +159,7 @@ pub(super) fn render(
     let (leave_handle, stop_handle) = (handle.clone(), handle.clone());
     // "Stop all" lists afresh before stopping, so it is offered once the check is over, even
     // when it failed.
-    let still_checking = billing.checking;
+    let still_checking = checking;
     dialog
         .action({
             let handle = handle.clone();
