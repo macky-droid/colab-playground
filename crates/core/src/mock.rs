@@ -35,7 +35,7 @@ use crate::provision::{
 };
 use crate::quant::{FitInput, GgufFile, GgufListing, fit_auto, group};
 use crate::sessions::{
-    Accelerator, Ledger, ServerSession, StopReason, StopRecord, TrackedSession, WatchdogInfo,
+    Accelerator, Ledger, ServerSession, StopReason, TrackedSession, WatchdogInfo,
 };
 use crate::tunnel::{TunnelEvent, TunnelId, TunnelInfo, TunnelSpec, TunnelState};
 use crate::updater::{Installed, SelfUpdate, Unsupported, UpdateProgress};
@@ -491,12 +491,7 @@ impl World {
     }
 
     fn live_names(&self, id: &AccountId) -> BTreeSet<String> {
-        self.ledger
-            .entries()
-            .iter()
-            .filter(|e| &e.account == id && e.stopped.is_none())
-            .map(|e| e.name.clone())
-            .collect()
+        self.ledger.live_of(id).map(|e| e.name.clone()).collect()
     }
 
     fn endpoint(&mut self) -> String {
@@ -528,96 +523,22 @@ impl World {
         if self.listing_fails_for(id) {
             return (false, Vec::new());
         }
-        let live: Vec<_> = self
-            .ledger
-            .entries()
-            .iter()
-            .filter(|e| &e.account == id && e.stopped.is_none())
-            .cloned()
+        let runtimes = || self.runtimes.iter().filter(|r| &r.account == id);
+        let listed: Vec<&str> = runtimes().map(|r| r.endpoint.as_str()).collect();
+        let names: Vec<(&str, &str)> = runtimes()
+            .filter_map(|r| Some((r.endpoint.as_str(), r.name.as_deref()?)))
             .collect();
-        let mut vanished = Vec::new();
-        let mut unmatched = Vec::new();
-        let mut verified = true;
-        for e in live {
-            let endpoint = e.endpoint.clone().or_else(|| {
-                self.runtimes
-                    .iter()
-                    .find(|r| &r.account == id && r.name.as_deref() == Some(&e.name))
-                    .map(|r| r.endpoint.clone())
-            });
-            let Some(endpoint) = endpoint else {
-                unmatched.push(e.name);
-                continue;
-            };
-            if self
-                .runtimes
-                .iter()
-                .any(|r| &r.account == id && r.endpoint == endpoint)
-            {
-                if e.endpoint.is_none()
-                    && self
-                        .ledger
-                        .update(id, &e.name, |e| e.endpoint = Some(endpoint))
-                        .is_err()
-                {
-                    verified = false;
-                }
-            } else {
-                if self
-                    .ledger
-                    .update(id, &e.name, |e| {
-                        e.stopped = Some(StopRecord {
-                            at: now,
-                            reason: StopReason::Vanished,
-                        })
-                    })
-                    .is_err()
-                {
-                    verified = false;
-                }
-                vanished.push(RuntimeRef {
-                    account: id.clone(),
-                    endpoint,
-                    name: Some(e.name),
-                });
-            }
-        }
-        // Like the real backend: a session without an endpoint can only be a runtime that
-        // no other live session claims.
-        let claimed = |endpoint: &str| {
-            self.ledger.entries().iter().any(|e| {
-                &e.account == id && e.stopped.is_none() && e.endpoint.as_deref() == Some(endpoint)
+        let outcome = self.ledger.reconcile(id, |_| true, &listed, &names, now);
+        let vanished = outcome
+            .vanished
+            .into_iter()
+            .map(|(name, endpoint)| RuntimeRef {
+                account: id.clone(),
+                endpoint,
+                name: Some(name),
             })
-        };
-        let all_claimed = self
-            .runtimes
-            .iter()
-            .filter(|r| &r.account == id)
-            .all(|r| claimed(&r.endpoint));
-        if all_claimed {
-            for name in unmatched {
-                if self
-                    .ledger
-                    .update(id, &name, |e| {
-                        e.stopped = Some(StopRecord {
-                            at: now,
-                            reason: StopReason::Vanished,
-                        })
-                    })
-                    .is_err()
-                {
-                    verified = false;
-                }
-                vanished.push(RuntimeRef {
-                    account: id.clone(),
-                    endpoint: String::new(),
-                    name: Some(name),
-                });
-            }
-        } else if !unmatched.is_empty() {
-            verified = false;
-        }
-        (verified, vanished)
+            .collect();
+        (!outcome.unsettled, vanished)
     }
 
     fn record_usage(&mut self, id: &AccountId, now: SystemTime, verified: bool) {
@@ -642,12 +563,7 @@ impl World {
             .iter()
             .map(|a| {
                 let u = self.usage.get(&a.id).cloned().unwrap_or_default();
-                let known = self
-                    .ledger
-                    .entries()
-                    .iter()
-                    .filter(|e| e.account == a.id && e.stopped.is_none())
-                    .count();
+                let known = self.ledger.live_of(&a.id).count();
                 usage_view(&a.id, Some(a.email.clone()), &u, known)
             })
             .collect()
@@ -908,20 +824,12 @@ impl MockBackend {
         }
         let name = target.name.clone().or_else(|| {
             w.ledger
-                .entries()
-                .iter()
-                .find(|e| {
-                    e.account == target.account
-                        && e.endpoint.as_deref() == Some(&target.endpoint)
-                        && e.stopped.is_none()
-                })
+                .live_by_endpoint(&target.account, &target.endpoint)
                 .map(|e| e.name.clone())
         });
         if let Some(n) = name {
             w.close_session_tunnels(&target.account, &n);
-            let _ = w.ledger.update(&target.account, &n, |e| {
-                e.stopped = Some(StopRecord { at: now, reason })
-            });
+            let _ = w.ledger.mark_stopped(&target.account, &n, now, reason);
         }
         Ok(())
     }
@@ -1353,13 +1261,11 @@ impl Backend for MockBackend {
             } else {
                 vec![]
             },
-            sessions_left_running: w
-                .ledger
-                .entries()
-                .iter()
-                .filter(|e| switching && e.stopped.is_none() && Some(&e.account) == from.as_ref())
-                .cloned()
-                .collect(),
+            sessions_left_running: from
+                .as_ref()
+                .filter(|_| switching)
+                .map(|from| w.ledger.live_of(from).cloned().collect())
+                .unwrap_or_default(),
             unmanaged_left_running,
         })
     }
@@ -1668,13 +1574,7 @@ impl Backend for MockBackend {
         let live: Vec<TrackedSession> = {
             let mut w = self.w();
             w.settle(now);
-            let live: Vec<TrackedSession> = w
-                .ledger
-                .entries()
-                .iter()
-                .filter(|e| e.stopped.is_none())
-                .cloned()
-                .collect();
+            let live: Vec<TrackedSession> = w.ledger.all_live().cloned().collect();
             let ids: BTreeSet<AccountId> = live.iter().map(|e| e.account.clone()).collect();
             for id in &ids {
                 let (verified, vanished) = w.reconcile(id, now);
@@ -1682,9 +1582,8 @@ impl Backend for MockBackend {
                 w.record_usage(id, now, verified);
             }
             w.ledger
-                .entries()
-                .iter()
-                .filter(|e| e.stopped.is_none() && ids.contains(&e.account))
+                .all_live()
+                .filter(|e| ids.contains(&e.account))
                 .cloned()
                 .collect()
         };
@@ -2396,12 +2295,7 @@ mod tests {
                 let names = w.live_names(&account);
                 for name in names {
                     w.ledger
-                        .update(&account, &name, |e| {
-                            e.stopped = Some(StopRecord {
-                                at: m.now_(),
-                                reason: StopReason::User,
-                            })
-                        })
+                        .mark_stopped(&account, &name, m.now_(), StopReason::User)
                         .unwrap();
                 }
                 account
