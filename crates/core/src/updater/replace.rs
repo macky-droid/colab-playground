@@ -112,10 +112,16 @@ pub fn remove_leftovers(folder: &Path) -> usize {
             continue;
         }
         let stage = entry.path();
+        // Taken before anything is checked and held until the folder is gone: an update marks
+        // a folder it must keep before it lets go of it.
+        let Some(_lock) = claim(&stage) else {
+            left += 1;
+            continue;
+        };
         if holds_kept_version(&stage) {
             continue;
         }
-        if in_use(&stage) || fs::remove_dir_all(&stage).is_err() {
+        if fs::remove_dir_all(&stage).is_err() {
             left += 1;
             continue;
         }
@@ -132,10 +138,16 @@ fn holds_kept_version(stage: &Path) -> bool {
             .any(|name| stage.join(name).exists())
 }
 
-/// Whether an update still holds `stage` (see [`Staging`]).
-fn in_use(stage: &Path) -> bool {
-    File::open(lock_path(stage))
-        .is_ok_and(|file| matches!(file.try_lock(), Err(fs::TryLockError::WouldBlock)))
+/// Locks `stage` for cleanup: `None` while an update holds it (see [`Staging`]), otherwise its
+/// lock file, held, if it has one.
+fn claim(stage: &Path) -> Option<Option<File>> {
+    match File::open(lock_path(stage)) {
+        Err(_) => Some(None),
+        Ok(file) => match file.try_lock() {
+            Err(fs::TryLockError::WouldBlock) => None,
+            _ => Some(Some(file)),
+        },
+    }
 }
 
 /// Moves `target` to `aside`, then `new` to where `target` was. When the second move fails the
@@ -398,6 +410,24 @@ pub(crate) mod tests {
         fs::rename(&previous, dir.path().join("colab-playground.exe")).unwrap();
         assert_eq!(remove_leftovers(dir.path()), 0);
         assert!(!stage.exists(), "once moved back, the folder is a leftover");
+    }
+
+    #[test]
+    fn cleanup_decides_only_once_the_update_has_let_go() {
+        // An update that is about to fail its undo: cleanup by another copy meanwhile.
+        let dir = tempfile::tempdir().unwrap();
+        let stage = create_staging(dir.path()).unwrap();
+        let previous = stage.path().join(PREVIOUS_APP);
+        fs::create_dir(&previous).unwrap();
+        assert_eq!(
+            remove_leftovers(dir.path()),
+            1,
+            "held: not even looked into"
+        );
+        kept(&previous, Error::new(ErrorKind::Io));
+        stage.release();
+        assert_eq!(remove_leftovers(dir.path()), 0);
+        assert!(previous.is_dir(), "seen with its mark once let go");
     }
 
     #[test]
