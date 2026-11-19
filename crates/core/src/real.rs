@@ -1283,15 +1283,18 @@ impl Backend for RealBackend {
                         .arg(&resolved.helper_python)
                         .timeout(Duration::from_secs(30));
                 keyring_req.env = self.inner.cfg.base_env.clone();
+                let keyring_ok = match self.inner.cfg.host.run_quiet(keyring_req, cancel) {
+                    Ok(out) => out.success(),
+                    Err(e) if e.is(ErrorKind::Cancelled) => {
+                        self.inner.st().toolchain = Some(resolved);
+                        return Err(e);
+                    }
+                    Err(_) => false,
+                };
                 report.colab = Some(resolved.colab.clone());
                 report.colab_version = Some(ver);
                 report.helper_python = Some(resolved.helper_python.clone());
-                report.keyring_ok = self
-                    .inner
-                    .cfg
-                    .host
-                    .run_quiet(keyring_req, cancel)
-                    .is_ok_and(|out| out.success());
+                report.keyring_ok = keyring_ok;
                 self.inner.st().toolchain = Some(resolved);
                 Ok(report)
             }

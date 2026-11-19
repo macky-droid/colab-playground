@@ -1376,6 +1376,8 @@ fn probe_uses_configured_colab_path_instead_of_path_binary() {
     // `#!/bin/sh` + sibling `python` launcher layout produced by `uv` and `pip`.
     let custom = f.root.join("custom-cli");
     std::fs::create_dir_all(&custom).unwrap();
+    // `RESOLVE_SCRIPT` resolves symlinks with `readlink -f` (e.g. `/var` -> `/private/var`).
+    let custom = std::fs::canonicalize(&custom).unwrap();
     let fake = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("fake");
@@ -1411,4 +1413,8 @@ fn probe_uses_configured_colab_path_instead_of_path_binary() {
         Some(custom_py.to_string_lossy().as_ref())
     );
     assert!(r2.keyring_ok);
+
+    let cancelled = CancelToken::new();
+    cancelled.cancel();
+    assert!(f.b.probe(&cancelled).unwrap_err().is(ErrorKind::Cancelled));
 }
