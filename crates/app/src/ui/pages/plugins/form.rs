@@ -244,7 +244,7 @@ fn input_row(
         row = row.child(Caption::new(tr(cx, keys::RUN_SECRET_NOTE)));
     }
     if input.kind == InputKind::HfModel {
-        row = row.child(hf_lookup(input, form, info, state, handle, inputs, cx));
+        row = row.child(hf_lookup(input, form, info, handle, inputs, cx));
     }
     row.into_any_element()
 }
@@ -254,7 +254,6 @@ fn hf_lookup(
     input: &InputSpec,
     form: &RunForm,
     info: &PluginInfo,
-    _state: &AppState,
     handle: &Entity<AppState>,
     inputs: &Inputs,
     cx: &App,

@@ -193,12 +193,7 @@ pub(super) fn install(
     }
 }
 
-pub(super) fn remove(
-    prompt: &RemovePrompt,
-    _state: &AppState,
-    handle: &Entity<AppState>,
-    cx: &App,
-) -> AnyElement {
+pub(super) fn remove(prompt: &RemovePrompt, handle: &Entity<AppState>, cx: &App) -> AnyElement {
     let mut dialog = Dialog::new(
         "plugin-remove",
         tr_args(cx, keys::PLUGIN_REMOVE_TITLE, &[("name", &prompt.name)]),

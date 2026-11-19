@@ -51,7 +51,7 @@ pub fn render(
         Overlay::NewSession => new_session::render(state, handle, inputs, cx)?,
         Overlay::Forward(form) => forward::render(form, state, handle, inputs, cx),
         Overlay::InstallPlugin(prompt) => plugin::install(prompt, state, handle, cx),
-        Overlay::RemovePlugin(prompt) => plugin::remove(prompt, state, handle, cx),
+        Overlay::RemovePlugin(prompt) => plugin::remove(prompt, handle, cx),
         Overlay::Quit(prompt) => quit::render(prompt, state, handle, cx),
         Overlay::Update(prompt) => update::render(prompt, state, handle, cx),
         Overlay::Feedback => feedback::render(state, handle, cx),

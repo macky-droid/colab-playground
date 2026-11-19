@@ -56,12 +56,7 @@ pub fn render(
     })
 }
 
-fn add(
-    phase: &AddPhase,
-    handle: &Entity<AppState>,
-    inputs: &Inputs,
-    cx: &App,
-) -> AnyElement {
+fn add(phase: &AddPhase, handle: &Entity<AppState>, inputs: &Inputs, cx: &App) -> AnyElement {
     let dialog = Dialog::new(
         "add-account",
         tr(cx, keys::ADD_TITLE),

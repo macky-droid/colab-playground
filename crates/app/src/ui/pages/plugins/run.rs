@@ -93,7 +93,7 @@ pub(super) fn render(state: &AppState, handle: &Entity<AppState>, cx: &App) -> P
             outcome
                 .endpoints
                 .iter()
-                .map(|endpoint| endpoint_card(endpoint, outcome, run, info, state, handle, cx)),
+                .map(|endpoint| endpoint_card(endpoint, outcome, info, state, handle, cx)),
         );
     }
     if let Some(status) = &run.status
@@ -329,7 +329,6 @@ fn billing_after_end(
 fn endpoint_card(
     endpoint: &ResolvedEndpoint,
     outcome: &PluginRunOutcome,
-    _run: &PluginRun,
     info: &PluginInfo,
     state: &AppState,
     handle: &Entity<AppState>,

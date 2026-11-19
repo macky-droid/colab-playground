@@ -60,7 +60,7 @@ pub(super) fn render(
     match &prompt.phase {
         UpdatePhase::Confirm => confirm(prompt, state, handle, cx),
         UpdatePhase::Working(_) | UpdatePhase::Restarting => working(prompt, state, handle, cx),
-        UpdatePhase::Failed(error) => failed(prompt, error, handle, cx),
+        UpdatePhase::Failed(error) => failed(error, handle, cx),
         UpdatePhase::RestartFailed(error) => restart_failed(prompt, error, handle, cx),
     }
 }
@@ -295,12 +295,7 @@ fn working(
     .into_any_element()
 }
 
-fn failed(
-    _prompt: &UpdatePrompt,
-    error: &colab_playground_core::Error,
-    handle: &Entity<AppState>,
-    cx: &App,
-) -> AnyElement {
+fn failed(error: &colab_playground_core::Error, handle: &Entity<AppState>, cx: &App) -> AnyElement {
     let explained = errors::explain(error, false, cx);
     let (name, key) = failure(error);
     let message = match name {
