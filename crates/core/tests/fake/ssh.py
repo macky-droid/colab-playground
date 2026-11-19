@@ -16,6 +16,13 @@ if not STATE or not os.path.isdir(STATE):
     sys.stderr.write("fake ssh: CPG_FAKE_STATE is not set\n")
     sys.exit(97)
 
+def diag(msg):
+    path = os.environ.get("CPG_DIAG")
+    if path:
+        with open(path, "a") as fh:
+            fh.write("%.4f fake-ssh[%d] %s\n" % (time.time(), os.getpid(), msg))
+
+
 argv = sys.argv[1:]
 with open(os.path.join(STATE, "ssh_calls.jsonl"), "a") as fh:
     fh.write(json.dumps(argv) + "\n")
@@ -33,10 +40,12 @@ if proxy is None or local is None:
     sys.stderr.write("fake ssh: missing ProxyCommand or -L\n")
     sys.exit(255)
 
+diag("start port=%d" % local)
 child = subprocess.Popen(proxy, shell=True, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL)
 
 
 def stop(*_):
+    diag("stop() port=%d" % local)
     if child.poll() is None:
         child.terminate()
     sys.exit(0)
@@ -45,8 +54,10 @@ def stop(*_):
 signal.signal(signal.SIGTERM, stop)
 time.sleep(0.5)
 if child.poll() is not None:
+    diag("proxy exited within 0.5s port=%d: exit 255 without binding" % local)
     sys.stderr.write("kex_exchange_identification: Connection closed by remote host\n")
     sys.exit(255)
+diag("proxy still running after 0.5s port=%d: binding" % local)
 
 srv = socket.socket()
 srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -58,11 +69,14 @@ except OSError:
     sys.stderr.write("Could not request local forwarding.\n")
     stop()
 srv.listen(5)
+diag("LISTENING port=%d" % local)
 srv.settimeout(0.2)
 while child.poll() is None:
     try:
-        conn, _ = srv.accept()
+        conn, peer = srv.accept()
+        diag("accepted port=%d from %r" % (local, peer))
         conn.close()
     except socket.timeout:
         pass
+diag("proxy exited while listening port=%d: exit 255" % local)
 sys.exit(255)

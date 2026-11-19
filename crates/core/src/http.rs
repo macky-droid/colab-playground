@@ -171,8 +171,54 @@ pub fn local_http_status(port: u16, path: &str, timeout: Duration) -> Result<u16
     parse_status_line(&got)
 }
 
+/// DIAGNOSTICS ONLY (temporary): appends a line to the file named by `CPG_DIAG`.
+pub fn diag(msg: &str) {
+    if let Ok(path) = std::env::var("CPG_DIAG") {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let t = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0);
+            let _ = writeln!(
+                f,
+                "{t:.4} rust[{}] {msg}",
+                std::thread::current().name().unwrap_or("?")
+            );
+        }
+    }
+}
+
+fn diag_cmd(program: &str, args: &[&str]) {
+    match std::process::Command::new(program).args(args).output() {
+        Ok(o) => diag(&format!(
+            "$ {program} {args:?}\n{}{}",
+            String::from_utf8_lossy(&o.stdout),
+            String::from_utf8_lossy(&o.stderr)
+        )),
+        Err(e) => diag(&format!("$ {program} {args:?} failed: {e}")),
+    }
+}
+
 pub fn local_port_open(port: u16, timeout: Duration) -> bool {
-    TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], port)), timeout).is_ok()
+    match TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], port)), timeout) {
+        Ok(s) => {
+            diag(&format!(
+                "probe port={port} CONNECTED local={:?} peer={:?} err={:?}",
+                s.local_addr(),
+                s.peer_addr(),
+                s.take_error()
+            ));
+            true
+        }
+        Err(e) => {
+            diag(&format!("probe port={port} refused: {e}"));
+            false
+        }
+    }
 }
 
 fn addr_bound(addr: SocketAddr) -> bool {
@@ -195,10 +241,54 @@ fn addr_bound(addr: SocketAddr) -> bool {
 pub fn local_port_in_use(port: u16, timeout: Duration) -> bool {
     let v4 = SocketAddr::from(([127, 0, 0, 1], port));
     let v6 = SocketAddr::from((Ipv6Addr::LOCALHOST, port));
-    addr_bound(v4)
-        || addr_bound(v6)
-        || local_port_open(port, timeout)
-        || TcpStream::connect_timeout(&v6, timeout.min(Duration::from_millis(150))).is_ok()
+    let b4 = TcpListener::bind(v4).map(drop);
+    let which = if bind_says_bound(&b4) {
+        format!("bind4 {b4:?}")
+    } else {
+        let b6 = TcpListener::bind(v6).map(drop);
+        if bind_says_bound(&b6) {
+            format!("bind6 {b6:?}")
+        } else if local_port_open(port, timeout) {
+            "connect4".to_owned()
+        } else {
+            match TcpStream::connect_timeout(&v6, timeout.min(Duration::from_millis(150))) {
+                Ok(s) => format!(
+                    "connect6 local={:?} peer={:?} err={:?}",
+                    s.local_addr(),
+                    s.peer_addr(),
+                    s.take_error()
+                ),
+                Err(_) => String::new(),
+            }
+        }
+    };
+    let used = !which.is_empty();
+    diag(&format!("port_check port={port} used={used} by={which}"));
+    if used {
+        diag_cmd("lsof", &["-nP", &format!("-iTCP:{port}")]);
+        diag_cmd(
+            "sh",
+            &[
+                "-c",
+                &format!("netstat -anv -p tcp | grep -E 'Proto|[.]{port} '"),
+            ],
+        );
+        diag_cmd(
+            "sh",
+            &[
+                "-c",
+                "ps -axo pid,ppid,pgid,etime,command | grep -E 'bin/ssh|bin/colab' | grep -v grep",
+            ],
+        );
+    }
+    used
+}
+
+fn bind_says_bound(r: &std::io::Result<()>) -> bool {
+    matches!(
+        r.as_ref().map_err(|e| e.kind()),
+        Err(std::io::ErrorKind::AddrInUse | std::io::ErrorKind::PermissionDenied)
+    )
 }
 
 fn parse_status_line(bytes: &[u8]) -> Result<u16> {

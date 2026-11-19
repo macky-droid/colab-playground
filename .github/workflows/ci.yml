@@ -1,8 +1,8 @@
 name: CI
 
+# TEMPORARY DIAGNOSTICS, NOT FOR MERGING: runs the real-backend tests in a loop on macOS to catch
+# the `tunnel_reports_429_and_port_in_use` flake with a trace of who holds the port.
 on:
-  push:
-    branches: [main]
   pull_request:
 
 permissions:
@@ -13,94 +13,59 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_TERM_COLOR: always
+  CARGO_TERM_COLOR: never
 
-# The Linux and Windows job names below are the status checks the `main` ruleset requires
-# (docs/RELEASING.md). Renaming one of them or changing the matrix means updating the ruleset
-# too, or no pull request can be merged. The macOS job is not required: a runner is often never
-# assigned to it.
 jobs:
-  # A pull request that changes only docs has nothing to build or test. The jobs below still run
-  # for it, because the ruleset waits for their names, but skip every step. Only a clear "docs
-  # only" answer skips: a push to `main` or a failed lookup builds and tests everything.
-  changes:
-    name: Changes
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      pull-requests: read
-    outputs:
-      code: ${{ steps.files.outputs.code }}
-    steps:
-      - id: files
-        if: github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_FILES: repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files
-        # A renamed file counts under both names. `grep -c` reads the whole list, where `-q`
-        # could end the pipe early and fail it.
-        run: |
-          files=$(gh api "$PR_FILES" --paginate --jq '.[] | .filename, (.previous_filename // empty)') || exit 0
-          [ -n "$files" ] || exit 0
-          other=$(printf '%s\n' "$files" | grep -cvE '(\.md$|^docs/)' || true)
-          if [ "$other" = 0 ]; then echo "code=false" >> "$GITHUB_OUTPUT"; fi
-
-  linux:
-    name: Linux (fmt, clippy, test)
-    needs: changes
-    # Runs even when `changes` failed, so a lookup that broke never passes for a build.
-    if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v7
-        if: needs.changes.outputs.code != 'false'
-      - uses: dtolnay/rust-toolchain@v1
-        if: needs.changes.outputs.code != 'false'
-        with:
-          toolchain: "1.98"
-          components: rustfmt, clippy
-      # Pull requests restore main's cache and save none of their own: each saved copy is large,
-      # and the repository's cache quota would evict main's copies.
-      - uses: Swatinem/rust-cache@v2
-        if: needs.changes.outputs.code != 'false'
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      # gpui's Wayland and X11 backends link xkbcommon and fontconfig (same list as Ely's CI).
-      - run: sudo apt-get update && sudo apt-get install -y libxkbcommon-x11-dev libfontconfig-dev
-        if: needs.changes.outputs.code != 'false'
-      - run: cargo fmt --all -- --check
-        if: needs.changes.outputs.code != 'false'
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-        if: needs.changes.outputs.code != 'false'
-      - run: cargo test --workspace --locked
-        if: needs.changes.outputs.code != 'false'
-
-  check:
-    name: ${{ matrix.os }} (check, tests)
-    needs: changes
-    if: ${{ !cancelled() }} # as in the linux job
+  diag:
+    name: diag (load ${{ matrix.load }}, part ${{ matrix.part }})
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+        load: [0, 3]
+        part: [1, 2]
+    runs-on: macos-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
-        if: needs.changes.outputs.code != 'false'
       - uses: dtolnay/rust-toolchain@v1
-        if: needs.changes.outputs.code != 'false'
         with:
           toolchain: "1.98"
       - uses: Swatinem/rust-cache@v2
-        if: needs.changes.outputs.code != 'false'
         with:
-          save-if: ${{ github.ref == 'refs/heads/main' }} # as in the linux job
-      # No `cargo check` first: the two test steps compile every target of both crates, and a
-      # check would compile them a second time.
-      - run: cargo test -p colab-playground-core --locked
-        if: needs.changes.outputs.code != 'false'
-      # The app's headless UI tests: the title strip, fonts and paths differ per OS.
-      - run: cargo test -p colab-playground --locked
-        if: needs.changes.outputs.code != 'false'
+          save-if: false
+      - name: Machine facts
+        run: |
+          sysctl hw.ncpu net.inet.ip.portrange.first net.inet.ip.portrange.last net.inet.tcp.randomize_ports net.inet.tcp.msl || true
+          which -a bash || true
+          bash --version | head -1
+          python3 --version
+          python3 -c 'import socket
+          ports = []
+          for _ in range(5):
+              s = socket.socket(); s.bind(("127.0.0.1", 0)); ports.append(s.getsockname()[1]); s.close()
+          print("five bind(0) ports in a row:", ports)'
+      - run: cargo test -p colab-playground-core --locked --test real_backend --no-run
+      - name: Loop
+        env:
+          LOAD: ${{ matrix.load }}
+        run: |
+          n=0
+          while [ "$n" -lt "$LOAD" ]; do yes > /dev/null & n=$((n + 1)); done
+          fails=0
+          i=0
+          while [ "$i" -lt 40 ]; do
+            i=$((i + 1))
+            rm -f /tmp/cpg-diag.log
+            if CPG_DIAG=/tmp/cpg-diag.log cargo test -p colab-playground-core --locked --test real_backend > /tmp/out.txt 2>&1; then
+              echo "ok $i: listening=$(grep -c 'LISTENING' /tmp/cpg-diag.log) slow=$(grep -c 'still running after' /tmp/cpg-diag.log) used=$(grep -c 'used=true' /tmp/cpg-diag.log)"
+            else
+              fails=$((fails + 1))
+              echo "=== FAIL iteration $i"
+              grep -E "FAILED|panicked|port_in_use|never came up|test result" /tmp/out.txt || true
+              echo "--- trace"
+              cat /tmp/cpg-diag.log || true
+              echo "=== end of iteration $i"
+            fi
+          done
+          kill $(jobs -p) 2>/dev/null || true
+          echo "fails=$fails"

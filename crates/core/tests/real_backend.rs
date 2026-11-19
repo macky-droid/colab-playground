@@ -890,11 +890,13 @@ fn walk(dir: &Path) -> Vec<PathBuf> {
 }
 
 fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
         .unwrap()
         .local_addr()
         .unwrap()
-        .port()
+        .port();
+    colab_playground_core::http::diag(&format!("free_port() -> {port}"));
+    port
 }
 
 #[test]

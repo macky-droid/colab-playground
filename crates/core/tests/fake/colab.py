@@ -390,6 +390,11 @@ def cmd_ssh(state_path, args):
         fc.save_server(s)
         records[session] = {"name": session, "token": "t", "url": "u", "endpoint": ep}
         save_state(state_path, records)
+    if os.environ.get("CPG_DIAG"):
+        import time
+        with open(os.environ["CPG_DIAG"], "a") as fh:
+            fh.write("%.4f fake-colab[%d] ssh --proxy-mode session=%s busy=%s\n"
+                     % (time.time(), os.getpid(), session, s["knobs"]["ssh_busy"]))
     if s["knobs"]["ssh_busy"]:
         err("[colab] Already-active SSH session (HTTP 429): another `colab ssh` is connected to this runtime. Disconnect it and retry.")
         return 1

@@ -409,6 +409,10 @@ fn run(ctx: TunnelCtx, spec: TunnelSpec, stop: CancelToken, shared: Arc<Shared>)
                 continue;
             }
         }
+        crate::http::diag(&format!(
+            "tunnel port={} session={} before port check: {counters:?}",
+            spec.local_port, spec.session
+        ));
         if local_port_in_use(spec.local_port, Duration::from_millis(300)) {
             return fail(
                 &shared,
@@ -478,6 +482,10 @@ fn run(ctx: TunnelCtx, spec: TunnelSpec, stop: CancelToken, shared: Arc<Shared>)
         let code = child.wait();
         let text = stderr.join("\n");
         let uptime = started.elapsed();
+        crate::http::diag(&format!(
+            "tunnel port={} session={} child exit code={code:?} up={up} uptime={uptime:?} text={text:?}",
+            spec.local_port, spec.session
+        ));
         let delay = match decide_after_exit(&mut counters, &spec, &text, code, uptime, gave_up) {
             Ok(d) => d,
             Err(e) => return fail(&shared, e),
