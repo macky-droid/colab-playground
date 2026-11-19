@@ -1645,56 +1645,20 @@ impl Backend for RealBackend {
     fn extend_session(
         &self,
         target: &RuntimeRef,
+        by: Duration,
+        cancel: &CancelToken,
+    ) -> Result<Extension> {
+        self.move_auto_stop(target, |left| left + by, cancel)
+    }
+
+    fn set_auto_stop(
+        &self,
+        target: &RuntimeRef,
         runtime: Duration,
         cancel: &CancelToken,
     ) -> Result<WatchdogInfo> {
-        let name = target
-            .name
-            .clone()
-            .ok_or_else(|| Error::invalid("name", "the session has no local name"))?;
-        let (_g, cli, state) = self.inner.cli_for(&target.account, cancel)?;
-        // The VM decides: a running watchdog only gets the new deadline; one
-        // that is not running (cancelled, exited, never started) is started
-        // the way provisioning starts it.
-        let v = cli.exec_json(&state, &name, &[], &watchdog::status_snippet(), 60, cancel)?;
-        let mut reply = watchdog::parse_reply(&v, self.inner.now())?;
-        if reply.info.armed {
-            let env = vec![(
-                watchdog::ENV_DEADLINE.to_owned(),
-                runtime.as_secs().to_string(),
-            )];
-            let v = cli.exec_json(&state, &name, &env, &watchdog::extend_snippet(), 60, cancel)?;
-            reply = watchdog::parse_reply(&v, self.inner.now())?;
-        }
-        let info = if reply.info.armed {
-            reply.info
-        } else {
-            let tracked = self
-                .inner
-                .st()
-                .ledger
-                .live(&target.account, &name)
-                .map(|e| e.policy.clone());
-            let policy =
-                watchdog::restart_policy(tracked.as_ref(), reply.info.idle_timeout, runtime);
-            let started = self.inner.layout(cancel).and_then(|layout| {
-                let ops = self
-                    .inner
-                    .ops(&cli, &target.account, &state, layout.host_scratch());
-                provision::start_watchdog(&ops, &name, &policy)
-            });
-            match started {
-                Ok(Some(info)) if info.armed => info,
-                _ => watchdog::start_failed(&policy),
-            }
-        };
-        let now = self.inner.now();
-        let _ = self.inner.st().ledger.update(&target.account, &name, |e| {
-            e.watchdog = Some(info.clone());
-            let elapsed = now.duration_since(e.spend.started_at).unwrap_or_default();
-            e.policy.max_runtime = Some(elapsed + runtime);
-        });
-        Ok(info)
+        self.move_auto_stop(target, |_| runtime, cancel)
+            .map(|set| set.watchdog)
     }
 
     fn cancel_auto_stop(&self, target: &RuntimeRef, cancel: &CancelToken) -> Result<()> {
@@ -2098,6 +2062,78 @@ const LEFTOVER_RETRY: Duration = Duration::from_millis(500);
 const LAUNCHER_TIMEOUT: Duration = Duration::from_secs(60);
 
 impl RealBackend {
+    fn move_auto_stop(
+        &self,
+        target: &RuntimeRef,
+        runtime_from_time_left: impl FnOnce(Duration) -> Duration,
+        cancel: &CancelToken,
+    ) -> Result<Extension> {
+        let name = target
+            .name
+            .clone()
+            .ok_or_else(|| Error::invalid("name", "the session has no local name"))?;
+        let (_g, cli, state) = self.inner.cli_for(&target.account, cancel)?;
+        // The VM decides: a running watchdog only gets the new deadline; one
+        // that is not running (cancelled, exited, never started) is started
+        // the way provisioning starts it.
+        let v = cli.exec_json(&state, &name, &[], &watchdog::status_snippet(), 60, cancel)?;
+        let mut reply = watchdog::parse_reply(&v, self.inner.now())?;
+        // The stop as the listing shows it, with the watchdog's own answer in
+        // place of the one last recorded.
+        let stop_at = match self.inner.st().ledger.live(&target.account, &name) {
+            Some(e) => TrackedSession {
+                watchdog: Some(reply.info.clone()),
+                ..e.clone()
+            }
+            .auto_stop_at(),
+            None => reply.info.enforced_deadline(),
+        };
+        let time_left = stop_at
+            .and_then(|at| at.duration_since(self.inner.now()).ok())
+            .unwrap_or_default();
+        let runtime = runtime_from_time_left(time_left);
+        if reply.info.armed {
+            let env = vec![(
+                watchdog::ENV_DEADLINE.to_owned(),
+                runtime.as_secs().to_string(),
+            )];
+            let v = cli.exec_json(&state, &name, &env, &watchdog::extend_snippet(), 60, cancel)?;
+            reply = watchdog::parse_reply(&v, self.inner.now())?;
+        }
+        let info = if reply.info.armed {
+            reply.info
+        } else {
+            let tracked = self
+                .inner
+                .st()
+                .ledger
+                .live(&target.account, &name)
+                .map(|e| e.policy.clone());
+            let policy =
+                watchdog::restart_policy(tracked.as_ref(), reply.info.idle_timeout, runtime);
+            let started = self.inner.layout(cancel).and_then(|layout| {
+                let ops = self
+                    .inner
+                    .ops(&cli, &target.account, &state, layout.host_scratch());
+                provision::start_watchdog(&ops, &name, &policy)
+            });
+            match started {
+                Ok(Some(info)) if info.armed => info,
+                _ => watchdog::start_failed(&policy),
+            }
+        };
+        let now = self.inner.now();
+        let _ = self.inner.st().ledger.update(&target.account, &name, |e| {
+            e.watchdog = Some(info.clone());
+            let elapsed = now.duration_since(e.spend.started_at).unwrap_or_default();
+            e.policy.max_runtime = Some(elapsed + runtime);
+        });
+        Ok(Extension {
+            runtime,
+            watchdog: info,
+        })
+    }
+
     /// Best effort: removes `secrets` from the CLI's history file for
     /// `session` (the CLI appends every executed cell there, including the
     /// prelude built from `--env`). Never fails a run; callers only warn.
