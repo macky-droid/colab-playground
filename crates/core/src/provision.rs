@@ -461,6 +461,7 @@ fn run(
                     attempt,
                     error: e.clone(),
                 });
+                events(ProvisionEvent::Releasing { attempt });
                 release(ops, name)?;
                 if attempt == max {
                     return Err(e);
@@ -1012,9 +1013,15 @@ mod tests {
         let s = spec(None, 2, OnExhausted::StopAndFail);
 
         let f = gone(false);
-        let (r, _, _) = run_fake(&f, &s, &CancelToken::new());
+        let (r, ev, _) = run_fake(&f, &s, &CancelToken::new());
         assert!(r.unwrap_err().is(ErrorKind::SessionGone));
         assert!(f.live.borrow().is_empty());
+        let releases = |ev: &[ProvisionEvent]| {
+            ev.iter()
+                .filter(|e| matches!(e, ProvisionEvent::Releasing { .. }))
+                .count()
+        };
+        assert_eq!(releases(&ev), 2, "each release is announced: {ev:?}");
         assert_eq!(f.log.borrow().iter().filter(|l| *l == "create").count(), 2);
 
         // Still listed after the stop: no second runtime under the same name, and the

@@ -978,6 +978,10 @@ pub(super) const MESSAGES: Messages = &[
     ),
     (RUN_TARGET_NEW, "新しいセッション"),
     (
+        RUN_TARGET_ENDED,
+        "{name} は終了しました。このままデプロイすると新しいセッションが開始され、課金されます。",
+    ),
+    (
         RUN_EXISTING_NOTE,
         "そのセッション上でそのまま実行されます。制限と自動停止は現在の設定のまま変わりません。",
     ),

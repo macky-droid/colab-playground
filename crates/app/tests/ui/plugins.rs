@@ -19,7 +19,7 @@ use colab_playground::{
 };
 use colab_playground_core::{
     CancelToken, ErrorKind,
-    backend::Backend,
+    backend::{Backend, RuntimeRef},
     mock::{MockFailures, MockScenario},
     tunnel::TunnelState,
 };
@@ -482,9 +482,8 @@ fn the_forms_fields_follow_the_language(cx: &mut TestAppContext) {
     assert_eq!(typed, REPO, "what was typed stays");
 }
 
-#[gpui::test]
-fn a_stopped_session_is_no_longer_the_forms_target(cx: &mut TestAppContext) {
-    let mut app = TestApp::new(cx);
+/// The run form on the demo's managed session, and that session.
+fn form_on_a100(app: &mut TestApp<'_>) -> RuntimeRef {
     app.click(Route::Plugins.nav_selector());
     app.click("plugin-run llama-cpp");
     let picked = app.read(|state, _| {
@@ -495,24 +494,85 @@ fn a_stopped_session_is_no_longer_the_forms_target(cx: &mut TestAppContext) {
             .find(|runtime| runtime.id.name.as_deref() == Some("a100-7f3a"));
         picked.expect("the demo's managed session").id.clone()
     });
-    app.update(|state, cx| {
-        state.edit_run_form(|form| form.existing = Some("a100-7f3a".into()), cx);
-        state.load_runtimes(cx);
-    });
-    let target = |app: &mut TestApp<'_>| {
-        app.read(|state, _| state.run_form().and_then(|form| form.existing.clone()))
-    };
+    app.update(|state, cx| state.pick_run_target(Some("a100-7f3a".into()), cx));
+    picked
+}
+
+fn form_target(app: &mut TestApp<'_>) -> Option<String> {
+    app.read(|state, _| state.run_form().and_then(|form| form.existing.clone()))
+}
+
+const TARGET_ENDED: &str = "run-target-ended";
+
+#[gpui::test]
+fn a_stopped_session_is_no_longer_the_forms_target(cx: &mut TestAppContext) {
+    let mut app = TestApp::new(cx);
+    let picked = form_on_a100(&mut app);
+    app.update(|state, cx| state.load_runtimes(cx));
     assert_eq!(
-        target(&mut app).as_deref(),
+        form_target(&mut app).as_deref(),
         Some("a100-7f3a"),
         "kept while it is listed"
     );
+    assert!(!app.shown(TARGET_ENDED));
 
     app.update(|state, cx| {
         state.request_stop(picked, cx);
         state.confirm_stop(cx);
     });
-    assert_eq!(target(&mut app), None, "the form is back on a new session");
+    assert_eq!(
+        form_target(&mut app),
+        None,
+        "the form is back on a new session"
+    );
+    // A new session bills, where the run used to fail: the form says what changed.
+    assert!(app.shown(TARGET_ENDED));
+    let ended = app.read(|state, _| state.run_form().and_then(|form| form.target_ended.clone()));
+    assert_eq!(ended.as_deref(), Some("a100-7f3a"));
+
+    app.update(|state, cx| state.pick_run_target(None, cx));
+    assert!(
+        !app.shown(TARGET_ENDED),
+        "gone once a target is picked again"
+    );
+}
+
+#[gpui::test]
+fn another_account_that_cannot_be_listed_does_not_keep_a_stopped_target(cx: &mut TestAppContext) {
+    let options = Options {
+        failures: MockFailures {
+            unlisted_accounts: vec!["lin@example.com".into()],
+            ..Default::default()
+        },
+        ..Options::default()
+    };
+    let mut app = TestApp::with(cx, options);
+    let picked = form_on_a100(&mut app);
+    app.update(|state, cx| {
+        state.request_stop(picked, cx);
+        state.confirm_stop(cx);
+    });
+    assert_eq!(form_target(&mut app), None);
+    assert!(app.shown(TARGET_ENDED));
+}
+
+#[gpui::test]
+fn a_target_is_kept_while_its_own_account_cannot_be_listed(cx: &mut TestAppContext) {
+    let mut app = TestApp::new(cx);
+    form_on_a100(&mut app);
+    app.set_failures(MockFailures {
+        unlisted_accounts: vec!["ada@example.com".into()],
+        ..Default::default()
+    });
+    app.update(|state, cx| state.load_runtimes(cx));
+    let listed = app.read(|state, _| state.runtimes().ready().map(|view| view.errors.len()));
+    assert_eq!(listed, Some(1), "the active account's listing failed");
+    assert_eq!(
+        form_target(&mut app).as_deref(),
+        Some("a100-7f3a"),
+        "a listing that failed says nothing about the session"
+    );
+    assert!(!app.shown(TARGET_ENDED));
 }
 
 // Several iterations shuffle task scheduling, so the older search can finish last.

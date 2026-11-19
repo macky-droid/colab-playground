@@ -554,6 +554,7 @@ catalog_keys! {
     RUN_TARGET => "app.b2.run_target",
     RUN_TARGET_HINT => "app.b2.run_target_hint",
     RUN_TARGET_NEW => "app.b2.run_target_new",
+    RUN_TARGET_ENDED => "app.b2.run_target_ended",
     SESSIONS_ACCOUNT_FAILED => "app.b2.sessions_account_failed",
     SESSIONS_COUNT_MANY => "app.b2.sessions_count_many",
     SESSIONS_COUNT_ONE => "app.b2.sessions_count_one",

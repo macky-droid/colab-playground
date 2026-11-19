@@ -741,6 +741,10 @@ pub(super) const MESSAGES: Messages = &[
     ),
     (RUN_TARGET_NEW, "新建会话"),
     (
+        RUN_TARGET_ENDED,
+        "{name} 已结束。现在部署会新建一个会话并开始计费。",
+    ),
+    (
         RUN_EXISTING_NOTE,
         "会在该会话上原样运行，其限额和自动停止保持不变。",
     ),

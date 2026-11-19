@@ -55,6 +55,9 @@ pub struct RunForm {
     pub provision: ProvisionSpec,
     /// An existing session to run on instead.
     pub existing: Option<String>,
+    /// The session picked above that ended since: the run would now start a new one, and the
+    /// form says so until a target is picked again.
+    pub target_ended: Option<String>,
     /// Stop a session provisioned for this run when the run fails.
     pub stop_on_failure: bool,
     pub hf: HfLookup,
@@ -176,6 +179,7 @@ impl AppState {
             values,
             provision,
             existing: None,
+            target_ended: None,
             stop_on_failure: template.stop_on_failure,
             hf: HfLookup::default(),
             error: None,
@@ -196,28 +200,50 @@ impl AppState {
         }
     }
 
+    /// Picks the form's target: an existing session by name, or a new one.
+    pub fn pick_run_target(&mut self, existing: Option<String>, cx: &mut Context<Self>) {
+        self.edit_run_form(
+            |form| {
+                form.existing = existing;
+                form.target_ended = None;
+            },
+            cx,
+        );
+    }
+
     /// After a listing: a session picked as the form's target that is gone (stopped, or its
-    /// account is no longer the active one) is unpicked, so the form shows the new session
-    /// it would create instead of deploying to a name that fails.
+    /// account is no longer the active one) is unpicked, and the form says that the run would
+    /// now start a new session instead of failing on a name that no longer exists.
     pub(crate) fn drop_gone_run_target(&mut self) {
         let Some(name) = self
             .run_form
             .as_ref()
-            .and_then(|form| form.existing.as_ref())
+            .and_then(|form| form.existing.clone())
         else {
             return;
         };
-        let gone = self.runtimes().ready().is_some_and(|view| {
-            // An account that could not be listed says nothing about its sessions.
-            view.errors.is_empty()
-                && !view.runtimes.iter().any(|runtime| {
-                    runtime.on_active_account
-                        && runtime.managed
-                        && runtime.id.name.as_ref() == Some(name)
-                })
+        let Some(view) = self.runtimes().ready() else {
+            return;
+        };
+        // Only the active account's sessions can be picked, so only its listing counts: without
+        // it (or without knowing which account that is) nothing says the session is gone.
+        let listed = self
+            .accounts()
+            .ready()
+            .and_then(|accounts| accounts.active.as_ref())
+            .is_some_and(|active| !view.errors.iter().any(|failed| &failed.account == active));
+        let live = view.runtimes.iter().any(|runtime| {
+            runtime.on_active_account
+                && runtime.managed
+                && runtime.id.name.as_deref() == Some(name.as_str())
         });
-        if gone && let Some(form) = &mut self.run_form {
+        if listed
+            && !live
+            && let Some(form) = &mut self.run_form
+        {
+            log::info!("plugins: the run form's session {name} has ended; back to a new session");
             form.existing = None;
+            form.target_ended = Some(name);
         }
     }
 

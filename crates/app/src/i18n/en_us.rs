@@ -891,6 +891,10 @@ pub(super) const MESSAGES: Messages = &[
     ),
     (RUN_TARGET_NEW, "A new session"),
     (
+        RUN_TARGET_ENDED,
+        "{name} has ended. Deploy now starts a new session, which is billed.",
+    ),
+    (
         RUN_EXISTING_NOTE,
         "It runs on that session as it is; its limits and auto-stop stay as they are.",
     ),

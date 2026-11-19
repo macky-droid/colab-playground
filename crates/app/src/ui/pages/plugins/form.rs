@@ -466,9 +466,7 @@ fn target_card(
             .selected(form.existing.clone().unwrap_or_default())
             .on_change(move |value, _, cx| {
                 let existing = (!value.is_empty()).then(|| value.to_string());
-                pick.update(cx, |state, cx| {
-                    state.edit_run_form(|form| form.existing = existing, cx)
-                })
+                pick.update(cx, |state, cx| state.pick_run_target(existing, cx))
             }),
     );
     let mut card = Card::new()
@@ -476,6 +474,15 @@ fn target_card(
             CardHeader::new(tr(cx, keys::RUN_TARGET)).description(tr(cx, keys::RUN_TARGET_HINT)),
         )
         .child(tagged("run-target", target));
+    if let Some(name) = &form.target_ended {
+        card = card.child(tagged(
+            "run-target-ended",
+            InlineMessage::new(
+                Severity::Warning,
+                tr_args(cx, keys::RUN_TARGET_ENDED, &[("name", name)]),
+            ),
+        ));
+    }
     if form.existing.is_none()
         && let Some(limit) = state.session_limit_reached()
     {
