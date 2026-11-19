@@ -101,6 +101,16 @@ impl PluginRun {
     }
 }
 
+/// Lines of a run's log the app keeps. The log view lays out every line it has on each frame,
+/// and a script can write for as long as its runtime lives.
+const RUN_LOG_LINES_KEPT: usize = 5_000;
+
+/// Makes room in `log` before more lines are added to it.
+fn drop_oldest_log_lines(log: &mut Vec<String>) {
+    let extra = log.len().saturating_sub(RUN_LOG_LINES_KEPT);
+    log.drain(..extra);
+}
+
 impl AppState {
     pub fn plugin_view(&self) -> PluginView {
         self.plugin_view
@@ -371,6 +381,7 @@ impl AppState {
         let Some(run) = &mut self.plugin_run else {
             return;
         };
+        drop_oldest_log_lines(&mut run.log);
         match event {
             PluginRunEvent::Provision(event) => run.provision.push(event, at),
             PluginRunEvent::Launched { session, .. } => run.session = Some(session),
@@ -509,4 +520,22 @@ fn missing_required(
                 && !matches!(inputs.get(&input.id), Some(InputValue::Number(_) | InputValue::Bool(_)))
         })
         .map(|input| input.id.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_long_log_keeps_its_newest_lines() {
+        let mut log: Vec<String> = (0..RUN_LOG_LINES_KEPT + 3).map(|i| i.to_string()).collect();
+        drop_oldest_log_lines(&mut log);
+        assert_eq!(log.len(), RUN_LOG_LINES_KEPT);
+        assert_eq!(log[0], "3");
+        assert_eq!(log.last().unwrap(), &(RUN_LOG_LINES_KEPT + 2).to_string());
+
+        let mut short = vec!["a".to_owned()];
+        drop_oldest_log_lines(&mut short);
+        assert_eq!(short, ["a"]);
+    }
 }
