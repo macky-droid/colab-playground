@@ -912,6 +912,36 @@ fn extend_adds_to_the_time_left(cx: &mut TestAppContext) {
     );
 }
 
+/// An extension the listing on screen does not show yet (the Extend button is free again as
+/// soon as its call returns, before the list is read again) is not lost to the next one.
+#[gpui::test]
+fn extend_adds_to_an_extension_the_listing_does_not_show_yet(cx: &mut TestAppContext) {
+    use colab_playground::ui::pages::sessions::extend_selector;
+    let mut app = TestApp::new(cx);
+    on_sessions(&mut app);
+    let before = time_left(&mut app, "a100-7f3a").expect("the demo session has an auto-stop");
+    let target = app.read(|state, _| {
+        let view = state.runtimes().ready().expect("the runtimes are listed");
+        view.runtimes
+            .iter()
+            .find(|r| r.id.name.as_deref() == Some("a100-7f3a"))
+            .map(|r| r.id.clone())
+            .expect("the demo session is listed")
+    });
+    let two_hours = Duration::from_secs(2 * 3600);
+    app.mock
+        .extend_session(&target, two_hours, &CancelToken::new())
+        .expect("the first extension");
+    assert_eq!(
+        time_left(&mut app, "a100-7f3a"),
+        Some(before),
+        "the listing on screen is the one from before"
+    );
+    app.click(&extend_selector("a100-7f3a"));
+    let after = time_left(&mut app, "a100-7f3a").expect("still an auto-stop");
+    assert_close(after, before + 2 * two_hours, "after two extensions");
+}
+
 #[gpui::test]
 fn extend_never_pulls_a_longer_auto_stop_in(cx: &mut TestAppContext) {
     use colab_playground::ui::pages::sessions::extend_selector;
