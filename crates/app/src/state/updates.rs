@@ -297,7 +297,9 @@ impl AppState {
         let Some(release) = self.available_release() else {
             return;
         };
-        if !self.can_self_update() || self.overlay.is_some() {
+        // A cancelled download still winding down would close the new dialog when it returns
+        // (usually at once).
+        if !self.can_self_update() || self.overlay.is_some() || self.is_busy(Op::UpdateInstall) {
             return;
         }
         self.overlay = Some(Overlay::Update(UpdatePrompt {

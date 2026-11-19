@@ -25,6 +25,13 @@ const LINUX_DOCS: [&str; 2] = ["LICENSE", "README.md"];
 /// The file in a staging folder that its update keeps locked while it uses the folder.
 const LOCK_FILE: &str = "lock";
 
+/// Marks a staging folder that holds an old version a failed undo could not put back.
+const KEPT_FILE: &str = "kept";
+
+/// Where a swap moves the running program (Windows) or bundle (macOS) in the staging folder.
+const PREVIOUS_EXE: &str = "previous.exe";
+const PREVIOUS_APP: &str = "previous.app";
+
 fn io_error(error: io::Error, path: &Path) -> Error {
     Error::from(error).with("path", path.display())
 }
@@ -74,9 +81,10 @@ pub fn is_staging_name(name: &str) -> bool {
 }
 
 /// Removes the staging folders earlier updates left in `folder`, the replaced version among
-/// them, and nothing else. Returns how many are still there: one an update still uses (in this
-/// copy of the app or another), or one holding a program that is still exiting (Windows cannot
-/// delete it yet).
+/// them, and nothing else: a folder still holding an old version that a failed undo could not
+/// put back stays until that version has been moved out. Returns how many could not be removed
+/// yet: one an update still uses (in this copy of the app or another), or one holding a program
+/// that is still exiting (Windows cannot delete it yet).
 pub fn remove_leftovers(folder: &Path) -> usize {
     let Ok(entries) = fs::read_dir(folder) else {
         return 0;
@@ -90,11 +98,22 @@ pub fn remove_leftovers(folder: &Path) -> usize {
             continue;
         }
         let stage = entry.path();
+        if holds_kept_version(&stage) {
+            continue;
+        }
         if in_use(&stage) || fs::remove_dir_all(&stage).is_err() {
             left += 1;
         }
     }
     left
+}
+
+/// Whether `stage` still holds the old version of a failed undo (see [`kept`]).
+fn holds_kept_version(stage: &Path) -> bool {
+    stage.join(KEPT_FILE).exists()
+        && [PREVIOUS_EXE, PREVIOUS_APP]
+            .iter()
+            .any(|name| stage.join(name).exists())
 }
 
 /// Whether an update still holds `stage` (see [`Staging`]).
@@ -112,17 +131,26 @@ fn swap_aside(target: &Path, new: &Path, aside: &Path) -> Result<()> {
         let error = io_error(error, target);
         return Err(match fs::rename(aside, target) {
             Ok(()) => error,
-            Err(_) => error.with("previous", aside.display()),
+            Err(_) => kept(aside, error),
         });
     }
     Ok(())
+}
+
+/// After a failed undo, `aside` holds the only copy of the old version: marks its folder so
+/// that cleanup keeps it, and names it in `error`.
+fn kept(aside: &Path, error: Error) -> Error {
+    if let Some(stage) = aside.parent() {
+        let _ = File::create(stage.join(KEPT_FILE));
+    }
+    error.with("previous", aside.display())
 }
 
 /// Windows: a running program cannot be overwritten or deleted, but it can be renamed. Moves
 /// the running `exe` into `stage` and `new` to where it was; the old file is deleted on the
 /// next start ([`remove_leftovers`]).
 pub fn swap_exe(exe: &Path, new: &Path, stage: &Path) -> Result<()> {
-    swap_aside(exe, new, &stage.join("previous.exe"))
+    swap_aside(exe, new, &stage.join(PREVIOUS_EXE))
 }
 
 /// Linux: unpacks the program, and the documents beside it, from the release archive into
@@ -214,7 +242,7 @@ pub fn find_bundle(unpacked: &Path, root: &str) -> Result<PathBuf> {
 /// macOS: moves the running bundle `app` into `stage` and `new` to where it was. The old
 /// bundle is deleted on the next start ([`remove_leftovers`]), not while it still runs.
 pub fn swap_bundle(app: &Path, new: &Path, stage: &Path) -> Result<()> {
-    swap_aside(app, new, &stage.join("previous.app"))
+    swap_aside(app, new, &stage.join(PREVIOUS_APP))
 }
 
 #[cfg(test)]
@@ -309,6 +337,22 @@ pub(crate) mod tests {
         let path = stage.path().to_owned();
         stage.remove();
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn cleanup_keeps_an_old_version_that_could_not_be_put_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let stage = create_staging(dir.path()).unwrap().release();
+        let previous = stage.join(PREVIOUS_EXE);
+        fs::write(&previous, b"old").unwrap();
+        let error = kept(&previous, Error::new(ErrorKind::Io));
+        let named = previous.display().to_string();
+        assert_eq!(error.param("previous"), Some(named.as_str()));
+        assert_eq!(remove_leftovers(dir.path()), 0, "kept, not waited for");
+        assert!(previous.exists(), "the only copy of the old version stays");
+        fs::rename(&previous, dir.path().join("colab-playground.exe")).unwrap();
+        assert_eq!(remove_leftovers(dir.path()), 0);
+        assert!(!stage.exists(), "once moved back, the folder is a leftover");
     }
 
     #[test]

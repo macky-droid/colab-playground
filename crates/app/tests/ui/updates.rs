@@ -363,6 +363,28 @@ fn a_cancelled_download_changes_nothing(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn the_dialog_opens_again_only_once_a_cancelled_download_has_returned(cx: &mut TestAppContext) {
+    // The demo scenario has runtimes billing, so a quit asks first.
+    let mut app = confirming(cx, MockFailures::default());
+    app.update_and_draw(|state, cx| {
+        state.confirm_update(cx);
+        state.request_quit(cx);
+        assert!(matches!(state.overlay(), Some(Overlay::Quit(_))));
+        state.close_overlay(cx);
+        state.begin_update(cx);
+        assert!(
+            state.update_prompt().is_none(),
+            "not while the cancelled download is still returning"
+        );
+    });
+    app.settle();
+    assert_eq!(app.mock.update_installs(), 0);
+    app.click(UPDATE_NOTICE_INSTALL);
+    app.settle();
+    assert!(app.shown("update-phase confirm"), "and it stays open");
+}
+
+#[gpui::test]
 fn a_cancel_once_the_new_version_is_being_put_in_place_does_not_stop_it(cx: &mut TestAppContext) {
     // The simulation waits once to prepare, sixteen times to download, once to check and once
     // to put the new version in place.
