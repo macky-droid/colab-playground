@@ -310,3 +310,32 @@ fn outcome<R>(result: &Result<R>) -> String {
         Err(error) => error.kind.as_str().to_owned(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Op, Ops};
+
+    #[test]
+    fn a_cancel_says_whether_the_call_will_stop() {
+        let mut ops = Ops::default();
+        assert!(
+            ops.cancel(Op::UpdateInstall),
+            "nothing runs: nothing to wait for"
+        );
+        let worker = ops.start(Op::UpdateInstall).expect("started");
+        worker.commit().unwrap();
+        assert!(
+            !ops.cancel(Op::UpdateInstall),
+            "past its point of no return it runs to its end"
+        );
+        assert!(!ops.is_cancelling(Op::UpdateInstall));
+        ops.finish(Op::UpdateInstall);
+
+        let worker = ops.start(Op::UpdateInstall).expect("started again");
+        assert!(ops.cancel(Op::UpdateInstall));
+        assert!(
+            worker.commit().is_err(),
+            "a cancel first keeps it from committing"
+        );
+    }
+}
