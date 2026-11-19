@@ -2510,6 +2510,11 @@ mod tests {
         assert!(v.accounts.is_empty() && v.active.is_none());
     }
 
+    /// How long [`HeldRetry`] holds on its own, and how long the test waits for an event in
+    /// that time: well inside it, so nothing sent after the hold can be taken for one.
+    const HELD_AT_MOST: Duration = Duration::from_secs(60);
+    const TOLD_WITHIN: Duration = Duration::from_secs(10);
+
     /// A clock that holds the wait before a retry until the test lets it go.
     struct HeldRetry {
         inner: ManualClock,
@@ -2527,11 +2532,7 @@ mod tests {
             if duration == self.held {
                 let _ = self.waiting.lock().unwrap().send(());
                 // Never forever: the test lets it go, or this gives up.
-                let _ = self
-                    .go
-                    .lock()
-                    .unwrap()
-                    .recv_timeout(Duration::from_secs(30));
+                let _ = self.go.lock().unwrap().recv_timeout(HELD_AT_MOST);
             }
             self.inner.sleep(duration, cancel)
         }
@@ -2565,16 +2566,20 @@ mod tests {
         std::thread::scope(|scope| {
             let run = scope.spawn(|| m.run_plugin(spec, tx, &nc()));
             at_the_wait
-                .recv_timeout(Duration::from_secs(30))
+                .recv_timeout(TOLD_WITHIN)
                 .expect("the first GPU is too small, so the run waits to ask again");
             // Still waiting to ask again, and what happened so far is already out.
-            let told =
-                std::iter::from_fn(|| rx.recv_timeout(Duration::from_secs(30)).ok()).any(|event| {
-                    matches!(
-                        event,
-                        PluginRunEvent::Provision(ProvisionEvent::Retrying { .. })
-                    )
-                });
+            let until = std::time::Instant::now() + TOLD_WITHIN;
+            let next = || {
+                let left = until.saturating_duration_since(std::time::Instant::now());
+                rx.recv_timeout(left).ok()
+            };
+            let told = std::iter::from_fn(next).any(|event| {
+                matches!(
+                    event,
+                    PluginRunEvent::Provision(ProvisionEvent::Retrying { .. })
+                )
+            });
             go.send(()).unwrap();
             assert!(told, "the retry is only reported once provisioning is over");
             assert_eq!(run.join().unwrap().unwrap().status.state, RunState::Ready);
