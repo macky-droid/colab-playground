@@ -33,11 +33,6 @@ pub(super) const MESSAGES: Messages = &[
         PLUGINS_SUBTITLE,
         "Scripts that run on your Colab runtime, such as a llama.cpp server.",
     ),
-    (PLUGINS_EMPTY_TITLE, "No plugins yet"),
-    (
-        PLUGINS_EMPTY_BODY,
-        "Bundled and installed plugins will be listed here.",
-    ),
     (ACCOUNTS_SUBTITLE, "Google accounts used by the Colab CLI."),
     (ACCOUNTS_EMPTY_TITLE, "No accounts yet"),
     (
@@ -108,7 +103,6 @@ pub(super) const MESSAGES: Messages = &[
     (ACTION_CANCEL, "Cancel"),
     (ACTION_CLOSE, "Close"),
     (ACTION_RETRY, "Try again"),
-    (ACTION_REFRESH, "Refresh"),
     (ACTION_CHECK_AGAIN, "Check again"),
     (ACTION_DISMISS, "Dismiss"),
     (ACTION_INSTALL_CLI, "Install the Colab CLI"),
@@ -431,7 +425,7 @@ pub(super) const MESSAGES: Messages = &[
     (HOST_PATH_PLACEHOLDER, "Found automatically"),
     (HOST_APPLY, "Apply"),
     (
-        HOST_BOTH_NEEDED,
+        HOST_INTERPRETER_ALONE,
         "Set the colab path too, or leave the interpreter empty.",
     ),
     (HOST_MOCK_NOTE, "Demo data ignores these settings."),
@@ -539,9 +533,6 @@ pub(super) const MESSAGES: Messages = &[
     (ERR_OTHER, "Something went wrong."),
     (NS_TRY_AGAIN, "Try again."),
     (NS_RETRY_LATER, "Try again in a little while."),
-    (NS_SWITCH_ACCOUNT, "Switch to the account that owns it."),
-    (NS_ADD_ACCOUNT, "Add or save an account first."),
-    (NS_SIGN_IN_AGAIN, "Sign in again."),
     (
         NS_UNLOCK_KEYRING,
         "Unlock or set up your system keyring, then check again.",
@@ -553,12 +544,10 @@ pub(super) const MESSAGES: Messages = &[
         NS_CLOSE_CONNECTION,
         "Close the other connection to this runtime.",
     ),
-    (NS_INSTALL_CLI, "Install the Colab CLI."),
     (NS_INSTALL_WSL, "Install WSL with a Linux distribution."),
     (NS_UPDATE_APP, "Update Colab Playground."),
     (NS_CHECK_INPUT, "Check what you entered."),
     (NS_CHECK_NETWORK, "Check your network connection."),
-    (NS_REFRESH, "Refresh to see the current state."),
     (
         NS_REVIEW_RUNTIMES,
         "Check the list of runtimes; one may still be billing.",
@@ -747,7 +736,6 @@ pub(super) const MESSAGES: Messages = &[
         PROV_READY_BELOW,
         "Kept {hardware} although it is below the minimum (as chosen).",
     ),
-    (PROV_FAILED, "Gave up: {why}"),
     // Port forwarding
     (FORWARD_TITLE, "Forward a port"),
     (FORWARD_INTRO, "Reach a port on {name} from this computer."),
@@ -910,6 +898,10 @@ pub(super) const MESSAGES: Messages = &[
     (RUN_PROVISIONING, "Getting a runtime"),
     (RUN_STAGES, "Progress"),
     (RUN_LOG, "Log"),
+    (
+        RUN_LOG_SKIPPED,
+        "Part of the log is not shown here: the script wrote faster than the app can read. The whole log is {path} on the runtime.",
+    ),
     (RUN_OUTPUTS, "Details"),
     (RUN_READY, "Ready. Its addresses are below."),
     (RUN_FAILED, "The deployment failed"),

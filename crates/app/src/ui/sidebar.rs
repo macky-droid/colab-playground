@@ -20,7 +20,7 @@ use crate::{
     i18n::{keys, tr, tr_args},
     route::Route,
     state::{AppState, SignInStatus, usage_is_stale, usage_stale_note},
-    ui::tagged,
+    ui::{tagged, usage::eta},
 };
 
 pub const ACCOUNT_SLOT_SELECTOR: &str = "sidebar-account";
@@ -94,20 +94,14 @@ fn account_slot(state: &AppState, handle: &Entity<AppState>, cx: &App) -> impl I
             ))
             .into_any_element();
     };
-    let no_email = tr(cx, keys::ACCOUNTS_NO_EMAIL);
-    let label = state
-        .active_email()
-        .map_or(no_email.clone(), SharedString::from);
+    let label = SharedString::from(format::email(cx, state.active_email().as_deref()));
     let switches: Vec<MenuItem> = view
         .accounts
         .iter()
         .map(|account| {
             let active = view.active.as_ref() == Some(&account.id);
             let (id, handle) = (account.id.clone(), handle.clone());
-            let email = account
-                .email
-                .clone()
-                .map_or(no_email.clone(), SharedString::from);
+            let email = format::email(cx, account.email.as_deref());
             MenuItem::radio(email, active).on_click(move |_, cx| {
                 if !active {
                     handle.update(cx, |state, cx| state.request_switch(id.clone(), cx));
@@ -260,7 +254,7 @@ pub fn usage_tip(usage: Option<&AccountUsageView>, state: &AppState, cx: &App) -
         return tr(cx, keys::USAGE_TIP_UNKNOWN);
     };
     let mut lines = vec![tr(cx, keys::SHELL_USAGE_HINT)];
-    lines.push(match usage.and_then(|usage| usage.eta).or(snapshot.eta()) {
+    lines.push(match eta(usage, &snapshot) {
         None => tr(cx, keys::USAGE_TIP_IDLE),
         Some(eta) if eta.is_zero() => tr(cx, keys::USAGE_TIP_EMPTY),
         Some(eta) => tr_args(

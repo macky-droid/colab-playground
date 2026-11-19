@@ -122,9 +122,12 @@ map to the same name are rejected. Missing optional inputs are simply absent.
 
 `.py` scripts run with the VM's Python (`python -u`), `.sh` scripts with
 `bash`. stdout and stderr go to `$PLUGIN_RUN_DIR/run.log`, which the app
-tails (secrets the host knows are replaced by `***` before display). The
-script runs in its own session and process group, detached from the kernel,
-so it survives dropped connections.
+tails (secrets the host knows are replaced by `***` before display). The app
+shows the log up to its end. When a script writes faster than the app reads,
+the oldest unread part is left out and a line in the shown log says so: send
+heavy output, such as the progress of a download, to a file of its own in the
+run directory. The script runs in its own session and process group, detached
+from the kernel, so it survives dropped connections.
 
 ### Capabilities (`needs`)
 

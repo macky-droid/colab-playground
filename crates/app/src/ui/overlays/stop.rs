@@ -9,11 +9,11 @@ use ely_gpui_component::{
 };
 use gpui::{AnyElement, App, Entity, IntoElement, ParentElement};
 
-use super::{cancel_button, close};
 use crate::{
+    format,
     i18n::{keys, tr, tr_args},
     state::{AppState, StopPrompt},
-    ui::{error_view, tagged},
+    ui::{error_view, parts::Layer, tagged},
 };
 
 pub const STOP_CONFIRM: &str = "stop-confirm";
@@ -24,22 +24,23 @@ pub(super) fn render(
     handle: &Entity<AppState>,
     cx: &App,
 ) -> AnyElement {
-    let email = prompt
-        .email
-        .clone()
-        .unwrap_or_else(|| tr(cx, keys::ACCOUNTS_NO_EMAIL).to_string());
+    let email = format::email(cx, prompt.email.as_deref());
     let stopping = state.is_stopping(&prompt.target);
     let (cancel, confirm) = (tr(cx, keys::ACTION_CANCEL), tr(cx, keys::STOP_ACTION));
-    let mut dialog = Dialog::new("stop-runtime", tr(cx, keys::STOP_TITLE), close(handle))
-        .child(Paragraph::new(tr_args(
-            cx,
-            keys::STOP_BODY,
-            &[("name", &prompt.label), ("email", &email)],
-        )))
-        .child(InlineMessage::new(
-            Severity::Warning,
-            tr(cx, keys::STOP_WIPED),
-        ));
+    let mut dialog = Dialog::new(
+        "stop-runtime",
+        tr(cx, keys::STOP_TITLE),
+        Layer::Overlay.close(handle),
+    )
+    .child(Paragraph::new(tr_args(
+        cx,
+        keys::STOP_BODY,
+        &[("name", &prompt.label), ("email", &email)],
+    )))
+    .child(InlineMessage::new(
+        Severity::Warning,
+        tr(cx, keys::STOP_WIPED),
+    ));
     if let Some(error) = &prompt.error {
         dialog = dialog.child(error_view::alert("stop", None, error, None, handle, cx));
     }
@@ -47,7 +48,7 @@ pub(super) fn render(
     dialog
         .action({
             let handle = handle.clone();
-            move |_| cancel_button(cancel, handle)
+            move |_| Layer::Overlay.cancel_button(cancel, handle)
         })
         .action(move |_| {
             tagged(
@@ -80,7 +81,7 @@ pub(super) fn cancel_auto_stop(
     let mut dialog = Dialog::new(
         "cancel-auto-stop",
         tr(cx, keys::CANCEL_AUTO_STOP_TITLE),
-        close(handle),
+        Layer::Overlay.close(handle),
     )
     .child(InlineMessage::new(
         Severity::Warning,
@@ -105,7 +106,7 @@ pub(super) fn cancel_auto_stop(
     dialog
         .action({
             let handle = handle.clone();
-            move |_| cancel_button(keep, handle)
+            move |_| Layer::Overlay.cancel_button(keep, handle)
         })
         .action(move |_| {
             tagged(

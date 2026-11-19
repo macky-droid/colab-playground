@@ -137,6 +137,8 @@ pub fn next_step(step: NextStep, can_retry: bool) -> (Option<ErrorAction>, Optio
         S::ReviewRuntimes => (None, Some(keys::NS_REVIEW_RUNTIMES)),
         S::ViewLog => (None, Some(keys::NS_VIEW_LOG)),
         S::ReportProblem => (None, Some(keys::NS_REPORT_PROBLEM)),
+        // `NextStep` is `#[non_exhaustive]`, so the compiler asks for this arm: a step core
+        // adds offers nothing here until it gets an arm of its own.
         _ => (None, None),
     }
 }

@@ -78,6 +78,14 @@ pub fn age(cx: &App, then: SystemTime, now: SystemTime) -> SharedString {
     }
 }
 
+/// An account's email, or "Unknown email" for an account that has none.
+pub fn email(cx: &App, email: Option<&str>) -> String {
+    email.map_or_else(
+        || tr(cx, keys::ACCOUNTS_NO_EMAIL).to_string(),
+        str::to_owned,
+    )
+}
+
 pub fn list(cx: &App, items: &[String]) -> String {
     items.join(&tr(cx, keys::FMT_LIST_SEPARATOR))
 }

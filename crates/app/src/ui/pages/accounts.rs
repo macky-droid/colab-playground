@@ -2,17 +2,14 @@
 //! and the states around them (CLI missing, keyring unavailable, an unsaved CLI account, an
 //! interrupted sign-in).
 
-use std::rc::Rc;
-
 use colab_playground_core::backend::AccountUsageView;
 use ely_gpui_component::{
     buttons::{Button, ButtonVariant, IconButton},
     data_display::{Badge, Tone},
     feedback::{Alert, EmptyState, InlineMessage},
     layout::{Card, CardHeader, Page},
-    motion::Spinner,
     primitives::{IconName, Severity, Tooltip},
-    theme::{ActiveTheme, ControlSize, IconSize, TextSize},
+    theme::{ActiveTheme, ControlSize, TextSize},
     typography::Caption,
 };
 use gpui::{
@@ -26,7 +23,12 @@ use crate::{
     i18n::{keys, tr, tr_args},
     route::Route,
     state::{AccountRow, AppState, Op, RemoveBlock, SignInStatus, usage_is_stale},
-    ui::{error_view, metrics, pages::overview::unmanaged_warning, tagged},
+    ui::{
+        error_view, metrics,
+        parts::{busy_line, captioned, figure},
+        tagged,
+        usage::{self, unmanaged_warning},
+    },
 };
 
 /// Selector around "Add account" in the page header.
@@ -72,14 +74,10 @@ pub fn render(state: &AppState, handle: &Entity<AppState>, cx: &App) -> Page {
             .on_click(move |_, _, cx| add.update(cx, |state, cx| state.open_add_account(cx))),
     ));
     match status {
-        SignInStatus::Checking => page.child(
-            div()
-                .flex()
-                .items_center()
-                .gap_2()
-                .child(Spinner::new("accounts-loading").size(IconSize::Sm))
-                .child(Caption::new(tr(cx, keys::ACCOUNTS_LOADING))),
-        ),
+        SignInStatus::Checking => page.child(busy_line(
+            "accounts-loading",
+            tr(cx, keys::ACCOUNTS_LOADING),
+        )),
         SignInStatus::NeedsCli => {
             let go = handle.clone();
             page.child(
@@ -119,10 +117,7 @@ pub fn render(state: &AppState, handle: &Entity<AppState>, cx: &App) -> Page {
             ))
         }
         SignInStatus::Failed(error) => {
-            let retry: error_view::Retry = {
-                let handle = handle.clone();
-                Rc::new(move |_, cx| handle.update(cx, |state, cx| state.load_accounts(cx)))
-            };
+            let retry = error_view::retry(handle, AppState::load_accounts);
             page.child(error_view::alert(
                 "accounts",
                 None,
@@ -223,29 +218,12 @@ fn totals(state: &AppState, handle: &Entity<AppState>, cx: &App) -> AnyElement {
         }
     };
     let known = summary.known > 0;
-    let missing = match summary.unknown {
-        0 => None,
-        1 => Some(tr(cx, keys::ACCOUNTS_TOTAL_MISSING_ONE)),
-        count => Some(tr_args(
-            cx,
-            keys::ACCOUNTS_TOTAL_MISSING_MANY,
-            &[("count", &count.to_string())],
-        )),
-    };
+    let missing = (summary.unknown > 0).then(|| usage::accounts_missing(summary.unknown, cx));
     let cell = |label: &str, text: SharedString| {
-        div()
+        captioned(tr(cx, label), figure(text, TextSize::Lg, cx))
             .flex_1()
             .min_w(theme.label_width())
-            .flex()
-            .flex_col()
             .gap_1()
-            .child(Caption::new(tr(cx, label)))
-            .child(
-                div()
-                    .text_size(theme.text_size(TextSize::Lg))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(text),
-            )
     };
     let balance = value(known, format::cu(cx, summary.balance_cu));
     let rate = value(known, format::cu_rate(cx, summary.rate_cu_per_hour));
@@ -297,11 +275,7 @@ fn account_card(
     cx: &App,
 ) -> AnyElement {
     let theme = cx.theme();
-    let email = row
-        .account
-        .email
-        .clone()
-        .unwrap_or_else(|| tr(cx, keys::ACCOUNTS_NO_EMAIL).to_string());
+    let email = format::email(cx, row.account.email.as_deref());
     let mut actions = div().flex().items_center().gap_2();
     if !row.active {
         let (switch, id) = (handle.clone(), row.account.id.clone());
@@ -386,21 +360,13 @@ fn usage_stats(usage: Option<&AccountUsageView>, state: &AppState, cx: &App) -> 
     let snapshot = usage.and_then(|usage| usage.snapshot);
     let unknown = || tr(cx, keys::SUMMARY_UNKNOWN);
     let cell = |label: &str, text: SharedString| {
-        div()
-            .min_w(metrics::usage_figure_min_width(theme))
-            .flex()
-            .flex_col()
-            .child(Caption::new(tr(cx, label)))
-            .child(div().font_weight(FontWeight::MEDIUM).child(text))
+        captioned(
+            tr(cx, label),
+            div().font_weight(FontWeight::MEDIUM).child(text),
+        )
+        .min_w(metrics::usage_figure_min_width(theme))
     };
-    let left = match snapshot {
-        None => unknown(),
-        Some(snapshot) => match usage.and_then(|usage| usage.eta).or(snapshot.eta()) {
-            None => tr(cx, keys::SUMMARY_NOT_BURNING),
-            Some(eta) if eta.is_zero() => tr(cx, keys::SUMMARY_EMPTY),
-            Some(eta) => format::approx(cx, &format::duration(cx, eta)),
-        },
-    };
+    let left = usage::time_left(usage, cx);
     let updated = match (snapshot, state.usage_now()) {
         (Some(snapshot), Some(now)) => format::age(cx, snapshot.fetched_at, now),
         _ => unknown(),
