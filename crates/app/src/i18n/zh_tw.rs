@@ -777,6 +777,10 @@ pub(super) const MESSAGES: Messages = &[
     (RUN_PROVISIONING, "正在取得執行階段"),
     (RUN_STAGES, "進度"),
     (RUN_LOG, "記錄"),
+    (
+        RUN_LOG_SKIPPED,
+        "部分記錄未在此顯示：指令碼寫入的速度超過了應用程式讀取的速度。完整記錄位於執行階段上的 {path}。",
+    ),
     (RUN_OUTPUTS, "詳細資料"),
     (RUN_READY, "已就緒，存取位址見下方。"),
     (RUN_FAILED, "部署失敗"),

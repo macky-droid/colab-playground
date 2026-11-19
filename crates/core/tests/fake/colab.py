@@ -247,22 +247,36 @@ def simulate(code, env, s, ep, a):
         run = s["runs"].get(env.get("CPG_RUN_ID", ""))
         if run is None:
             return {"status": None, "alive": False, "log": "", "offset": 0}
-        n = run["polls"]
-        run["polls"] = n + 1
         stages = s["knobs"]["plugin_stages"]
         fail = s["knobs"]["plugin_fail_stage"]
         secret = run["env"].get("PLUGIN_HF_TOKEN") or run["env"].get("PLUGIN_INPUT_API_KEY") or ""
-        log = "poll %d (debug secret=%s)\n" % (n, secret)
+        # A poll returns one log line. The script takes a step, and writes its lines, only once
+        # the log it wrote before has been read; after the step that fails it writes a last line
+        # and exits.
+        lines = run.setdefault("log", [])
+        off = int(env.get("CPG_LOG_OFFSET") or 0)
+        if off >= len(lines) and not run.get("exited"):
+            if fail in stages[:run["polls"]]:
+                lines.append("exiting after the failure\n")
+                run["exited"] = True
+            else:
+                lines.append("poll %d (debug secret=%s)\n" % (run["polls"], secret))
+                lines.extend("poll %d line %d\n" % (run["polls"], i) for i in range(s["knobs"]["plugin_log_backlog"]))
+                run["polls"] += 1
+        n = run["polls"] - 1
+        log = {"log": "".join(lines[off:off + 1]), "offset": min(off + 1, len(lines)), "size": len(lines),
+               "skipped": 0 if off else s["knobs"]["plugin_log_skipped"]}
         if run["killed"]:
-            return {"status": {"state": "failed", "stage": None, "message": "stopped"}, "alive": False, "log": log, "offset": n + 1}
+            return dict(log, status={"state": "failed", "stage": None, "message": "stopped"}, alive=False)
+        if fail in stages[:n + 1]:
+            st = {"state": "failed", "stage": fail, "message": "simulated failure (token %s)" % secret}
+            return dict(log, status=st, alive=not run.get("exited"))
         if n < len(stages):
             st = {"state": "running", "stage": stages[n], "progress": 0.5, "message": "working on " + stages[n]}
-            if stages[n] == fail:
-                st = {"state": "failed", "stage": stages[n], "message": "simulated failure (token %s)" % secret}
-            return {"status": st, "alive": True, "log": log, "offset": n + 1}
+            return dict(log, status=st, alive=True)
         ready = {"state": "ready", "stage": stages[-1], "progress": 1.0, "message": "ready",
                  "outputs": {"model_id": "fake-model", "quant": "Q8_0" if (a.get("vram") or 0) > 70000 else "Q4_K_M"}}
-        return {"status": ready, "alive": True, "log": log, "offset": n + 1}
+        return dict(log, status=ready, alive=True)
     if "os.killpg" in code:
         run = s["runs"].get(env.get("CPG_RUN_ID", ""))
         if run:

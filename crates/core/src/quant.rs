@@ -118,15 +118,18 @@ fn is_quant_token(t: &str) -> bool {
 }
 
 fn strip_shard_suffix(stem: &str) -> &str {
-    // "-00001-of-00003"
+    // "-00001-of-00003". Matched on bytes: the name can hold multi-byte
+    // characters, so a byte offset into it is not always a `str` boundary.
+    const SUFFIX_LEN: usize = 15;
     let b = stem.as_bytes();
-    if b.len() >= 15 {
-        let tail = &stem[stem.len() - 15..];
-        let tb = tail.as_bytes();
-        let digits = |r: std::ops::Range<usize>| tb[r].iter().all(u8::is_ascii_digit);
-        if tb[0] == b'-' && digits(1..6) && &tail[6..10] == "-of-" && digits(10..15) {
-            return &stem[..stem.len() - 15];
-        }
+    let Some(start) = b.len().checked_sub(SUFFIX_LEN) else {
+        return stem;
+    };
+    let tail = &b[start..];
+    let digits = |r: std::ops::Range<usize>| tail[r].iter().all(u8::is_ascii_digit);
+    if tail[0] == b'-' && digits(1..6) && &tail[6..10] == b"-of-" && digits(10..15) {
+        // The suffix is ASCII, so it starts on a boundary.
+        return &stem[..start];
     }
     stem
 }
@@ -423,6 +426,33 @@ mod tests {
         );
         assert_eq!(quant_label("README.md"), None);
         assert_eq!(quant_label("model.gguf"), None);
+    }
+
+    #[test]
+    fn labels_of_non_ascii_names() {
+        // Multi-byte characters at the byte offsets where a shard suffix
+        // would start, and inside it.
+        assert_eq!(quant_label("模型模型模型模型模a.gguf"), None);
+        assert_eq!(quant_label("m-00001模模模.gguf"), None);
+        assert_eq!(
+            quant_label("模型模型模型模型-Q4_K_M.gguf").as_deref(),
+            Some("Q4_K_M")
+        );
+        assert_eq!(
+            quant_label("模型-Q8_0-00001-of-00003.gguf").as_deref(),
+            Some("Q8_0")
+        );
+        assert_eq!(strip_shard_suffix("模型-00001-of-00003"), "模型");
+
+        let l = group(&[
+            f("模型模型模型模型-Q4_K_M.gguf", 2 * GIB),
+            f("模型-Q8_0-00001-of-00002.gguf", 3 * GIB),
+            f("模型-Q8_0-00002-of-00002.gguf", GIB),
+            f("模型模型模型模型模a.gguf", GIB),
+        ]);
+        let quants: Vec<&str> = l.variants.iter().map(|v| v.quant.as_str()).collect();
+        assert_eq!(quants, ["Q8_0", "Q4_K_M"]);
+        assert_eq!(l.variants[0].files.len(), 2);
     }
 
     #[test]
