@@ -10,11 +10,10 @@ use ely_gpui_component::{
 };
 use gpui::{AnyElement, App, Entity, IntoElement, ParentElement, Styled, div};
 
-use super::{cancel_button, close};
 use crate::{
     i18n::{keys, tr},
     state::AppState,
-    ui::tagged,
+    ui::{parts::Layer, tagged},
 };
 
 /// Selector of the prompt's text.
@@ -62,16 +61,20 @@ pub(super) fn render(state: &AppState, handle: &Entity<AppState>, cx: &App) -> A
             .flex_1()
             .min_w_0(),
         );
-    Dialog::new("feedback", tr(cx, keys::FEEDBACK_TITLE), close(handle))
-        .child(tagged(
-            FEEDBACK_PROMPT,
-            Paragraph::new(tr(cx, keys::FEEDBACK_BODY)),
-        ))
-        .child(choices)
-        .child(Caption::new(tr(cx, keys::FEEDBACK_ALSO_IN_ABOUT)))
-        .action({
-            let handle = handle.clone();
-            move |_| cancel_button(dismiss, handle)
-        })
-        .into_any_element()
+    Dialog::new(
+        "feedback",
+        tr(cx, keys::FEEDBACK_TITLE),
+        Layer::Overlay.close(handle),
+    )
+    .child(tagged(
+        FEEDBACK_PROMPT,
+        Paragraph::new(tr(cx, keys::FEEDBACK_BODY)),
+    ))
+    .child(choices)
+    .child(Caption::new(tr(cx, keys::FEEDBACK_ALSO_IN_ABOUT)))
+    .action({
+        let handle = handle.clone();
+        move |_| Layer::Overlay.cancel_button(dismiss, handle)
+    })
+    .into_any_element()
 }

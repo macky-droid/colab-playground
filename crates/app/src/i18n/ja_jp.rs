@@ -979,6 +979,10 @@ pub(super) const MESSAGES: Messages = &[
     (RUN_PROVISIONING, "ランタイムを取得"),
     (RUN_STAGES, "進行状況"),
     (RUN_LOG, "ログ"),
+    (
+        RUN_LOG_SKIPPED,
+        "ログの一部はここに表示されていません。スクリプトの書き込みがアプリの読み取りより速かったためです。ログ全体はランタイムの {path} にあります。",
+    ),
     (RUN_OUTPUTS, "詳細"),
     (RUN_READY, "準備ができました。アドレスは下にあります。"),
     (RUN_FAILED, "デプロイに失敗しました"),

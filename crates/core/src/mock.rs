@@ -28,7 +28,8 @@ use crate::guard::{Decision, GuardPolicy, SpendMeter, evaluate};
 use crate::hf::HfModel;
 use crate::host::{Host, Line, ProbeReport, Stream};
 use crate::plugins::{
-    PluginInfo, PluginOrigin, PluginPreview, PluginStore, resolve_endpoints, resolve_inputs,
+    PluginInfo, PluginOrigin, PluginPreview, PluginStore, discard_preview, resolve_endpoints,
+    resolve_inputs,
 };
 use crate::provision::{
     self, Hardware, ProvisionEvent, ProvisionOps, ProvisionOutcome, ProvisionSpec,
@@ -1871,6 +1872,10 @@ impl Backend for MockBackend {
 
     fn install_plugin(&self, preview: &PluginPreview) -> Result<PluginInfo> {
         self.w().plugins.install(preview)
+    }
+
+    fn discard_plugin_preview(&self, preview: &PluginPreview) {
+        discard_preview(preview);
     }
 
     fn set_plugin_enabled(&self, id: &str, enabled: bool) -> Result<()> {

@@ -10,37 +10,26 @@ use ely_gpui_component::{
     forms::{Input, TextInput},
     overlays::Dialog,
     primitives::{IconName, Severity},
-    theme::{ActiveTheme, TextSize},
+    theme::ActiveTheme,
     typography::{Caption, Paragraph},
 };
-use gpui::{AnyElement, App, Entity, FontWeight, IntoElement, ParentElement, Styled, div};
+use gpui::{AnyElement, App, Entity, IntoElement, ParentElement, Styled, div};
 
-use super::{cancel_button, close, scrolled};
+use super::scrolled;
 use crate::{
     i18n::{keys, tr, tr_args},
     state::{AppState, ForwardForm},
-    ui::{Inputs, error_view, tagged},
+    ui::{
+        Inputs, error_view,
+        parts::{Layer, field},
+        tagged,
+    },
 };
 
 pub const FORWARD_SUBMIT: &str = "forward-submit";
 /// Selector of the note shown for the reserved port.
 pub const RESERVED_NOTE: &str = "forward-reserved";
 pub const FORWARD_BODY: &str = "forward-body";
-
-fn field(label: gpui::SharedString, control: impl IntoElement, cx: &App) -> impl IntoElement {
-    let theme = cx.theme();
-    div()
-        .flex()
-        .flex_col()
-        .gap_1()
-        .child(
-            div()
-                .text_size(theme.text_size(TextSize::Sm))
-                .font_weight(FontWeight::MEDIUM)
-                .child(label),
-        )
-        .child(control)
-}
 
 fn submit(handle: &Entity<AppState>, inputs: &Inputs, cx: &mut App) {
     let text = |input: &Entity<TextInput>, cx: &App| input.read(cx).text().to_owned();
@@ -117,10 +106,9 @@ pub(super) fn render(
             ));
         }
         Some(error) => {
-            let retry = {
+            let retry: error_view::Retry = {
                 let (handle, inputs) = (handle.clone(), inputs.clone());
-                Rc::new(move |_: &mut gpui::Window, cx: &mut App| submit(&handle, &inputs, cx))
-                    as error_view::Retry
+                Rc::new(move |_, cx| submit(&handle, &inputs, cx))
             };
             body = body.child(error_view::alert(
                 "forward",
@@ -143,14 +131,18 @@ pub(super) fn render(
             .child(Caption::new(tr(cx, keys::FORWARD_HEALTH_HINT))),
         cx,
     ));
-    let dialog = Dialog::new("forward", tr(cx, keys::FORWARD_TITLE), close(handle))
-        .child(scrolled(FORWARD_BODY, None, body));
+    let dialog = Dialog::new(
+        "forward",
+        tr(cx, keys::FORWARD_TITLE),
+        Layer::Overlay.close(handle),
+    )
+    .child(scrolled(FORWARD_BODY, None, body));
     let (cancel, label) = (tr(cx, keys::ACTION_CANCEL), tr(cx, keys::FORWARD_ACTION));
     let (go, fields) = (handle.clone(), inputs.clone());
     dialog
         .action({
             let handle = handle.clone();
-            move |_| cancel_button(cancel, handle)
+            move |_| Layer::Overlay.cancel_button(cancel, handle)
         })
         .action(move |_| {
             tagged(

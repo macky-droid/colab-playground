@@ -225,6 +225,12 @@ pub enum PluginRunEvent {
         /// Lines.
         lines: Vec<String>,
     },
+    /// The script wrote its log faster than it was read: the part before the next
+    /// [`PluginRunEvent::Log`] is left out.
+    LogSkipped {
+        /// The whole log, a file on the runtime.
+        path: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -364,7 +370,10 @@ pub trait Backend: Send + Sync {
     fn inspect_plugin_folder(&self, path: &Path) -> Result<PluginPreview>;
     /// Clones a Git URL with the local `git` and validates it.
     fn inspect_plugin_git(&self, url: &str, cancel: &CancelToken) -> Result<PluginPreview>;
+    /// Installs a previewed plugin. The preview is used up whether or not this succeeds.
     fn install_plugin(&self, preview: &PluginPreview) -> Result<PluginInfo>;
+    /// Drops a preview that will not be installed, with the copy staged for it.
+    fn discard_plugin_preview(&self, preview: &PluginPreview);
     fn set_plugin_enabled(&self, id: &str, enabled: bool) -> Result<()>;
     /// Removes a user plugin.
     fn remove_plugin(&self, id: &str) -> Result<()>;

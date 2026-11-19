@@ -155,6 +155,7 @@ impl AppState {
             return;
         }
         self.close_dialog(cx);
+        self.drop_install_preview(cx);
         self.overlay = Some(Overlay::Quit(QuitPrompt {
             waiting: billing.checking || listing,
             billing,

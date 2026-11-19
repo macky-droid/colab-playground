@@ -754,6 +754,10 @@ pub(super) const MESSAGES: Messages = &[
     (RUN_PROVISIONING, "正在获取运行时"),
     (RUN_STAGES, "进度"),
     (RUN_LOG, "日志"),
+    (
+        RUN_LOG_SKIPPED,
+        "部分日志未在此显示：脚本写入的速度超过了应用读取的速度。完整日志位于运行时上的 {path}。",
+    ),
     (RUN_OUTPUTS, "详情"),
     (RUN_READY, "已就绪，访问地址见下方。"),
     (RUN_FAILED, "部署失败"),

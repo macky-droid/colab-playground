@@ -86,8 +86,18 @@ print("__CPG_RESULT__ " + json.dumps({{"pid": _p.pid, "run_dir": _d}}))
     )
 }
 
+/// Log bytes one poll returns at most: what a poll prints comes back through one `colab exec`
+/// and is recorded in the CLI's history.
+const LOG_CHUNK: u64 = 16 * 1024;
+/// The furthest the shown log may be behind the file. A script that writes faster than the
+/// polls read is shown from this far back, so the end of the log is always within reach.
+const LOG_BACKLOG: u64 = 16 * LOG_CHUNK;
+/// Polls that read the whole backlog. A chunk cut short at a line end and the one after it
+/// hold more than one chunk together, so twice the chunks in the backlog are enough.
+pub const LOG_BACKLOG_READS: u32 = (2 * LOG_BACKLOG / LOG_CHUNK) as u32;
+
 /// Code that reads `status.json`, whether the script is alive, and the log
-/// from byte offset `CPG_LOG_OFFSET` (at most 16 KiB per poll).
+/// from byte offset `CPG_LOG_OFFSET`.
 pub fn plugin_poll_snippet() -> String {
     format!(
         r#"import json, os
@@ -108,16 +118,27 @@ try:
         _alive = _fh.read().split(") ", 1)[1][:1] not in ("Z", "X")
 except Exception:
     _alive = False
-_log, _new = "", _off
+_log, _new, _size, _skip = "", _off, 0, 0
 try:
     with open(_d + "/run.log", "rb") as _fh:
-        _fh.seek(0, 2)
-        _size = _fh.tell()
+        _size = os.fstat(_fh.fileno()).st_size
         if _off > _size:
             _off = 0
-        _fh.seek(_off)
-        _chunk = _fh.read(16384)
-        _new = _off + len(_chunk)
+        if _size - _off > {LOG_BACKLOG}:
+            _skip = _size - {LOG_BACKLOG} - _off
+        _fh.seek(_off + _skip)
+        _chunk = _fh.read({LOG_CHUNK})
+        _size = max(_size, os.fstat(_fh.fileno()).st_size)
+        _new = _off + _skip + len(_chunk)
+        # Whole lines only where the chunk is cut out of the middle of the file.
+        if _skip:
+            _head = _chunk.find(b"\n") + 1
+            _skip += _head
+            _chunk = _chunk[_head:]
+        _tail = _chunk.rfind(b"\n") + 1
+        if _new < _size and _tail:
+            _new -= len(_chunk) - _tail
+            _chunk = _chunk[:_tail]
         _log = _chunk.decode("utf-8", "replace")
 except FileNotFoundError:
     pass
@@ -134,7 +155,7 @@ def _cpg_scrub(v):
     if isinstance(v, dict):
         return {{k: _cpg_scrub(x) for k, x in v.items()}}
     return v
-print("__CPG_RESULT__ " + json.dumps({{"status": _cpg_scrub(_st), "alive": _alive, "log": _cpg_scrub(_log), "offset": _new}}))
+print("__CPG_RESULT__ " + json.dumps({{"status": _cpg_scrub(_st), "alive": _alive, "log": _cpg_scrub(_log), "offset": _new, "size": _size, "skipped": _skip}}))
 "#
     )
 }
@@ -194,6 +215,10 @@ pub struct RunPoll {
     pub log: String,
     /// Offset to send next time.
     pub offset: u64,
+    /// Size of the log file; more than `offset` while there is more to read.
+    pub size: u64,
+    /// Bytes left out before `log`, because the log grew faster than it was read.
+    pub skipped: u64,
 }
 
 pub fn parse_poll(v: &serde_json::Value) -> Result<RunPoll> {
@@ -202,6 +227,7 @@ pub fn parse_poll(v: &serde_json::Value) -> Result<RunPoll> {
         Some(s) if s.get("_unreadable").is_some() => None,
         Some(s) => Some(parse_status(s)?),
     };
+    let number = |key: &str| v.get(key).and_then(|n| n.as_u64()).unwrap_or(0);
     Ok(RunPoll {
         status,
         alive: v.get("alive").and_then(|a| a.as_bool()).unwrap_or(false),
@@ -210,7 +236,9 @@ pub fn parse_poll(v: &serde_json::Value) -> Result<RunPoll> {
             .and_then(|l| l.as_str())
             .unwrap_or_default()
             .to_owned(),
-        offset: v.get("offset").and_then(|o| o.as_u64()).unwrap_or(0),
+        offset: number("offset"),
+        size: number("size"),
+        skipped: number("skipped"),
     })
 }
 
@@ -276,7 +304,11 @@ mod tests {
         assert_eq!(s.state, RunState::Running);
         assert_eq!(s.progress, Some(1.0));
         assert_eq!(s.outputs["model_id"], "m");
-        assert_eq!(p.offset, 5);
+        assert_eq!((p.offset, p.size, p.skipped), (5, 0, 0));
+        let p =
+            parse_poll(&serde_json::json!({"alive": true, "offset": 5, "size": 9, "skipped": 2}))
+                .unwrap();
+        assert_eq!((p.offset, p.size, p.skipped), (5, 9, 2));
         let p = parse_poll(&serde_json::json!({"status": null, "alive": false})).unwrap();
         assert!(p.status.is_none() && !p.alive);
         assert!(parse_poll(&serde_json::json!({"status": {"state": "bogus"}})).is_err());

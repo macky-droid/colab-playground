@@ -524,6 +524,7 @@ catalog_keys! {
     RUN_HF_TOKEN_SENT => "app.b2.run_hf_token_sent",
     RUN_INPUTS => "app.b2.run_inputs",
     RUN_LOG => "app.b2.run_log",
+    RUN_LOG_SKIPPED => "app.b2.run_log_skipped",
     RUN_NO_SESSION => "app.b2.run_no_session",
     RUN_ON_SESSION => "app.b2.run_on_session",
     RUN_OUTPUTS => "app.b2.run_outputs",
@@ -824,6 +825,25 @@ pub fn tr(cx: &App, key: &str) -> SharedString {
 
 pub fn tr_args(cx: &App, key: &str, args: &[(&str, &str)]) -> SharedString {
     cx.global::<I18n>().text(key, args)
+}
+
+/// A message about `count` things: `one` for exactly one, otherwise `many`, which also gets
+/// `{count}`. Both get `args`.
+pub fn tr_count(
+    cx: &App,
+    count: usize,
+    one: &str,
+    many: &str,
+    args: &[(&str, &str)],
+) -> SharedString {
+    if count == 1 {
+        tr_args(cx, one, args)
+    } else {
+        let count = count.to_string();
+        let mut args = args.to_vec();
+        args.push(("count", &count));
+        tr_args(cx, many, &args)
+    }
 }
 
 /// The raw message for `key` in the shown language, `{name}` placeholders unfilled.

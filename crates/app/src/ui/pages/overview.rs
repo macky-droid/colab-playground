@@ -1,13 +1,11 @@
 //! Overview: the first-run checklist until everything is set up, then the compute-unit
 //! summary.
 
-use std::rc::Rc;
-
-use colab_playground_core::{backend::InstallMethod, host::Stream};
+use colab_playground_core::host::Stream;
 use ely_gpui_component::{
     buttons::{Button, ButtonVariant, IconButton},
     data_display::{Badge, Tone},
-    feedback::{Alert, InlineMessage},
+    feedback::InlineMessage,
     forms::{Choice, Select},
     layout::{Card, CardHeader, Page, ScrollArea, Well},
     lists::List,
@@ -31,7 +29,12 @@ use crate::{
         AppState, EnvironmentStep, InstallPhase, Op, SignInStatus, Step, StepState,
         install_methods, usage_is_stale, usage_stale_note,
     },
-    ui::{error_view, tagged},
+    ui::{
+        error_view,
+        parts::{captioned, figure, step_icon, step_spinner},
+        tagged,
+        usage::{accounts_missing, time_left, unmanaged_warning},
+    },
 };
 
 pub const CHECKLIST_SELECTOR: &str = "overview-checklist";
@@ -205,26 +208,12 @@ fn step_row(
 ) -> AnyElement {
     let theme = cx.theme();
     let colors = &theme.colors;
-    let mark: AnyElement = match &step.state {
-        StepState::Checking => Spinner::new(("step-spinner", ix))
-            .size(IconSize::Sm)
-            .into_any_element(),
-        StepState::Done => Icon::new(IconName::CircleCheck)
-            .size(IconSize::Sm)
-            .color(colors.success)
-            .into_any_element(),
-        StepState::Failed(_) => Icon::new(IconName::CircleAlert)
-            .size(IconSize::Sm)
-            .color(colors.danger)
-            .into_any_element(),
-        StepState::Todo => Icon::new(IconName::Circle)
-            .size(IconSize::Sm)
-            .color(colors.accent)
-            .into_any_element(),
-        StepState::Waiting => Icon::new(IconName::Circle)
-            .size(IconSize::Sm)
-            .color(colors.fg_subtle)
-            .into_any_element(),
+    let mark = match &step.state {
+        StepState::Checking => step_spinner(("step-spinner", ix)),
+        StepState::Done => step_icon(IconName::CircleCheck, colors.success),
+        StepState::Failed(_) => step_icon(IconName::CircleAlert, colors.danger),
+        StepState::Todo => step_icon(IconName::Circle, colors.accent),
+        StepState::Waiting => step_icon(IconName::Circle, colors.fg_subtle),
     };
     let title = tr(
         cx,
@@ -325,9 +314,7 @@ fn step_body(
             (Some(body), vec![])
         }
         (StepState::Done, EnvironmentStep::SignIn) => {
-            let email = state
-                .active_email()
-                .unwrap_or_else(|| tr(cx, keys::ACCOUNTS_NO_EMAIL).to_string());
+            let email = format::email(cx, state.active_email().as_deref());
             (
                 Some(tr_args(cx, keys::STEP_SIGNIN_DONE, &[("email", &email)])),
                 vec![],
@@ -365,8 +352,7 @@ fn step_body(
 }
 
 fn check_again(handle: &Entity<AppState>) -> error_view::Retry {
-    let handle = handle.clone();
-    Rc::new(move |_, cx| handle.update(cx, |state, cx| state.check_environment(cx)))
+    error_view::retry(handle, AppState::check_environment)
 }
 
 fn check_again_button(handle: &Entity<AppState>, cx: &App) -> impl IntoElement {
@@ -435,12 +421,7 @@ fn install(
         );
     } else {
         if let InstallPhase::Failed(error) = &install.phase {
-            let retry = {
-                let handle = handle.clone();
-                Rc::new(move |_: &mut gpui::Window, cx: &mut App| {
-                    handle.update(cx, |state, cx| state.start_install(cx))
-                }) as error_view::Retry
-            };
+            let retry = error_view::retry(handle, AppState::start_install);
             extra.push(error_view::alert(
                 "install",
                 Some(tr(cx, keys::INSTALL_FAILED)),
@@ -455,7 +436,7 @@ fn install(
         let start = handle.clone();
         let mut controls = div().flex().flex_wrap().items_center().gap_2();
         if methods.len() > 1 {
-            let pick = handle.clone();
+            let (pick, offered) = (handle.clone(), methods.clone());
             let choices = methods.iter().map(|method| {
                 Choice::new(
                     format::install_method_value(*method),
@@ -472,7 +453,10 @@ fn install(
                             .selected(format::install_method_value(chosen))
                             .size(ControlSize::Sm)
                             .on_change(move |value, _, cx| {
-                                if let Some(method) = methods_from_value(value) {
+                                let method = offered.iter().copied().find(|method| {
+                                    format::install_method_value(*method) == value.as_ref()
+                                });
+                                if let Some(method) = method {
                                     pick.update(cx, |state, cx| {
                                         state.set_install_method(method, cx)
                                     });
@@ -498,16 +482,6 @@ fn install(
         extra.push(install_log(state, cx));
     }
     (body, extra)
-}
-
-fn methods_from_value(value: &str) -> Option<InstallMethod> {
-    [
-        InstallMethod::Uv,
-        InstallMethod::InstallUvThenCli,
-        InstallMethod::PipUser,
-    ]
-    .into_iter()
-    .find(|method| format::install_method_value(*method) == value)
 }
 
 /// The install's output: monospace, colours kept, following the newest line.
@@ -594,14 +568,7 @@ fn summary(state: &AppState, handle: &Entity<AppState>, cx: &App) -> impl IntoEl
     let unknown = || tr(cx, keys::SUMMARY_UNKNOWN);
     let balance = snapshot.map_or_else(unknown, |s| format::cu(cx, s.balance_cu));
     let rate = snapshot.map_or_else(unknown, |s| format::cu_rate(cx, s.rate_cu_per_hour));
-    let left = match snapshot {
-        None => unknown(),
-        Some(snapshot) => match usage.and_then(|usage| usage.eta).or(snapshot.eta()) {
-            None => tr(cx, keys::SUMMARY_NOT_BURNING),
-            Some(eta) if eta.is_zero() => tr(cx, keys::SUMMARY_EMPTY),
-            Some(eta) => format::approx(cx, &format::duration(cx, eta)),
-        },
-    };
+    let left = time_left(usage, cx);
     // Unknown is never shown as zero: with no account's usage known the count is unknown, and
     // a sum that leaves accounts out is marked and says which.
     let totals = state.usage_summary();
@@ -633,9 +600,7 @@ fn summary(state: &AppState, handle: &Entity<AppState>, cx: &App) -> impl IntoEl
         .map(|s| usage_stale_note(&s));
     let stale = stale_note.is_some();
     let refresh = handle.clone();
-    let email = state
-        .active_email()
-        .unwrap_or_else(|| tr(cx, keys::ACCOUNTS_NO_EMAIL).to_string());
+    let email = format::email(cx, state.active_email().as_deref());
     let mut header = CardHeader::new(tr(cx, keys::SUMMARY_TITLE)).description(tr_args(
         cx,
         keys::SUMMARY_ACTIVE,
@@ -661,26 +626,18 @@ fn summary(state: &AppState, handle: &Entity<AppState>, cx: &App) -> impl IntoEl
     let tile = |id: &str, label: &str, value: SharedString, mark: Option<AnyElement>| {
         tagged(
             format!("summary {id} {value}"),
-            div()
-                .flex_1()
-                .min_w(theme.label_width())
-                .flex()
-                .flex_col()
-                .gap_1()
-                .child(Caption::new(tr(cx, label)))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            div()
-                                .text_size(theme.text_size(TextSize::Xl))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(value),
-                        )
-                        .children(mark),
-                ),
+            captioned(
+                tr(cx, label),
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(figure(value, TextSize::Xl, cx))
+                    .children(mark),
+            )
+            .flex_1()
+            .min_w(theme.label_width())
+            .gap_1(),
         )
     };
     let failure = state.usage_error().map(|error| {
@@ -724,83 +681,6 @@ fn not_counted(uncounted: &[Option<String>], cx: &App) -> SharedString {
             keys::SUMMARY_NOT_COUNTED,
             &[("emails", &emails.join(", "))],
         ),
-        _ if uncounted.len() == 1 => tr(cx, keys::ACCOUNTS_TOTAL_MISSING_ONE),
-        _ => tr_args(
-            cx,
-            keys::ACCOUNTS_TOTAL_MISSING_MANY,
-            &[("count", &uncounted.len().to_string())],
-        ),
+        _ => accounts_missing(uncounted.len(), cx),
     }
-}
-
-/// Warns about runtimes the app did not start that are billing.
-pub fn unmanaged_warning(
-    state: &AppState,
-    handle: &Entity<AppState>,
-    cx: &App,
-) -> Option<AnyElement> {
-    let unmanaged = state.unmanaged();
-    if unmanaged.is_empty() {
-        return None;
-    }
-    // A row with a count is the stronger news, so rows of unknown ownership only decide the
-    // title when there is nothing else.
-    let mut counted = unmanaged
-        .iter()
-        .filter(|(_, count, _)| count.is_some())
-        .peekable();
-    let title = if counted.peek().is_none() {
-        keys::UNMANAGED_UNKNOWN_TITLE
-    } else if counted.all(|(_, _, stale)| *stale) {
-        keys::UNMANAGED_LAST_TITLE
-    } else {
-        keys::UNMANAGED_TITLE
-    };
-    let lines: Vec<String> = unmanaged
-        .iter()
-        .map(|(email, count, stale)| {
-            let email = email
-                .clone()
-                .unwrap_or_else(|| tr(cx, keys::ACCOUNTS_NO_EMAIL).to_string());
-            let Some(count) = count else {
-                return tr_args(cx, keys::UNMANAGED_UNKNOWN, &[("email", &email)]).to_string();
-            };
-            if *count == 1 {
-                let key = if *stale {
-                    keys::UNMANAGED_LAST_ONE
-                } else {
-                    keys::UNMANAGED_ONE
-                };
-                tr_args(cx, key, &[("email", &email)]).to_string()
-            } else {
-                let key = if *stale {
-                    keys::UNMANAGED_LAST_MANY
-                } else {
-                    keys::UNMANAGED_MANY
-                };
-                tr_args(cx, key, &[("email", &email), ("count", &count.to_string())]).to_string()
-            }
-        })
-        .collect();
-    let handle = handle.clone();
-    let body = lines.join("\n");
-    Some(
-        tagged(
-            "unmanaged-warning",
-            tagged(
-                format!("unmanaged-warning {} {body}", tr(cx, title)),
-                Alert::new("unmanaged", Severity::Warning, tr(cx, title))
-                    .body(body)
-                    .action(
-                        Button::new("unmanaged-view", tr(cx, keys::ACTION_VIEW_SESSIONS))
-                            .size(ControlSize::Sm)
-                            .on_click(move |_, _, cx| {
-                                handle.update(cx, |state, cx| state.navigate(Route::Sessions, cx))
-                            }),
-                    ),
-            ),
-        )
-        .w_full()
-        .into_any_element(),
-    )
 }
