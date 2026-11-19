@@ -112,19 +112,15 @@ pub struct MockFlags {
     pub failures: MockFailures,
 }
 
-/// Builds the world a scenario starts.
 type StartWorld = fn() -> MockScenario;
-/// Turns one failure on.
 type Inject = fn(&mut MockFailures);
 
-/// The names `--mock-scenario` accepts, each with the world it starts.
 const SCENARIOS: &[(&str, StartWorld)] = &[
     ("demo", MockScenario::demo),
     ("single", MockScenario::single),
     ("signed-out", MockScenario::signed_out),
 ];
 
-/// The names `--mock-fail` accepts (comma-separated), each with the failure it injects.
 const FAILURES: &[(&str, Inject)] = &[
     ("cli-missing", |f| f.cli_missing = true),
     ("install-fails", |f| f.install_fails = true),
@@ -158,7 +154,6 @@ const FAILURES: &[(&str, Inject)] = &[
     ("runtimes-fail", |f| f.runtimes_listing_fails = true),
 ];
 
-/// The names of `table`, in its order, with `separator` between them.
 fn names<T>(table: &[(&str, T)], separator: &str) -> String {
     let names: Vec<&str> = table.iter().map(|(name, _)| *name).collect();
     names.join(separator)

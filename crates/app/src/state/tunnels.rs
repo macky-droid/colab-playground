@@ -202,7 +202,6 @@ impl AppState {
         }
     }
 
-    /// Drains what `received` holds.
     fn drain_tunnel(&mut self, received: &Receiver<TunnelEvent>) -> Drained {
         let mut changed = false;
         loop {
@@ -286,11 +285,9 @@ pub fn forward_key(spec: &TunnelSpec) -> u64 {
     key_of(&(&spec.account, &spec.session, spec.remote_port))
 }
 
-/// What one drain of a forward's events found.
 struct Drained {
     /// False once the backend dropped the sender.
     open: bool,
-    /// An event arrived, so the forward may look different now.
     changed: bool,
 }
 
