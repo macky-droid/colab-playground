@@ -10,7 +10,7 @@ use colab_playground_core::{
     Error,
     plugins::{Capability, PluginInfo, PluginPreview, PluginSource},
 };
-use gpui::Context;
+use gpui::{AppContext, Context};
 
 use super::{AppState, InputSlot, Load, Op, Overlay, ops::key_of};
 use crate::i18n::{keys, tr_args};
@@ -171,17 +171,50 @@ impl AppState {
                     backend.inspect_plugin_folder(&PathBuf::from(&source))
                 }
             },
-            |state, result, cx| {
-                if let Some(Overlay::InstallPlugin(prompt)) = &mut state.overlay {
+            |state, result, cx| match &mut state.overlay {
+                Some(Overlay::InstallPlugin(prompt)) => {
                     *prompt = match result {
                         Ok(preview) => InstallPrompt::Preview(Box::new(preview)),
                         Err(error) => InstallPrompt::Failed(error),
                     };
                     cx.notify();
                 }
+                // The dialog was closed while the check ran: nothing will confirm it.
+                _ => {
+                    if let Ok(preview) = result {
+                        state.discard_preview(preview, cx);
+                    }
+                }
             },
         );
         cx.notify();
+    }
+
+    pub(super) fn close_install_plugin(&mut self, cx: &mut Context<Self>) {
+        self.drop_install_preview(cx);
+        self.overlay = None;
+        cx.notify();
+    }
+
+    /// The install dialog is going away: a preview it shows is dropped along with the copy
+    /// staged for it, unless its install is running, which uses the copy and removes it.
+    pub(super) fn drop_install_preview(&mut self, cx: &mut Context<Self>) {
+        let Some(Overlay::InstallPlugin(InstallPrompt::Preview(preview))) = &self.overlay else {
+            return;
+        };
+        if self.is_busy(Op::PluginChange(key_of(&preview.manifest.id))) {
+            return;
+        }
+        let preview = preview.as_ref().clone();
+        self.discard_preview(preview, cx);
+    }
+
+    fn discard_preview(&mut self, preview: PluginPreview, cx: &mut Context<Self>) {
+        if let Ok(backend) = &self.backend {
+            let backend = backend.clone();
+            cx.background_spawn(async move { backend.discard_plugin_preview(&preview) })
+                .detach();
+        }
     }
 
     pub fn confirm_install(&mut self, cx: &mut Context<Self>) {

@@ -1,6 +1,8 @@
 //! Plugins over the headless mock: quick deploy to a ready endpoint, a run failing at a stage,
 //! installing from a fixture folder (with the confirmation), and secrets staying secret.
 
+use std::path::PathBuf;
+
 use colab_playground::{
     i18n::keys,
     route::Route,
@@ -253,6 +255,92 @@ fn a_plugin_from_a_folder_is_installed_after_confirming(cx: &mut TestAppContext)
     app.click("plugin-remove hello-web");
     app.click(colab_playground::ui::overlays::REMOVE_CONFIRM);
     assert!(app.read(|state, _| state.plugin("hello-web").is_none()));
+}
+
+/// The copies the mock backend has staged of the plugin `id`. Tests share its staging folder,
+/// so a test looks for an id that only it installs.
+fn staged_copies(id: &str) -> Vec<PathBuf> {
+    let staging =
+        std::env::temp_dir().join(format!("colab-playground-mock-{}", std::process::id()));
+    let Ok(entries) = std::fs::read_dir(staging) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|dir| {
+            std::fs::read_to_string(dir.join("plugin.toml"))
+                .is_ok_and(|manifest| manifest.contains(&format!("id = \"{id}\"")))
+        })
+        .collect()
+}
+
+#[gpui::test]
+fn closing_the_install_confirmation_drops_the_staged_copy(cx: &mut TestAppContext) {
+    const ID: &str = "hello-closed";
+    let fixture = tempfile::tempdir().expect("a fixture folder");
+    std::fs::write(
+        fixture.path().join("plugin.toml"),
+        FIXTURE_MANIFEST.replace("hello-web", ID),
+    )
+    .expect("manifest");
+    std::fs::write(fixture.path().join("run.sh"), "#!/bin/bash\necho hello\n").expect("script");
+    let mut app = TestApp::new(cx);
+    app.click(Route::Plugins.nav_selector());
+    let folder = fixture.path().display().to_string();
+
+    let check = |app: &mut TestApp| {
+        app.fill(|inputs| inputs.plugin_source.clone(), &folder);
+        app.click(INSTALL_CHECK);
+        let Some(Overlay::InstallPlugin(InstallPrompt::Preview(preview))) =
+            app.read(|state, _| state.overlay().cloned())
+        else {
+            panic!("expected the confirmation");
+        };
+        assert_eq!(staged_copies(ID), std::slice::from_ref(&preview.staged_dir));
+        preview.staged_dir.clone()
+    };
+
+    check(&mut app);
+    app.press("escape");
+    assert!(app.read(|state, _| state.overlay().is_none()));
+    assert!(staged_copies(ID).is_empty(), "Escape leaves nothing staged");
+
+    check(&mut app);
+    app.update(|state, cx| state.close_overlay(cx));
+    assert!(
+        staged_copies(ID).is_empty(),
+        "neither does Cancel or the close button"
+    );
+    assert!(app.read(|state, _| state.plugin(ID).is_none()));
+
+    // Closed before the check has returned: the copy it then stages has no dialog to go to.
+    app.update(|state, cx| {
+        state.inspect_plugin(folder.clone(), cx);
+        state.close_overlay(cx);
+    });
+    assert!(app.read(|state, _| state.overlay().is_none()));
+    assert!(staged_copies(ID).is_empty());
+
+    // The quit confirmation takes the place of the dialog.
+    check(&mut app);
+    app.update(|state, cx| state.request_quit(cx));
+    assert!(matches!(
+        app.read(|state, _| state.overlay().cloned()),
+        Some(Overlay::Quit(_))
+    ));
+    assert!(staged_copies(ID).is_empty());
+    app.update(|state, cx| state.close_overlay(cx));
+
+    // A failed install has used the copy up as well.
+    let staged = check(&mut app);
+    std::fs::remove_file(staged.join("run.sh")).expect("the staged script");
+    app.click(INSTALL_CONFIRM);
+    assert!(matches!(
+        app.read(|state, _| state.overlay().cloned()),
+        Some(Overlay::InstallPlugin(InstallPrompt::Failed(_)))
+    ));
+    assert!(staged_copies(ID).is_empty());
 }
 
 #[gpui::test]
