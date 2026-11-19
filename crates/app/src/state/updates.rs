@@ -34,6 +34,8 @@ use crate::{
 
 /// How often the automatic check asks GitHub.
 pub const UPDATE_INTERVAL: Duration = Duration::from_secs(24 * 3600);
+// Avoids hammering GitHub every POLL_CHECK when offline, without marking the daily check done.
+const UPDATE_RETRY_INTERVAL: Duration = Duration::from_secs(3600);
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum UpdateCheck {
@@ -202,8 +204,8 @@ impl AppState {
         );
     }
 
-    /// One poller wake: checks when automatic checks are on and a day has passed since the
-    /// last check (on the backend clock).
+    /// One poller wake: checks when automatic checks are on, a day has passed since the last
+    /// check that got an answer and an hour since the last try (on the backend clock).
     pub(crate) fn maybe_check_updates(&mut self, cx: &mut Context<Self>) {
         if self.checks_updates() && !self.ops.is_running(Op::UpdateCheck) {
             self.run_update_check(false, cx);
@@ -214,7 +216,19 @@ impl AppState {
         if self.ops.is_running(Op::UpdateCheck) {
             return;
         }
-        let last = self.settings.update_checked_at;
+        if !manual && let Ok(backend) = &self.backend {
+            let now = secs(backend.now());
+            let due_saved = self
+                .settings
+                .update_checked_at
+                .is_none_or(|last| now >= last + UPDATE_INTERVAL.as_secs());
+            let due_retry = self
+                .update_attempted_at
+                .is_none_or(|last| now >= last + UPDATE_RETRY_INTERVAL.as_secs());
+            if !(due_saved && due_retry) {
+                return;
+            }
+        }
         if manual {
             self.update = UpdateCheck::Checking;
         }
@@ -223,22 +237,17 @@ impl AppState {
             cx,
             move |backend, cancel| {
                 let now = secs(backend.now());
-                let due = manual || last.is_none_or(|last| now >= last + UPDATE_INTERVAL.as_secs());
-                if !due {
-                    return Ok(None);
-                }
-                Ok(Some((backend.check_for_update(cancel), now)))
+                Ok((backend.check_for_update(cancel), now))
             },
             move |state, result, cx| {
-                let Ok(Some((outcome, now))) = result else {
-                    if let Err(error) = result {
-                        state.update_failed(error, manual, cx);
-                    }
-                    return;
+                let (outcome, now) = match result {
+                    Ok(checked) => checked,
+                    Err(error) => return state.update_failed(error, manual, cx),
                 };
-                state.settings.update_checked_at = Some(now);
+                state.update_attempted_at = Some(now);
                 match outcome {
                     Ok(UpdateStatus::UpToDate) => {
+                        state.settings.update_checked_at = Some(now);
                         state.update = UpdateCheck::UpToDate;
                         if state
                             .settings
@@ -248,20 +257,24 @@ impl AppState {
                         {
                             state.settings.update_latest = None;
                         }
+                        state.persist_settings(cx);
                     }
                     Ok(UpdateStatus::Available(release)) => {
+                        state.settings.update_checked_at = Some(now);
                         state.settings.update_latest = Some(release.version.clone());
                         state.update = UpdateCheck::Available(release);
                         // Where the app is may have changed since start-up.
                         state.refresh_self_update(cx);
+                        state.persist_settings(cx);
                     }
                     Err(error) => state.update_failed(error, manual, cx),
                 }
-                state.persist_settings(cx);
                 cx.notify();
             },
         );
-        cx.notify();
+        if manual {
+            cx.notify();
+        }
     }
 
     fn update_failed(&mut self, error: Error, manual: bool, cx: &mut Context<Self>) {

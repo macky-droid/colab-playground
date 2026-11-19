@@ -146,13 +146,17 @@ impl AppState {
             self.poll_runtimes(cx);
         }
         let billing = self.billing();
-        if !billing.any() {
+        // The list shown was read before the listing under way began, so it can lack a runtime
+        // that came up since (a start that just finished): only that listing can say that
+        // nothing bills.
+        let listing = self.ops.is_running(Op::Runtimes);
+        if !billing.any() && !listing {
             self.approve_quit(cx);
             return;
         }
         self.close_dialog(cx);
         self.overlay = Some(Overlay::Quit(QuitPrompt {
-            waiting: billing.checking || self.ops.is_running(Op::Runtimes),
+            waiting: billing.checking || listing,
             billing,
             failures: Vec::new(),
         }));

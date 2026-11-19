@@ -162,6 +162,9 @@ pub struct AppState {
     self_update: Option<SelfUpdate>,
     /// An update put in place, waiting to restart into it.
     installed: Option<Installed>,
+    /// When an update check was last tried, answered or not. Kept out of the settings file, so
+    /// a failed check is retried at the next start instead of waiting out the day.
+    update_attempted_at: Option<u64>,
 }
 
 /// A dialog other than the account ones (those are [`AccountDialog`]).
@@ -284,6 +287,7 @@ impl AppState {
                 update: updates::UpdateCheck::default(),
                 self_update: None,
                 installed: None,
+                update_attempted_at: None,
             };
             state.font_fallbacks = platform::font_fallbacks(language, &state.cjk_fonts);
             state.apply_mode(true, cx);

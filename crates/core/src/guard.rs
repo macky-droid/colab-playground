@@ -102,11 +102,12 @@ impl SpendMeter {
     }
 
     /// Charges the interval since the last record at `rate_cu_per_hour` (this
-    /// session's estimated rate). `None` means the poll failed: the interval is
-    /// charged at the last known rate and the meter becomes `estimated`; with
-    /// no rate known at all the gap stays open (and `rate_known` false) so a
-    /// later reading charges it — callers must treat that as unknown, never as
-    /// zero spend.
+    /// session's estimated rate). `None` means this reading has no rate for the
+    /// session (the poll failed, or its share is not known yet): the interval
+    /// is charged at the last known rate and the meter becomes `estimated`;
+    /// with no rate known at all the gap stays open (and `rate_known` false) so
+    /// a later reading charges it — callers must treat that as unknown, never
+    /// as zero spend.
     pub fn record(&mut self, now: SystemTime, rate_cu_per_hour: Option<f64>) {
         let dt_h = now
             .duration_since(self.integrated_to)

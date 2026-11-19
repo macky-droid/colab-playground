@@ -192,6 +192,25 @@ impl AppState {
         if !self.cli_installed() {
             return;
         }
+        if !manual
+            && let Ok(backend) = &self.backend
+            && !backend.usage_poll_due()
+        {
+            let now = backend.now();
+            let stale_changed = self
+                .usage
+                .views
+                .iter()
+                .filter_map(|view| view.snapshot.as_ref())
+                .any(|snapshot| {
+                    is_stale(snapshot, Some(now)) != is_stale(snapshot, self.usage.now)
+                });
+            self.usage.now = Some(now);
+            if stale_changed {
+                cx.notify();
+            }
+            return;
+        }
         // While the app manages runtimes, each due poll is also a guard round (core's
         // `guard_poll` fetches usage for their accounts and stops what crossed a limit).
         let guard = self.has_managed_runtimes();
@@ -202,9 +221,38 @@ impl AppState {
                 if !(manual || backend.usage_poll_due()) {
                     return Ok((None, None, backend.now()));
                 }
-                let report = guard.then(|| backend.guard_poll(cancel));
-                let views = backend.refresh_usage(&[], cancel)?;
-                Ok((Some(views), report, backend.now()))
+                if guard {
+                    match backend.guard_poll(cancel) {
+                        Ok(report) => {
+                            let covered: std::collections::BTreeSet<AccountId> = report
+                                .decisions
+                                .iter()
+                                .map(|d| d.session.account.clone())
+                                .chain(report.vanished.iter().map(|v| v.account.clone()))
+                                .collect();
+                            let uncovered: Vec<AccountId> = report
+                                .usage
+                                .iter()
+                                .map(|u| u.account.clone())
+                                .filter(|id| !covered.contains(id))
+                                .collect();
+                            let views =
+                                if !uncovered.is_empty() && (manual || backend.usage_poll_due()) {
+                                    backend.refresh_usage(&uncovered, cancel)?
+                                } else {
+                                    report.usage.clone()
+                                };
+                            Ok((Some(views), Some(Ok(report)), backend.now()))
+                        }
+                        Err(error) => {
+                            let views = backend.refresh_usage(&[], cancel)?;
+                            Ok((Some(views), Some(Err(error)), backend.now()))
+                        }
+                    }
+                } else {
+                    let views = backend.refresh_usage(&[], cancel)?;
+                    Ok((Some(views), None, backend.now()))
+                }
             },
             move |state, result, cx| match result {
                 Ok((Some(views), report, now)) => {

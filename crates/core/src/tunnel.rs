@@ -25,7 +25,7 @@ use crate::clock::{CancelToken, Clock};
 use crate::error::{Error, ErrorKind, Result};
 use crate::host::{Host, ScriptRequest, shell_quote, tail};
 use crate::hostfs::HostFs;
-use crate::http::{local_http_status, local_port_open};
+use crate::http::{local_http_status, local_port_in_use, local_port_open};
 use crate::paths::HostPath;
 use crate::sessions::validate_session_name;
 
@@ -168,8 +168,32 @@ command -v ssh-keygen >/dev/null 2>&1 || exit 4
 mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh" || exit 1
 ssh-keygen -q -t ed25519 -N "" -C colab-playground -f "$HOME/.ssh/id_ed25519" </dev/null"#;
 
-/// `ssh` from the host PATH (tests point `CPG_SSH` at a fake).
-const RUN_SSH: &str = r#"exec "${CPG_SSH:-ssh}" "$@""#;
+// Tests point `CPG_SSH` at a fake. Killing `wsl.exe` or crashing on Windows does
+// not signal WSL children, which would orphan `colab ssh` and lock the runtime's
+// single SSH slot (HTTP 429); the FD-3 monitor turns parent pipe EOF into SIGTERM
+// (FD 3 avoids POSIX `&` redirecting FD 0 to `/dev/null` when `-m` is off).
+const RUN_SSH: &str = r#"exec 3<&0 </dev/null
+"${CPG_SSH:-ssh}" "$@" 3<&- &
+__cpg_ssh=$!
+(
+  while IFS= read -r _ <&3; do :; done
+  exec 3<&-
+  if kill -0 "$__cpg_ssh" 2>/dev/null; then
+    kill -TERM "$__cpg_ssh" 2>/dev/null
+    i=0
+    while kill -0 "$__cpg_ssh" 2>/dev/null && [ "$i" -lt 20 ]; do
+      sleep 0.1
+      i=$((i + 1))
+    done
+    kill -KILL "$__cpg_ssh" 2>/dev/null
+  fi
+) </dev/null >/dev/null 2>&1 &
+__cpg_mon=$!
+exec 3<&-
+wait "$__cpg_ssh"
+__cpg_rc=$?
+kill -TERM "$__cpg_mon" 2>/dev/null
+exit "$__cpg_rc""#;
 
 /// Maps ssh / ProxyCommand output to a failure kind (`None` = transient).
 pub fn classify_ssh_output(stderr: &str, code: Option<i32>) -> Option<ErrorKind> {
@@ -260,6 +284,65 @@ fn fail(shared: &Shared, error: Error) {
     shared.set(TunnelState::Failed { error });
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct RetryCounters {
+    attempt: u32,
+    busy: u32,
+    quick: u32,
+}
+
+fn decide_after_exit(
+    counters: &mut RetryCounters,
+    spec: &TunnelSpec,
+    text: &str,
+    code: Option<i32>,
+    uptime: Duration,
+    gave_up: Option<Error>,
+) -> Result<Duration> {
+    match classify_ssh_output(text, code) {
+        Some(ErrorKind::SshBusy) => {
+            counters.busy += 1;
+            if counters.busy >= BUSY_LIMIT {
+                return Err(Error::new(ErrorKind::SshBusy).detail(tail(text, 400)));
+            }
+        }
+        Some(ErrorKind::PortInUse) => {
+            return Err(Error::new(ErrorKind::PortInUse)
+                .with("port", spec.local_port)
+                .detail(tail(text, 400)));
+        }
+        Some(kind) => {
+            return Err(Error::new(kind)
+                .with("session", &spec.session)
+                .detail(tail(text, 400)));
+        }
+        None => {
+            // `UP_TIMEOUT` exceeds the 10s quick-failure window, so check `gave_up` before resetting `quick`.
+            if let Some(e) = gave_up {
+                let stderr_tail = tail(text, 400);
+                let detail = match (e.detail.is_empty(), stderr_tail.is_empty()) {
+                    (false, false) => format!("{}: {stderr_tail}", e.detail),
+                    (false, true) => e.detail.clone(),
+                    (true, _) => stderr_tail,
+                };
+                return Err(e.detail(detail));
+            }
+            counters.busy = 0;
+            if uptime < Duration::from_secs(10) {
+                counters.quick += 1;
+            } else {
+                counters.quick = 0;
+                counters.attempt = 0;
+            }
+            if counters.quick >= QUICK_FAILURE_LIMIT {
+                return Err(Error::new(ErrorKind::Other).detail(tail(text, 400)));
+            }
+        }
+    }
+    counters.attempt += 1;
+    Ok(backoff(counters.attempt))
+}
+
 fn run(ctx: TunnelCtx, spec: TunnelSpec, stop: CancelToken, shared: Arc<Shared>) {
     let fs = HostFs::new(&ctx.host, &ctx.base_env);
     let key = ScriptRequest {
@@ -291,9 +374,7 @@ fn run(ctx: TunnelCtx, spec: TunnelSpec, stop: CancelToken, shared: Arc<Shared>)
         Ok(a) => a,
         Err(e) => return fail(&shared, e),
     };
-    let mut attempt = 0u32;
-    let mut busy = 0u32;
-    let mut quick = 0u32;
+    let mut counters = RetryCounters::default();
     loop {
         if stop.is_cancelled() {
             return shared.set(TunnelState::Stopped);
@@ -309,17 +390,17 @@ fn run(ctx: TunnelCtx, spec: TunnelSpec, stop: CancelToken, shared: Arc<Shared>)
             }
             Err(e) if e.kind == ErrorKind::Cancelled => return shared.set(TunnelState::Stopped),
             Err(_) => {
-                attempt += 1;
-                quick += 1;
-                if quick >= QUICK_FAILURE_LIMIT {
+                counters.attempt += 1;
+                counters.quick += 1;
+                if counters.quick >= QUICK_FAILURE_LIMIT {
                     return fail(
                         &shared,
                         Error::new(ErrorKind::Other).detail("cannot read the session state file"),
                     );
                 }
-                let delay = backoff(attempt);
+                let delay = backoff(counters.attempt);
                 shared.set(TunnelState::Reconnecting {
-                    attempt,
+                    attempt: counters.attempt,
                     delay_secs: delay.as_secs(),
                 });
                 if ctx.clock.sleep(delay, &stop).is_err() {
@@ -328,16 +409,16 @@ fn run(ctx: TunnelCtx, spec: TunnelSpec, stop: CancelToken, shared: Arc<Shared>)
                 continue;
             }
         }
-        if local_port_open(spec.local_port, Duration::from_millis(300)) {
+        if local_port_in_use(spec.local_port, Duration::from_millis(300)) {
             return fail(
                 &shared,
                 Error::new(ErrorKind::PortInUse).with("port", spec.local_port),
             );
         }
-        if attempt == 0 {
+        if counters.attempt == 0 {
             shared.set(TunnelState::Starting);
         }
-        let mut req = ScriptRequest::new(RUN_SSH).args(args.clone());
+        let mut req = ScriptRequest::new(RUN_SSH).args(args.clone()).stdin_pipe();
         req.env = ctx.base_env.clone();
         let mut child = match ctx.host.spawn(req) {
             Ok(c) => c,
@@ -350,12 +431,14 @@ fn run(ctx: TunnelCtx, spec: TunnelSpec, stop: CancelToken, shared: Arc<Shared>)
         let mut gave_up: Option<Error> = None;
         loop {
             if stop.is_cancelled() {
+                child.close_stdin();
                 child.kill();
                 return shared.set(TunnelState::Stopped);
             }
             match child.recv_line(Duration::from_millis(250)) {
                 Ok(line) => {
                     if line.text.contains(AUTH_PROMPT_MARKER) {
+                        child.close_stdin();
                         child.kill();
                         return fail(&shared, Error::new(ErrorKind::AuthRequired));
                     }
@@ -384,59 +467,23 @@ fn run(ctx: TunnelCtx, spec: TunnelSpec, stop: CancelToken, shared: Arc<Shared>)
                     shared.health(ok);
                 }
             } else if started.elapsed() > UP_TIMEOUT {
+                child.close_stdin();
                 child.kill();
                 gave_up =
                     Some(Error::new(ErrorKind::Timeout).detail("the forward did not come up"));
                 break;
             }
         }
+        child.close_stdin();
         let code = child.wait();
         let text = stderr.join("\n");
         let uptime = started.elapsed();
-        match classify_ssh_output(&text, code) {
-            Some(ErrorKind::SshBusy) => {
-                busy += 1;
-                if busy >= BUSY_LIMIT {
-                    return fail(
-                        &shared,
-                        Error::new(ErrorKind::SshBusy).detail(tail(&text, 400)),
-                    );
-                }
-            }
-            Some(ErrorKind::PortInUse) => {
-                return fail(
-                    &shared,
-                    Error::new(ErrorKind::PortInUse)
-                        .with("port", spec.local_port)
-                        .detail(tail(&text, 400)),
-                );
-            }
-            Some(kind) => {
-                return fail(
-                    &shared,
-                    Error::new(kind)
-                        .with("session", &spec.session)
-                        .detail(tail(&text, 400)),
-                );
-            }
-            None => {
-                busy = 0;
-                if uptime < Duration::from_secs(10) {
-                    quick += 1;
-                } else {
-                    quick = 0;
-                    attempt = 0;
-                }
-                if quick >= QUICK_FAILURE_LIMIT {
-                    let e = gave_up.unwrap_or_else(|| Error::new(ErrorKind::Other));
-                    return fail(&shared, e.detail(tail(&text, 400)));
-                }
-            }
-        }
-        attempt += 1;
-        let delay = backoff(attempt);
+        let delay = match decide_after_exit(&mut counters, &spec, &text, code, uptime, gave_up) {
+            Ok(d) => d,
+            Err(e) => return fail(&shared, e),
+        };
         shared.set(TunnelState::Reconnecting {
-            attempt,
+            attempt: counters.attempt,
             delay_secs: delay.as_secs(),
         });
         if ctx.clock.sleep(delay, &stop).is_err() {
@@ -674,5 +721,127 @@ mod tests {
         assert!(!state_has_session(r#"{"other": {}}"#, "llm"));
         assert!(!state_has_session("", "llm"));
         assert!(!state_has_session("not json", "llm"));
+    }
+
+    #[test]
+    fn startup_timeout_fails_immediately_without_infinite_reconnect_loop() {
+        let s = spec();
+        let mut c = RetryCounters::default();
+        let err = decide_after_exit(
+            &mut c,
+            &s,
+            "",
+            None,
+            Duration::from_secs(121),
+            Some(Error::new(ErrorKind::Timeout).detail("the forward did not come up")),
+        )
+        .unwrap_err();
+        assert!(err.is(ErrorKind::Timeout));
+        assert_eq!(err.detail, "the forward did not come up");
+
+        let mut c2 = RetryCounters::default();
+        let err2 = decide_after_exit(
+            &mut c2,
+            &s,
+            "proxy hung on handshake",
+            Some(255),
+            Duration::from_secs(121),
+            Some(Error::new(ErrorKind::Timeout).detail("the forward did not come up")),
+        )
+        .unwrap_err();
+        assert!(err2.is(ErrorKind::Timeout));
+        assert_eq!(
+            err2.detail,
+            "the forward did not come up: proxy hung on handshake"
+        );
+    }
+
+    #[test]
+    fn exit_decisions_reset_after_long_uptime_and_bound_quick_failures() {
+        let s = spec();
+        let mut c = RetryCounters::default();
+        for i in 1..QUICK_FAILURE_LIMIT {
+            let d = decide_after_exit(
+                &mut c,
+                &s,
+                "closed",
+                Some(255),
+                Duration::from_secs(1),
+                None,
+            )
+            .unwrap();
+            assert_eq!(c.quick, i);
+            assert_eq!(d, backoff(i));
+        }
+        let d = decide_after_exit(
+            &mut c,
+            &s,
+            "networkblip",
+            Some(255),
+            Duration::from_secs(30),
+            None,
+        )
+        .unwrap();
+        assert_eq!(c.quick, 0);
+        assert_eq!(c.attempt, 1);
+        assert_eq!(d, Duration::from_secs(1));
+
+        for _ in 1..QUICK_FAILURE_LIMIT {
+            decide_after_exit(
+                &mut c,
+                &s,
+                "closed",
+                Some(255),
+                Duration::from_secs(1),
+                None,
+            )
+            .unwrap();
+        }
+        let err = decide_after_exit(&mut c, &s, "boom", Some(255), Duration::from_secs(1), None)
+            .unwrap_err();
+        assert!(err.is(ErrorKind::Other));
+        assert_eq!(err.detail, "boom");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stdin_eof_lifeline_terminates_ssh_when_parent_pipe_closes() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = tempfile::tempdir().unwrap();
+        let fake_ssh = dir.path().join("fake-ssh");
+        let marker = dir.path().join("alive");
+        std::fs::write(
+            &fake_ssh,
+            "#!/bin/sh\ntrap 'rm -f \"$1\"; exit 0' TERM\necho $$ > \"$1\"\nwhile :; do sleep 0.1; done\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake_ssh, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let req = ScriptRequest::new(RUN_SSH)
+            .arg(marker.to_string_lossy().into_owned())
+            .env("CPG_SSH", fake_ssh.to_string_lossy().into_owned())
+            .stdin_pipe();
+        let mut child = Host::Local.spawn(req).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !marker.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(marker.exists(), "fake ssh never started");
+
+        // Closing stdin without `kill()` simulates an abrupt parent or `wsl.exe` exit.
+        child.close_stdin();
+        let wait_deadline = Instant::now() + Duration::from_secs(10);
+        while child.try_wait().is_none() && Instant::now() < wait_deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(
+            child.try_wait().is_some(),
+            "RUN_SSH did not exit on stdin EOF"
+        );
+        assert!(
+            !marker.exists(),
+            "fake ssh did not receive SIGTERM on stdin EOF"
+        );
     }
 }
