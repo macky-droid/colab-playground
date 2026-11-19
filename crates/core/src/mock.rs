@@ -1190,6 +1190,76 @@ fn mock_listing(repo: &str) -> GgufListing {
     group(&files)
 }
 
+impl MockBackend {
+    fn move_auto_stop(
+        &self,
+        target: &RuntimeRef,
+        runtime_from_time_left: impl FnOnce(Duration) -> Duration,
+        cancel: &CancelToken,
+    ) -> Result<Extension> {
+        self.require_active(&target.account)?;
+        let name = target
+            .name
+            .clone()
+            .ok_or_else(|| Error::invalid("name", "the session has no local name"))?;
+        self.step(cancel)?;
+        let gone = || Error::new(ErrorKind::SessionGone).with("session", &name);
+        // Like the real backend: the runtime's own state decides between
+        // moving the deadline of a running watchdog and starting it again.
+        let (alive, tracked, vm_idle, stop_at) = {
+            let w = self.w();
+            let rt = w
+                .runtimes
+                .iter()
+                .find(|r| r.account == target.account && r.name.as_deref() == Some(&name))
+                .ok_or_else(gone)?;
+            let e = w.ledger.live(&target.account, &name).ok_or_else(gone)?;
+            (
+                rt.watchdog_alive,
+                e.policy.clone(),
+                e.watchdog.as_ref().and_then(|wd| wd.idle_timeout),
+                e.auto_stop_at(),
+            )
+        };
+        let time_left = stop_at
+            .and_then(|at| at.duration_since(self.now_()).ok())
+            .unwrap_or_default();
+        let runtime = runtime_from_time_left(time_left);
+        let info = if alive {
+            WatchdogInfo {
+                deadline: Some(self.now_() + runtime),
+                idle_timeout: vm_idle,
+                cancelled: false,
+                armed: true,
+            }
+        } else {
+            let policy = crate::watchdog::restart_policy(Some(&tracked), vm_idle, runtime);
+            let ops = MockOps {
+                m: self,
+                account: target.account.clone(),
+                restart: true,
+            };
+            match provision::start_watchdog(&ops, &name, &policy) {
+                Ok(Some(info)) if info.armed => info,
+                _ => crate::watchdog::start_failed(&policy),
+            }
+        };
+        let now = self.now_();
+        let found = self.w().ledger.update(&target.account, &name, |e| {
+            let elapsed = now.duration_since(e.spend.started_at).unwrap_or_default();
+            e.policy.max_runtime = Some(elapsed + runtime);
+            e.watchdog = Some(info.clone());
+        })?;
+        if !found {
+            return Err(gone());
+        }
+        Ok(Extension {
+            runtime,
+            watchdog: info,
+        })
+    }
+}
+
 impl Backend for MockBackend {
     fn kind(&self) -> BackendKind {
         BackendKind::Mock
@@ -1578,61 +1648,20 @@ impl Backend for MockBackend {
     fn extend_session(
         &self,
         target: &RuntimeRef,
+        by: Duration,
+        cancel: &CancelToken,
+    ) -> Result<Extension> {
+        self.move_auto_stop(target, |left| left + by, cancel)
+    }
+
+    fn set_auto_stop(
+        &self,
+        target: &RuntimeRef,
         runtime: Duration,
         cancel: &CancelToken,
     ) -> Result<WatchdogInfo> {
-        self.require_active(&target.account)?;
-        let name = target
-            .name
-            .clone()
-            .ok_or_else(|| Error::invalid("name", "the session has no local name"))?;
-        self.step(cancel)?;
-        let gone = || Error::new(ErrorKind::SessionGone).with("session", &name);
-        // Like the real backend: the runtime's own state decides between
-        // moving the deadline of a running watchdog and starting it again.
-        let (alive, tracked, vm_idle) = {
-            let w = self.w();
-            let rt = w
-                .runtimes
-                .iter()
-                .find(|r| r.account == target.account && r.name.as_deref() == Some(&name))
-                .ok_or_else(gone)?;
-            let e = w.ledger.live(&target.account, &name).ok_or_else(gone)?;
-            (
-                rt.watchdog_alive,
-                e.policy.clone(),
-                e.watchdog.as_ref().and_then(|wd| wd.idle_timeout),
-            )
-        };
-        let info = if alive {
-            WatchdogInfo {
-                deadline: Some(self.now_() + runtime),
-                idle_timeout: vm_idle,
-                cancelled: false,
-                armed: true,
-            }
-        } else {
-            let policy = crate::watchdog::restart_policy(Some(&tracked), vm_idle, runtime);
-            let ops = MockOps {
-                m: self,
-                account: target.account.clone(),
-                restart: true,
-            };
-            match provision::start_watchdog(&ops, &name, &policy) {
-                Ok(Some(info)) if info.armed => info,
-                _ => crate::watchdog::start_failed(&policy),
-            }
-        };
-        let now = self.now_();
-        let found = self.w().ledger.update(&target.account, &name, |e| {
-            let elapsed = now.duration_since(e.spend.started_at).unwrap_or_default();
-            e.policy.max_runtime = Some(elapsed + runtime);
-            e.watchdog = Some(info.clone());
-        })?;
-        if !found {
-            return Err(gone());
-        }
-        Ok(info)
+        self.move_auto_stop(target, |_| runtime, cancel)
+            .map(|set| set.watchdog)
     }
 
     fn cancel_auto_stop(&self, target: &RuntimeRef, cancel: &CancelToken) -> Result<()> {
@@ -2979,9 +3008,9 @@ mod tests {
             watchdog_restart_fails: true,
             ..d()
         });
-        assert!(!m.extend_session(&big, hour, &nc()).unwrap().armed);
+        assert!(!m.set_auto_stop(&big, hour, &nc()).unwrap().armed);
         off();
-        assert!(m.extend_session(&big, hour, &nc()).unwrap().armed);
+        assert!(m.set_auto_stop(&big, hour, &nc()).unwrap().armed);
     }
 
     fn tracked_watchdog(m: &MockBackend, name: &str) -> (Runtime, WatchdogInfo) {
@@ -3019,7 +3048,7 @@ mod tests {
 
         // "Set auto-stop": the watchdog runs on the runtime again.
         let hour = Duration::from_secs(3600);
-        let info = m.extend_session(&rt.id, hour, &nc()).unwrap();
+        let info = m.set_auto_stop(&rt.id, hour, &nc()).unwrap();
         assert!(info.armed && !info.cancelled);
         assert_eq!(info.idle_timeout, Some(Duration::from_secs(900)));
         let (rt, wd) = tracked_watchdog(&m, "t4-wd");
@@ -3033,7 +3062,7 @@ mod tests {
             ..MockFailures::default()
         });
         let before = m.now();
-        let info = m.extend_session(&rt.id, hour, &nc()).unwrap();
+        let info = m.set_auto_stop(&rt.id, hour, &nc()).unwrap();
         assert!(!info.armed && !info.cancelled);
         assert_eq!(info.deadline, None);
         assert_eq!(info.idle_timeout, Some(Duration::from_secs(900)));
@@ -3050,14 +3079,58 @@ mod tests {
         // Trying again once it can start works; after that the running
         // watchdog is only moved, so the switch no longer matters.
         m.set_failures(MockFailures::default());
-        assert!(m.extend_session(&rt.id, hour, &nc()).unwrap().armed);
+        assert!(m.set_auto_stop(&rt.id, hour, &nc()).unwrap().armed);
         m.set_failures(MockFailures {
             watchdog_restart_fails: true,
             ..MockFailures::default()
         });
-        let info = m.extend_session(&rt.id, hour * 2, &nc()).unwrap();
+        let info = m.set_auto_stop(&rt.id, hour * 2, &nc()).unwrap();
         assert!(info.armed);
         assert_eq!(info.deadline, Some(m.now() + hour * 2));
+    }
+
+    #[test]
+    fn extending_adds_to_the_stop_the_session_has_at_that_moment() {
+        let (m, clock) = mock(MockScenario::single());
+        let (tx, _rx) = mpsc::channel();
+        let spec = ProvisionSpec {
+            accelerator: Accelerator::T4,
+            ..m.defaults().provision_spec("t4-ext")
+        };
+        m.provision(spec, tx, &nc()).unwrap();
+        let (rt, _) = tracked_watchdog(&m, "t4-ext");
+        let first_stop = rt.auto_stop_at.unwrap();
+        let hour = Duration::from_secs(3600);
+        let left = |m: &MockBackend, stop: SystemTime| stop.duration_since(m.now()).unwrap();
+
+        // Two in a row, with no listing in between: the second adds to the first.
+        let set = m.extend_session(&rt.id, hour, &nc()).unwrap();
+        assert_eq!(set.watchdog.deadline, Some(first_stop + hour));
+        assert_eq!(set.runtime, left(&m, first_stop + hour));
+        let set = m.extend_session(&rt.id, hour, &nc()).unwrap();
+        assert_eq!(set.watchdog.deadline, Some(first_stop + 2 * hour));
+        assert_eq!(set.runtime, left(&m, first_stop + 2 * hour));
+        let (rt, wd) = tracked_watchdog(&m, "t4-ext");
+        assert_eq!(wd, set.watchdog);
+        assert_eq!(rt.auto_stop_at, Some(first_stop + 2 * hour));
+
+        // Setting an auto-stop counts from now, whatever time was left.
+        let info = m.set_auto_stop(&rt.id, hour, &nc()).unwrap();
+        let set_stop = m.now() + hour;
+        assert_eq!(info.deadline, Some(set_stop));
+        clock.advance(hour / 2);
+        let set = m.extend_session(&rt.id, hour, &nc()).unwrap();
+        assert_eq!(set.watchdog.deadline, Some(set_stop + hour));
+
+        // A stop that has passed, or none at all, leaves nothing to add to.
+        clock.advance(3 * hour);
+        let set = m.extend_session(&rt.id, hour, &nc()).unwrap();
+        assert_eq!(set.runtime, hour);
+        assert_eq!(set.watchdog.deadline, Some(m.now() + hour));
+        m.cancel_auto_stop(&rt.id, &nc()).unwrap();
+        let set = m.extend_session(&rt.id, hour, &nc()).unwrap();
+        assert_eq!(set.runtime, hour);
+        assert_eq!(set.watchdog.deadline, Some(m.now() + hour));
     }
 
     #[test]
