@@ -44,6 +44,15 @@ jobs:
           for _ in range(5):
               s = socket.socket(); s.bind(("127.0.0.1", 0)); ports.append(s.getsockname()[1]); s.close()
           print("five bind(0) ports in a row:", ports)'
+      - name: Does a dropped listener stay reachable while processes start?
+        env:
+          LOAD: ${{ matrix.load }}
+        run: |
+          rustc -O --edition 2024 .github/diag/phantom.rs -o /tmp/phantom
+          n=0
+          while [ "$n" -lt "$LOAD" ]; do yes > /dev/null & n=$((n + 1)); done
+          /tmp/phantom
+          kill $(jobs -p) 2>/dev/null || true
       - run: cargo test -p colab-playground-core --locked --test real_backend --no-run
       - name: Loop
         env:

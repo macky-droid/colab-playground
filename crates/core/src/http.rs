@@ -241,24 +241,27 @@ fn addr_bound(addr: SocketAddr) -> bool {
 pub fn local_port_in_use(port: u16, timeout: Duration) -> bool {
     let v4 = SocketAddr::from(([127, 0, 0, 1], port));
     let v6 = SocketAddr::from((Ipv6Addr::LOCALHOST, port));
-    let b4 = TcpListener::bind(v4).map(drop);
-    let which = if bind_says_bound(&b4) {
-        format!("bind4 {b4:?}")
+    // CANDIDATE FIX under test: the connects come before the bind tests.
+    let which = if local_port_open(port, timeout) {
+        "connect4".to_owned()
+    } else if let Ok(s) = TcpStream::connect_timeout(&v6, timeout.min(Duration::from_millis(150)))
+    {
+        format!(
+            "connect6 local={:?} peer={:?} err={:?}",
+            s.local_addr(),
+            s.peer_addr(),
+            s.take_error()
+        )
     } else {
-        let b6 = TcpListener::bind(v6).map(drop);
-        if bind_says_bound(&b6) {
-            format!("bind6 {b6:?}")
-        } else if local_port_open(port, timeout) {
-            "connect4".to_owned()
+        let b4 = TcpListener::bind(v4).map(drop);
+        if bind_says_bound(&b4) {
+            format!("bind4 {b4:?}")
         } else {
-            match TcpStream::connect_timeout(&v6, timeout.min(Duration::from_millis(150))) {
-                Ok(s) => format!(
-                    "connect6 local={:?} peer={:?} err={:?}",
-                    s.local_addr(),
-                    s.peer_addr(),
-                    s.take_error()
-                ),
-                Err(_) => String::new(),
+            let b6 = TcpListener::bind(v6).map(drop);
+            if bind_says_bound(&b6) {
+                format!("bind6 {b6:?}")
+            } else {
+                String::new()
             }
         }
     };
