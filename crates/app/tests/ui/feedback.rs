@@ -225,6 +225,21 @@ fn it_decides_on_the_list_fetched_after_the_stop(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn it_asks_after_a_stop_that_returned_during_a_listing(cx: &mut TestAppContext) {
+    let mut app = TestApp::with(cx, used(READY_BEFORE_ASKING));
+    let name = start_session(&mut app);
+    app.click(Route::Sessions.nav_selector());
+    app.click(&stop_selector(&name));
+    // A listing and the stop at once: whichever returns first, the ask comes once a listing
+    // that began after the stop is back.
+    app.update(|state, cx| {
+        state.confirm_stop(cx);
+        state.load_runtimes(cx);
+    });
+    assert!(asking(&mut app));
+}
+
+#[gpui::test]
 fn about_offers_feedback_at_any_time(cx: &mut TestAppContext) {
     let mut app = TestApp::with(cx, Options::scenario(MockScenario::single()));
     app.click(Route::Settings.nav_selector());

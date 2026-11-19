@@ -223,8 +223,9 @@ impl AppState {
                             Some(now),
                         );
                         state.toast_done(tr_args(cx, keys::STOP_DONE, &[("name", &label)]), cx);
+                        let listed_before = state.ops.is_running(Op::Runtimes);
                         state.after_runtime_change(cx);
-                        state.ask_for_feedback_after_stop(cx);
+                        state.ask_for_feedback_after_stop(listed_before, cx);
                     }
                     Err(error) => {
                         log::warn!("sessions: stopping {label} failed: {error}");
