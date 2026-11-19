@@ -6,6 +6,13 @@
       "sourceType": "github",
       "skillPath": "skills/colab-operator/SKILL.md",
       "computedHash": "969dba96a5c8eface476787f5fab497292a50d96087a102321f8cef114505ae9"
+    },
+    "ux-writing": {
+      "source": "scarletkc/agents",
+      "commit": "8e149b335e963954e9c4bafba00eedbd7de060ed",
+      "sourceType": "github",
+      "skillPath": "skills/ux-writing/SKILL.md",
+      "computedHash": "f1c2fb276b78f57c15492b350ff259f02eb6c3d88d042e1b2a7883185dec1fff"
     }
   }
 }

@@ -211,6 +211,12 @@ pub fn is_launcher_argument(arg: &str) -> bool {
     cfg!(target_os = "macos") && arg.starts_with("-psn_")
 }
 
+/// The operating system and processor this build is for, as Rust names them (`windows,
+/// x86_64`), for a bug report.
+pub fn system() -> String {
+    format!("{}, {}", std::env::consts::OS, std::env::consts::ARCH)
+}
+
 /// CJK families to try for `language`, best first: the language's own faces lead (Simplified
 /// ones for English, whose UI still shows Chinese names and user data), and the rest follow in
 /// the order Simplified, Traditional, Japanese, Korean. Every language gets every family.

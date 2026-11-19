@@ -8,6 +8,7 @@
 mod accounts;
 mod defaults;
 mod environment;
+mod feedback;
 mod ops;
 mod plugins;
 mod provision;
@@ -45,6 +46,7 @@ pub use environment::{
     Checklist, EnvironmentStep, InstallPhase, InstallState, Step, StepState, checklist,
     install_methods,
 };
+pub use feedback::{ASK_AGAIN_AFTER, MOST_ASKS, PROJECT_PAGE, READY_BEFORE_ASKING, feedback_page};
 pub use ops::{Op, key_of};
 pub use plugins::{HF_TOKEN, InstallPrompt, RemovePrompt, is_git_source};
 pub use provision::{LimitReached, NewSession, ProvisionPhase, ProvisionProgress};
@@ -151,6 +153,9 @@ pub struct AppState {
     pending_inputs: Vec<(InputSlot, String)>,
     quit: quit::QuitState,
     stop_all_pending: bool,
+    /// The runtime listing the user's stop waits for before asking for a star or feedback
+    /// (`feedback`).
+    feedback_waits_for: Option<feedback::ListingAwaited>,
     settings_focus: bool,
     update: updates::UpdateCheck,
     /// Whether this copy can replace itself (`None` until the backend has said).
@@ -176,6 +181,8 @@ pub enum Overlay {
     Quit(QuitPrompt),
     /// Download, install and restart into a newer release.
     Update(UpdatePrompt),
+    /// Asking for a star or feedback (see `feedback`).
+    Feedback,
 }
 
 /// A text field the root view owns, for state to fill (`AppState::set_input`).
@@ -273,6 +280,7 @@ impl AppState {
                 pending_inputs: Vec::new(),
                 quit: quit::QuitState::default(),
                 stop_all_pending: false,
+                feedback_waits_for: None,
                 settings_focus: false,
                 update: updates::UpdateCheck::default(),
                 self_update: None,

@@ -1054,4 +1054,22 @@ pub(super) const MESSAGES: Messages = &[
     ),
     (ERR_UPDATE_UNVERIFIED, "无法验证此更新。"),
     (ERR_UPDATE_UNAVAILABLE, "此版本没有适用于这台电脑的下载。"),
+    (FEEDBACK_TITLE, "觉得 Colab Playground 好用吗？"),
+    (
+        FEEDBACK_BODY,
+        "Colab Playground 是免费的开源软件。如果它对你有用，在 GitHub 上加个星标能帮更多人发现它。如果有地方和你预期的不一样，或者你有什么想法，欢迎到那里反馈。",
+    ),
+    (FEEDBACK_STAR, "在 GitHub 上加星标"),
+    (FEEDBACK_GIVE, "提交反馈"),
+    (FEEDBACK_NOT_NOW, "以后再说"),
+    (FEEDBACK_DONT_ASK_AGAIN, "不再提示"),
+    (
+        FEEDBACK_ALSO_IN_ABOUT,
+        "两者都在浏览器中打开 GitHub，也可在“设置 → 关于”中找到。",
+    ),
+    (SETTINGS_FEEDBACK_TITLE, "反馈"),
+    (
+        SETTINGS_FEEDBACK_DESCRIPTION,
+        "在 GitHub 上报告问题或提出建议。打开的表单会预先填好本应用的版本和你的操作系统。",
+    ),
 ];
