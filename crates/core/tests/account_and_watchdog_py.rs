@@ -61,6 +61,9 @@ class PlaintextKeyring:
     pass
 PlaintextKeyring.__module__ = "keyrings.alt.file"
 
+class SafeKeyring:
+    pass
+
 class ChainerBackend:
     def __init__(self, backends):
         self.backends = backends
@@ -76,7 +79,12 @@ kr_mod.delete_password = lambda s, u: store.pop((s, u), None)
 sys.modules["keyring"] = kr_mod
 
 os.environ.pop("COLAB_PLAYGROUND_ALLOW_PLAINTEXT_KEYRING", None)
-for backend in (PlaintextKeyring(), ChainerBackend([PlaintextKeyring()]), ChainerBackend([])):
+for backend in (
+    PlaintextKeyring(),
+    ChainerBackend([PlaintextKeyring()]),
+    ChainerBackend([SafeKeyring(), PlaintextKeyring()]),
+    ChainerBackend([]),
+):
     state["kr"] = backend
     try:
         ns["_keyring"]()
@@ -85,12 +93,10 @@ for backend in (PlaintextKeyring(), ChainerBackend([PlaintextKeyring()]), Chaine
         assert exc.kind == "keyring_unavailable"
 
 os.environ["COLAB_PLAYGROUND_ALLOW_PLAINTEXT_KEYRING"] = "1"
-state["kr"] = PlaintextKeyring()
+state["kr"] = ChainerBackend([SafeKeyring(), PlaintextKeyring()])
 assert ns["_keyring"]() is kr_mod
 os.environ.pop("COLAB_PLAYGROUND_ALLOW_PLAINTEXT_KEYRING", None)
 
-class SafeKeyring:
-    pass
 state["kr"] = SafeKeyring()
 
 def tok(name, access):
@@ -106,6 +112,7 @@ with tempfile.TemporaryDirectory() as lock_dir:
     os.environ["CPG_FAKE_STATE"] = lock_dir
     alice_old = tok("alice", "old-alice")
     alice_new = tok("alice", "new-alice")
+    alice_reauth = tok("alice-reauth", "reauth-alice")
     bob_cur = tok("bob", "cur-bob")
 
     store.clear()
@@ -135,6 +142,32 @@ with tempfile.TemporaryDirectory() as lock_dir:
     creds = ns["credential_for"]("alice", bob_cur)
     assert creds.token == "new-alice"
     assert ("colab-playground", "account:alice") not in store
+
+    store.clear()
+    store[("google-colab-cli", "oauth_token")] = bob_cur
+    store[("colab-playground", "account:alice")] = alice_old
+
+    def refresh_during_reauth(raw):
+        store[("colab-playground", "account:alice")] = alice_reauth
+        return types.SimpleNamespace(token="new-alice"), alice_new
+
+    ns["refreshed"] = refresh_during_reauth
+    creds = ns["credential_for"]("alice", bob_cur)
+    assert creds.token == "new-alice"
+    assert store[("colab-playground", "account:alice")] == alice_reauth
+
+    bad_lock_root = os.path.join(lock_dir, "not_a_dir")
+    with open(bad_lock_root, "w") as fh:
+        fh.write("x")
+    os.environ["CPG_FAKE_STATE"] = bad_lock_root
+    with ns["slot_file_lock"](blocking=False) as acquired:
+        assert acquired is False
+    try:
+        with ns["slot_file_lock"](blocking=True):
+            raise AssertionError("expected Fail('io') when lock file cannot be opened")
+    except Fail as exc:
+        assert exc.kind == "io", exc.kind
+        assert exc.__cause__ is None
 
 print("OK")
 "#,

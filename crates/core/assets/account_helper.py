@@ -87,9 +87,14 @@ def slot_file_lock(blocking=True):
     try:
         os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
         fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
-    except OSError:
-        yield True
-        return
+    except OSError as exc:
+        if not blocking:
+            yield False
+            return
+        raise Fail(
+            "io",
+            "cannot open the Colab credential slot lock (%s)" % type(exc).__name__,
+        ) from None
     fh = os.fdopen(fd, "r+")
     acquired = False
     try:
@@ -106,7 +111,9 @@ def slot_file_lock(blocking=True):
                     if not blocking:
                         break
                     if time.monotonic() >= deadline:
-                        raise Fail("busy", "another process holds the Colab credential slot")
+                        raise Fail(
+                            "busy", "another process holds the Colab credential slot"
+                        ) from None
                     time.sleep(0.05)
             yield acquired
         except ImportError:
@@ -124,7 +131,9 @@ def slot_file_lock(blocking=True):
                         if not blocking:
                             break
                         if time.monotonic() >= deadline:
-                            raise Fail("busy", "another process holds the Colab credential slot")
+                            raise Fail(
+                                "busy", "another process holds the Colab credential slot"
+                            ) from None
                         time.sleep(0.05)
                 yield acquired
             except ImportError:
@@ -135,14 +144,12 @@ def slot_file_lock(blocking=True):
                 import fcntl  # noqa: PLC0415
 
                 fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-            except Exception:  # noqa: BLE001
-                try:
+            except (ImportError, OSError):
+                with contextlib.suppress(ImportError, OSError):
                     import msvcrt  # noqa: PLC0415
 
                     fh.seek(0)
                     msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
-                except Exception:  # noqa: BLE001
-                    pass
         fh.close()
 
 
@@ -173,7 +180,7 @@ def _is_plaintext_backend(backend):
         return True
     if name == "ChainerBackend":
         backends = getattr(backend, "backends", None) or []
-        return bool(backends) and _is_plaintext_backend(backends[0])
+        return any(_is_plaintext_backend(child) for child in backends)
     return False
 
 
@@ -551,7 +558,7 @@ def usage_of(account_id, slot_raw):
     try:
         value = json.loads(text)
     except Exception:  # noqa: BLE001
-        raise Fail("parse", "unexpected usage response")
+        raise Fail("parse", "unexpected usage response") from None
     return parse_ccu_info(value)
 
 
@@ -587,7 +594,8 @@ def credential_for(account_id, slot_raw):
         # if a switch, login or removal ran concurrently.
         with slot_file_lock(blocking=False) as acquired:
             if acquired:
-                if read_account(account_id) is not None:
+                current_vault = read_account(account_id)
+                if current_vault is not None and same_identity(current_vault, source):
                     kr_set_verified(VAULT_SERVICE, user, token_json)
                 if use_slot and pending_backup() is None:
                     current_slot = read_slot()

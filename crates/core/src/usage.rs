@@ -223,15 +223,19 @@ impl RateAttribution {
                     }
                 }
             }
-        } else if !live.is_empty() && rate > 1e-9 {
+        }
+        if !live.is_empty() && rate > 1e-9 {
+            let still_pending = self.rates.values().any(Option::is_none);
             let known: f64 = self.rates.values().flatten().sum();
-            if (unmanaged == 0 && (rate - known).abs() > 1e-6) || known > rate + 1e-6 {
+            if known > rate + 1e-6
+                || (!still_pending && unmanaged == 0 && (rate - known).abs() > 1e-6)
+            {
                 if known > 1e-9 {
                     let scale = rate / known;
                     for r in self.rates.values_mut().flatten() {
                         *r *= scale;
                     }
-                } else {
+                } else if !still_pending {
                     let share = rate / live.len() as f64;
                     for r in self.rates.values_mut() {
                         *r = Some(share);
@@ -493,6 +497,25 @@ mod tests {
         assert_eq!(with_unmanaged.rate_of("m1"), None);
         with_unmanaged.observe(16.8, 2, &set(&["m1"]));
         assert!((with_unmanaged.rate_of("m1").unwrap() - 11.8).abs() < 1e-6);
+    }
+
+    #[test]
+    fn falling_rate_rescales_known_sessions_while_another_is_pending() {
+        let mut attr = RateAttribution::default();
+        attr.observe(10.0, 1, &set(&["a"]));
+        assert_eq!(attr.rate_of("a"), Some(10.0));
+
+        attr.observe(10.0, 2, &set(&["a", "b"]));
+        assert_eq!(attr.rate_of("a"), Some(10.0));
+        assert_eq!(attr.rate_of("b"), None);
+
+        attr.observe(5.0, 2, &set(&["a", "b"]));
+        assert!((attr.rate_of("a").unwrap() - 5.0).abs() < 1e-9);
+        assert_eq!(attr.rate_of("b"), None);
+
+        attr.observe(7.0, 2, &set(&["a", "b"]));
+        assert!((attr.rate_of("a").unwrap() - 5.0).abs() < 1e-9);
+        assert!((attr.rate_of("b").unwrap() - 2.0).abs() < 1e-9);
     }
 
     #[test]
