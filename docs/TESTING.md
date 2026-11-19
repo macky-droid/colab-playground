@@ -1,12 +1,25 @@
 # Testing Colab Playground
 
-What the automated tests cover, how to take screenshots, and the manual checklist for the part
-the tests cannot reach.
+How a change is checked: what the automated tests cover, how to take screenshots, and what
+happens with the part no test can reach.
+
+## A check is made once
+
+Nothing is checked twice, and nothing waits for a person to check it by hand.
+
+- CI runs the whole suite on every pull request, and `main` requires it. Do not run the whole
+  suite locally as well: while working, run only the checks of what you changed.
+- What the mock backend or the fake CLI covers is not checked again on the real backend.
+- A check that a test, a script or an agent can make is automated, never left to a person. On the
+  real backend an agent acts only when asked to
+  ([hard safety rules](DESIGN.md#hard-safety-rules)), because it spends compute units there.
+- What is left, the real Colab and a real update, is found out in use. A problem that shows up
+  there is fixed when it shows up.
 
 ## Automated tests
 
 The commands CI runs on each platform are in
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml); run the same ones locally.
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
 
 - UI tests (`crates/app/tests/ui/`) render the real views headless under GPUI's `TestAppContext`,
   with the mock backend only.
@@ -38,11 +51,12 @@ lists the rest.
 On macOS and Linux, start a debug build on the mock backend with its own config folder
 ([USAGE.md](USAGE.md#demo-data)) and capture its window with the system's screenshot tool.
 
-## Manual smoke checklist (real mode)
+## Real-mode checklist
 
-Because no automated test may touch a Google account or a runtime, real mode is checked by hand
-with this list: sign-in and switching, provisioning, tunnels and the auto-stop on the runtime. Run
-it after changing any of those, and before trusting a build with paid compute.
+No automated test may touch a Google account or a runtime. This list goes through what they
+cannot reach: sign-in and switching, provisioning, tunnels and the auto-stop on the runtime. It
+is optional ([A check is made once](#a-check-is-made-once)): use it to find the step that breaks
+once real use shows a problem, or to see real mode work before paying for compute.
 
 Go in order, cheapest first. At the first surprise, stop anything that is billing, keep the
 terminal log and note what you saw.
@@ -114,13 +128,13 @@ and Settings → About → Backend must read "Colab CLI".
 list runtimes on …" error for any account, the burn rate reads "Not in use", and the Colab web UI's
 resources page shows no active session for every account you used.
 
-## Manual check: updating in place
+## Checking an update in place
 
 Installing an update replaces the program you run, and only a real release can show it working:
-the tests use the demo data and temporary files. Check it on each platform after changing the
-updater or how Package builds and names the files, once two releases exist whose downloads have no
-version in their names and come with `SHA256SUMS.sig`: an older one to start from and a newer one
-to update to. The app runs on the real backend, so close it with nothing running.
+the tests use the demo data and temporary files. This list is optional too. It needs two releases
+whose downloads have no version in their names and come with `SHA256SUMS.sig`: an older one to
+start from and a newer one to update to. The app runs on the real backend, so close it with
+nothing running.
 
 1. Download the older release as in [Install a release](USAGE.md#install-a-release) and start it
    (on macOS, from Applications). Settings → About shows its version.

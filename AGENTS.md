@@ -21,14 +21,13 @@ disagree. The few rules that exist only here say so.
 
 - Debug builds run on the mock backend, which needs no WSL, CLI or Google account:
   [Build and run](docs/USAGE.md#build-and-run), [Demo data](docs/USAGE.md#demo-data).
-- Before pushing, run the commands CI runs: [`ci.yml`](.github/workflows/ci.yml). The tests of the
-  real backend do not run on Windows, so a green local run there does not cover them:
+- A check is made once. CI runs the whole suite on every pull request, so locally run only the
+  checks of what you changed, and nothing waits for a person to check it by hand:
+  [A check is made once](docs/TESTING.md#a-check-is-made-once).
+- The tests of the real backend do not run on Windows:
   [Automated tests](docs/TESTING.md#automated-tests).
 - A change to the interface is confirmed in screenshots, not by the headless UI tests:
   [Screenshots](docs/TESTING.md#screenshots).
-- Real mode is checked by a person, by hand:
-  [Manual smoke checklist](docs/TESTING.md#manual-smoke-checklist-real-mode). Say when a change
-  needs it.
 
 ## Rules every change follows
 
