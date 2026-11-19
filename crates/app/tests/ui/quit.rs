@@ -280,6 +280,74 @@ fn closing_during_a_refresh_that_finds_a_runtime_keeps_the_prompt(cx: &mut TestA
     assert!(!app.shown(QUIT_CHECKING));
 }
 
+/// Two accounts with nothing running, and a list that could not read the second.
+fn with_an_account_not_listed(cx: &mut TestAppContext) -> TestApp<'_> {
+    let scenario = MockScenario {
+        accounts: vec![
+            MockAccount {
+                email: "ada@example.com".into(),
+                balance_cu: 100.0,
+            },
+            MockAccount {
+                email: "lin@example.com".into(),
+                balance_cu: 50.0,
+            },
+        ],
+        runtimes: vec![],
+    };
+    let options = Options {
+        failures: MockFailures {
+            unlisted_accounts: vec!["lin@example.com".into()],
+            ..MockFailures::default()
+        },
+        ..Options::scenario(scenario)
+    };
+    let mut app = TestApp::with(cx, options);
+    let billing = app.read(|state, _| state.billing());
+    assert!(billing.unknown && !billing.checking && !billing.known());
+    app
+}
+
+/// Closes the app while a listing refreshes a list that lacks an account, drawn before that
+/// listing arrives: the prompt says it is checking, not that it could not check.
+fn close_during_a_refresh_of_an_incomplete_list(app: &mut TestApp<'_>) {
+    app.update_and_draw(|state, cx| {
+        state.load_runtimes(cx);
+        state.request_quit(cx);
+        assert!(!state.quit_approved());
+        assert!(quit_prompt(state).expect("the prompt waits").waiting);
+    });
+    assert!(app.shown(QUIT_CHECKING), "it says it closes by itself");
+    assert!(
+        !app.shown(QUIT_UNCHECKED),
+        "the account is being read again"
+    );
+}
+
+#[gpui::test]
+fn closing_during_a_refresh_of_an_incomplete_list_quits_once_it_is_complete(
+    cx: &mut TestAppContext,
+) {
+    let mut app = with_an_account_not_listed(cx);
+    app.set_failures(MockFailures::default());
+    close_during_a_refresh_of_an_incomplete_list(&mut app);
+    app.settle();
+    assert!(app.read(|state, _| state.quit_approved()));
+}
+
+#[gpui::test]
+fn closing_during_a_refresh_that_still_lacks_an_account_keeps_the_prompt(cx: &mut TestAppContext) {
+    let mut app = with_an_account_not_listed(cx);
+    close_during_a_refresh_of_an_incomplete_list(&mut app);
+    app.settle();
+    assert!(
+        !app.read(|state, _| state.quit_approved()),
+        "lin@example.com may still have runtimes"
+    );
+    assert!(app.shown(QUIT_UNCHECKED));
+    assert!(!app.shown(QUIT_CHECKING));
+}
+
 #[gpui::test]
 fn closing_during_a_refresh_lists_what_is_already_known(cx: &mut TestAppContext) {
     let mut app = TestApp::new(cx);

@@ -46,9 +46,10 @@ pub(super) fn render(
     let billing = &live;
     let list_failed = matches!(state.runtimes(), crate::state::Load::Failed(_));
     let stopping = state.is_stopping_all();
-    // A prompt that waits with nothing to show is waiting for a listing that refreshes the
-    // list shown, which the list itself does not say.
-    let checking = billing.checking || (prompt.waiting && !billing.any());
+    // A prompt that waits with no runtime to show is waiting for a listing that refreshes the
+    // list shown, which the list itself does not say. That listing reads again an account the
+    // last one could not, so what the last one said about it is not shown meanwhile.
+    let checking = billing.checking || (prompt.waiting && !billing.known());
     let title = if billing.known() {
         keys::QUIT_TITLE
     } else if checking {
@@ -87,7 +88,7 @@ pub(super) fn render(
     if billing.running_plugin {
         lines.push((Severity::Warning, tr(cx, keys::QUIT_RUNNING_PLUGIN)));
     }
-    let unchecked = billing.unknown.then(|| {
+    let unchecked = (billing.unknown && !checking).then(|| {
         let text = if list_failed {
             keys::QUIT_UNCHECKED
         } else {
