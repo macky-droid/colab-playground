@@ -140,9 +140,10 @@ impl AppState {
         self.list_runtimes(true, cx);
     }
 
-    /// The listing that only keeps the list fresh. Nothing is known to have changed, so a
-    /// listing under way serves it: were it to ask for one more, a listing slower than the
-    /// polling interval would be followed by another without end.
+    /// Lists the runtimes for a request no change stands behind: the periodic listing, and a
+    /// close that needs the list. A listing under way serves it. Were the periodic one to ask
+    /// for one more, a listing slower than the polling interval would be followed by another
+    /// without end; a close would wait for a listing that tells it nothing new.
     pub fn poll_runtimes(&mut self, cx: &mut Context<Self>) {
         self.list_runtimes(false, cx);
     }
@@ -534,7 +535,7 @@ impl AppState {
     /// usage.
     pub(crate) fn after_runtime_change(&mut self, cx: &mut Context<Self>) {
         self.load_runtimes(cx);
-        self.refresh_usage(true, cx);
+        self.refresh_usage_after_change(cx);
     }
 
     fn forget_runtime(&mut self, target: &RuntimeRef) {

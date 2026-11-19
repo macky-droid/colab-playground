@@ -174,8 +174,21 @@ impl AppState {
             .collect()
     }
 
-    /// Fetches usage: always when `manual`, otherwise only if core says a poll is due.
+    /// Fetches usage: always when `manual`, otherwise only if core says a poll is due. The
+    /// runtimes are listed once it is back; `manual` is the user asking for what is there now,
+    /// so a listing under way then, which may have begun before the click, is followed by one
+    /// more.
     pub fn refresh_usage(&mut self, manual: bool, cx: &mut Context<Self>) {
+        self.fetch_usage(manual, manual, cx);
+    }
+
+    /// Fetches usage after a change. The caller asks for the listing that change needs, so the
+    /// one after usage asks for no other.
+    pub(crate) fn refresh_usage_after_change(&mut self, cx: &mut Context<Self>) {
+        self.fetch_usage(true, false, cx);
+    }
+
+    fn fetch_usage(&mut self, manual: bool, relist: bool, cx: &mut Context<Self>) {
         if !self.cli_installed() {
             return;
         }
@@ -207,7 +220,7 @@ impl AppState {
                         }
                         None => {}
                     }
-                    if manual {
+                    if relist {
                         state.load_runtimes(cx);
                     } else {
                         state.poll_runtimes(cx);

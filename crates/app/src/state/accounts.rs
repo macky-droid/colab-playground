@@ -214,7 +214,7 @@ impl AppState {
                     let has_accounts = !view.accounts.is_empty();
                     state.accounts = Load::Ready(view);
                     if has_accounts {
-                        state.refresh_usage(true, cx);
+                        state.refresh_usage_after_change(cx);
                         state.load_runtimes(cx);
                     }
                 }
@@ -396,7 +396,7 @@ impl AppState {
                     let email = view.active_email.clone().unwrap_or_default();
                     state.accounts = Load::Ready(view);
                     state.toast_done(tr_args(cx, keys::SWITCH_DONE, &[("email", &email)]), cx);
-                    state.refresh_usage(true, cx);
+                    state.refresh_usage_after_change(cx);
                     state.load_runtimes(cx);
                 }
                 Err(error) => {

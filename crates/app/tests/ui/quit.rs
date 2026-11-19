@@ -95,6 +95,29 @@ fn cancelling_at_launch_while_checking_keeps_the_app_open(cx: &mut TestAppContex
     });
 }
 
+#[gpui::test]
+fn closing_while_the_first_listing_runs_waits_for_that_one_only(cx: &mut TestAppContext) {
+    let options = Options {
+        failures: listing_fails(),
+        ..Options::scenario(MockScenario::single())
+    };
+    let mut app = TestApp::with(cx, options);
+    app.set_failures(MockFailures::default());
+    let before = app.mock.runtime_listings();
+    app.update(|state, cx| {
+        // No list yet and a listing on its way, as at launch.
+        state.load_runtimes(cx);
+        state.request_quit(cx);
+        assert!(quit_prompt(state).expect("the prompt waits").waiting);
+    });
+    assert!(app.read(|state, _| state.quit_approved()));
+    assert_eq!(
+        app.mock.runtime_listings(),
+        before + 1,
+        "the close changed nothing, so it asks for no other listing"
+    );
+}
+
 /// The app with a failed listing, then `failures` for the listing the close starts.
 fn close_after_a_failed_listing(
     cx: &mut TestAppContext,
