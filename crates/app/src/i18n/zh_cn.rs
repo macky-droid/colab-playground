@@ -900,7 +900,7 @@ pub(super) const MESSAGES: Messages = &[
     (UPDATE_NOTICE_TITLE, "Colab Playground {version} 已发布"),
     (
         UPDATE_NOTICE_BODY,
-        "请从发布页面下载。本应用不会自行下载或安装更新。",
+        "应用可以下载它，确认它就是项目发布的版本，然后重启到新版本。",
     ),
     (UPDATE_DISMISS, "不再提示"),
     (UPDATE_BADGE, "新版本"),
@@ -930,6 +930,112 @@ pub(super) const MESSAGES: Messages = &[
         PROV_NO_ANSWER,
         "Colab 已有 {time}没有回应。有的申请要等更久，也可以现在取消。",
     ),
+    (UPDATE_INSTALL, "下载并重启"),
+    (UPDATE_WHATS_NEW, "更新内容"),
+    (UPDATE_NOTICE_BODY_MANUAL, "{why}请改为从发布页面下载。"),
+    (UPDATE_AVAILABLE_MANUAL, "有新版本 {version} 可用。{why}"),
+    (
+        UPDATE_UNVERIFIED_STATUS,
+        "无法验证版本 {version}，因此没有安装。当前版本保持不变。",
+    ),
+    (
+        UPDATE_WHY_DEVELOPMENT,
+        "此副本不是从发布的下载文件安装的，因此不会自行更新。",
+    ),
+    (
+        UPDATE_WHY_NO_DOWNLOAD,
+        "没有为这台电脑提供发布下载，因此应用无法自行更新。",
+    ),
+    (
+        UPDATE_WHY_NOT_WRITABLE,
+        "应用无法写入 {folder}，因此无法在那里自行更新。",
+    ),
+    (
+        UPDATE_WHY_TRANSLOCATED,
+        "macOS 正从一个临时的只读位置运行此副本。请将 Colab Playground 移到“应用程序”文件夹并从那里打开，才能就地更新。",
+    ),
+    (
+        UPDATE_WHY_NOT_IN_BUNDLE,
+        "应用不是从其应用包内运行的，因此无法自行更新。",
+    ),
+    (
+        UPDATE_WHY_LAYOUT,
+        "应用的文件布局与发布下载解压后的不一致，因此无法自行更新。",
+    ),
+    (UPDATE_CONFIRM_TITLE, "更新到版本 {version}？"),
+    (
+        UPDATE_CONFIRM_BODY,
+        "应用会下载版本 {version}，确认它就是项目发布的版本，用它替换当前版本，然后重启。",
+    ),
+    (
+        UPDATE_CONSEQUENCE_FORWARDS,
+        "已打开的端口转发会关闭，重启后请重新转发。",
+    ),
+    (
+        UPDATE_CONSEQUENCE_BILLING,
+        "应用重启期间，运行时会继续运行并计费。",
+    ),
+    (
+        UPDATE_CONSEQUENCE_AUTO_STOP,
+        "运行时上设置的自动停止照常有效：运行时会自行停止，不需要本应用。",
+    ),
+    (
+        UPDATE_BLOCKED_PROVISION,
+        "有一个运行时正在启动。请等它就绪或取消它，然后再更新。",
+    ),
+    (
+        UPDATE_BLOCKED_RUN,
+        "有一个部署正在进行。请等它就绪或取消它，然后再更新。",
+    ),
+    (
+        UPDATE_BLOCKED_SIGN_IN,
+        "正在添加账号。请先完成或取消，然后再更新。",
+    ),
+    (
+        UPDATE_BLOCKED_INSTALL,
+        "正在安装 Colab CLI。请等安装完成后再更新。",
+    ),
+    (UPDATE_WORKING_TITLE, "正在更新到版本 {version}"),
+    (UPDATE_STEP_DOWNLOAD, "下载"),
+    (UPDATE_STEP_CHECK, "验证"),
+    (UPDATE_STEP_INSTALL, "安装"),
+    (UPDATE_STEP_RESTART, "重启"),
+    (UPDATE_PREPARING, "正在准备下载…"),
+    (UPDATE_DOWNLOADING, "正在下载… {received} / {total}"),
+    (UPDATE_DOWNLOADING_UNSIZED, "正在下载… {received}"),
+    (UPDATE_VERIFYING, "正在确认下载的文件就是项目发布的版本…"),
+    (UPDATE_INSTALLING, "正在放入新版本…"),
+    (UPDATE_RESTARTING, "正在重启…"),
+    (UPDATE_RESTART_WAITING, "当前任务完成后立即重启…"),
+    (UPDATE_CANCELLING, "正在取消…"),
+    (UPDATE_CANCEL_NOTE, "取消后当前版本保持不变。"),
+    (UPDATE_FAILED_INSTALL_TITLE, "无法更新"),
+    (
+        UPDATE_UNVERIFIED,
+        "无法验证下载的文件是项目发布的版本，因此没有安装。当前版本保持不变，可以继续使用。",
+    ),
+    (
+        UPDATE_UNAVAILABLE,
+        "此版本没有适用于这台电脑的下载。当前版本保持不变。",
+    ),
+    (UPDATE_INSTALL_FAILED, "更新失败：{why}当前版本保持不变。"),
+    (
+        UPDATE_INSTALL_FAILED_KEPT,
+        "更新失败：{why}当前版本也未能移回原处，现在位于 {previous}。把它移回 {path} 后，即可像以前一样打开应用。",
+    ),
+    (UPDATE_RESTART_FAILED_TITLE, "重启应用以完成更新"),
+    (
+        UPDATE_RESTART_FAILED,
+        "版本 {version} 已安装，但应用无法启动它：{why}请退出后重新打开应用以使用新版本。",
+    ),
+    (UPDATE_QUIT, "退出"),
+    (UPDATE_SIMULATED_TITLE, "已模拟更新"),
+    (
+        UPDATE_SIMULATED_BODY,
+        "演示数据：没有下载或安装任何内容，应用继续运行。",
+    ),
+    (ERR_UPDATE_UNVERIFIED, "无法验证此更新。"),
+    (ERR_UPDATE_UNAVAILABLE, "此版本没有适用于这台电脑的下载。"),
     (FEEDBACK_TITLE, "觉得 Colab Playground 好用吗？"),
     (
         FEEDBACK_BODY,

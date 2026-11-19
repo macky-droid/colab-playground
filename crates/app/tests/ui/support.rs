@@ -490,8 +490,8 @@ impl colab_playground_core::clock::Clock for SwitchedClock {
         let left = self.switch.0.load(Ordering::SeqCst);
         if left > 0 {
             self.switch.0.store(left - 1, Ordering::SeqCst);
-            if left == 1 {
-                cancel.cancel();
+            // As for a real click, a cancel after the call's point of no return does not apply.
+            if left == 1 && cancel.cancel() {
                 return Err(colab_playground_core::Error::cancelled());
             }
         }

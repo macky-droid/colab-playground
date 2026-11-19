@@ -34,22 +34,29 @@ The pieces:
 4. That push runs Release again. release-please tags the squash commit `vX.Y.Z` and creates the
    GitHub release as a **draft**, with the changelog entry as its notes.
 5. In the same run, **Package** builds the downloads on Windows, Linux and macOS, writes
-   `SHA256SUMS`, attaches all four files to the draft and only then publishes it. A draft is hidden
-   from visitors and is never the "latest" release, so the app's update check (which reads the
-   latest release) never sees a release whose downloads are missing.
+   `SHA256SUMS`, signs it, attaches all five files to the draft and only then publishes it. A
+   draft is hidden from visitors and is never the "latest" release, so the app's update check
+   (which reads the latest release) never sees a release whose downloads are missing.
 
 ### The downloads
 
 | File | For | Contents |
 | --- | --- | --- |
-| `colab-playground-X.Y.Z-x86_64-pc-windows-msvc.exe` | Windows x64 | The program itself |
-| `colab-playground-X.Y.Z-x86_64-unknown-linux-gnu.tar.gz` | Linux x64 | A folder with `colab-playground`, `LICENSE`, `README.md` |
-| `colab-playground-X.Y.Z-aarch64-apple-darwin.zip` | macOS, Apple silicon | A folder with `Colab Playground.app`, `LICENSE`, `README.md` |
+| `colab-playground-x86_64-pc-windows-msvc.exe` | Windows x64 | The program itself |
+| `colab-playground-x86_64-unknown-linux-gnu.tar.gz` | Linux x64 | A folder `colab-playground-x86_64-unknown-linux-gnu` with `colab-playground`, `LICENSE`, `README.md` |
+| `colab-playground-aarch64-apple-darwin.zip` | macOS, Apple silicon | A folder `colab-playground-aarch64-apple-darwin` with `Colab Playground.app`, `LICENSE`, `README.md` |
 | `SHA256SUMS` | All | The SHA-256 of the three files above |
+| `SHA256SUMS.sig` | All | The signature of `SHA256SUMS` ([The update signature](#the-update-signature)) |
 
 There are no installers ([ROADMAP.md](ROADMAP.md#platform-and-distribution)). The binary needs no
 other files: the bundled plugin and helper scripts are compiled in. Why each file looks the way it
 does, and what Package checks before anything is attached:
+
+- **No version in the names.** The release tag says which version the files are. The Windows exe
+  is the app itself and keeps its name when the app updates in place, and the folder the Linux
+  archive unpacks stays where the user put it. Installed copies fetch the files by these names
+  from `releases/download/<tag>/`: renaming a download, or the folder inside an archive, breaks
+  updating for every installed copy.
 
 - **Windows: the bare `.exe`.** It is built with the C runtime linked statically
   (`+crt-static`), so it starts without the Visual C++ Redistributable; the build fails if the exe
@@ -67,11 +74,45 @@ does, and what Package checks before anything is attached:
   silicon runs only signed code) but has no Developer ID and is not notarised, so the first launch
   needs the steps in USAGE.md. The zip is made with `ditto`, and the job unzips it again and
   verifies the signature.
-- Each build job reads the version from Cargo metadata for the file names. On a release it also
-  checks that the tag is `v` plus that version, so a release whose `Cargo.toml` was not bumped is
-  never built.
+- Each build job reads the version from Cargo metadata, for the macOS bundle. On a release it
+  also checks that the tag is `v` plus that version, so a release whose `Cargo.toml` was not
+  bumped is never built.
+- The build sets `COLAB_PLAYGROUND_RELEASE_BUILD`, which marks the binary as a release download:
+  only such a binary replaces itself with a newer release. Any other build (`cargo run`, a local
+  release build, a distribution's package) offers the download page instead.
 - Release builds use `[profile.release]` in [`Cargo.toml`](../Cargo.toml) and are compiled from
   scratch, without a build cache.
+
+### The update signature
+
+The app installs an update only after checking that it is what the project published. Package
+signs, with the Ed25519 private key in the Actions secret `UPDATE_SIGNING_KEY`, the line
+`colab-playground <tag>` followed by the bytes of `SHA256SUMS`, and attaches the 64-byte signature
+as `SHA256SUMS.sig`. The app rebuilds that message from the tag it downloads from, accepts the
+signature only from one of the public keys in
+[`crates/core/update-keys.txt`](../crates/core/update-keys.txt), which are compiled into it, and
+then compares the download with the SHA-256 listed for it. The tag is part of the message because
+every release lists the same file names: without it an older release's signed files would pass for
+a newer one.
+
+- Package checks the new signature against `update-keys.txt` at the tag before anything is
+  attached, so a release signed with a key the app does not trust is never published.
+- A release fails when the secret is missing, so no unsigned release is published. A dry run never
+  signs and says so in a notice; the key is used only for a release.
+- **What it protects against:** release files that were changed or replaced after the build, on
+  GitHub or on the way, and an older release's files passed off as a newer release.
+- **What it does not protect against:** someone who takes over the repository and its secrets, or
+  who can change the workflows on `main`: Package signs whatever it builds. Nor is it OS code
+  signing: Windows SmartScreen and macOS Gatekeeper still treat a download by hand as unsigned.
+- **Rotating the key:** add the new public key to `update-keys.txt` and release; once that release
+  is out, replace the secret with the new private key, and remove the old public key in a later
+  release. A copy older than the release that added the new key can no longer verify updates: its
+  users update by hand once.
+- **Losing the key** (the secret is deleted, or the private key leaks): create a new key pair as in
+  [One-time repository settings](#one-time-repository-settings), replace the public key in
+  `update-keys.txt` (remove a leaked one) and release. Installed copies trust only the old key, so
+  they report that release as not verified and do not install it: their users download it by hand
+  once ([USAGE.md](USAGE.md#install-a-release)), and from then on updates install in place again.
 
 ## Version numbers
 
@@ -166,7 +207,7 @@ Does not match (release-please's fixed format):
   `initial-version`; both can stay in the config.
 - The first release is otherwise a normal one: do the one-time settings below, push, wait for the
   release pull request, get CI to run on it (see below), merge it, and watch the Release run publish
-  v0.1.0 with its four files.
+  v0.1.0 with its files.
 
 ## One-time repository settings
 
@@ -207,12 +248,29 @@ Does not match (release-please's fixed format):
      -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=COMMIT_MESSAGES
    ```
 
-4. Optionally, the token described in the next section.
+4. **Create the update signing key** ([The update signature](#the-update-signature)). On your own
+   computer, with OpenSSL 3 (on Windows, Git Bash has it), make a key pair, save the private key
+   as the Actions secret `UPDATE_SIGNING_KEY`, print the public key and delete the file, so the
+   private key lives only in the secret:
 
-Only `GITHUB_TOKEN` is used otherwise. Permissions per job: release-please gets `contents`,
-`issues` (labels) and `pull-requests` write; the build and checksum jobs get `contents: read`; only
-the job that attaches files and publishes the release gets `contents: write`, and it runs only for
-a release. If immutable releases are turned on for the repository, the flow still works, because
+   ```sh
+   (umask 077 && openssl genpkey -algorithm ed25519 -out update-signing-key.pem)
+   gh secret set UPDATE_SIGNING_KEY --repo scarletkc/colab-playground < update-signing-key.pem
+   openssl pkey -in update-signing-key.pem -pubout -outform DER | tail -c 32 | base64
+   rm update-signing-key.pem
+   ```
+
+   The third command prints the public key, 44 characters ending in `=`. It is not secret: add it
+   as a line of [`crates/core/update-keys.txt`](../crates/core/update-keys.txt) through a pull
+   request, so the app trusts it. A release fails until the secret is set.
+
+5. Optionally, the token described in the next section.
+
+Apart from `UPDATE_SIGNING_KEY` and that optional token, only `GITHUB_TOKEN` is used. Permissions
+per job: release-please gets `contents`, `issues` (labels) and `pull-requests` write; the build and
+checksum jobs get `contents: read`, and the checksum job reads the signing key only for a release;
+only the job that attaches files and publishes the release gets `contents: write`, and it runs only
+for a release. If immutable releases are turned on for the repository, the flow still works, because
 the files are attached while the release is a draft; only replacing the files of an already
 published release then becomes impossible.
 
@@ -247,9 +305,9 @@ the CI jobs, so the release pull request cannot be merged until they have run on
 - **By hand:** Actions → Package → Run workflow, choose the branch, leave **tag** empty. Do this
   after changing `[profile.release]`, which the path filter does not cover.
 
-A dry run runs the same build, archive and check steps as a release; only the last job (attach and
-publish) is skipped. Its artifacts are the four files exactly as a release would get them, named
-with the version in `Cargo.toml`; download them from the run's summary page.
+A dry run runs the same build, archive and check steps as a release; it does not sign, and the last
+job (attach and publish) is skipped. Its artifacts are the three downloads and `SHA256SUMS` exactly
+as a release would get them; download them from the run's summary page.
 
 ## When a build fails after the release exists
 
@@ -259,6 +317,9 @@ draft with some or none of its files, invisible to users and to the update check
 - **A transient failure** (runner, network): open the failed Release run and use **Re-run failed
   jobs**. Do not use **Re-run all jobs**: release-please would run again, find nothing to release
   and skip the build.
+- **Signing failed** (the secret is not set, or is not a key in `update-keys.txt` at the tag): set
+  the right secret ([One-time repository settings](#one-time-repository-settings)), then **Re-run
+  failed jobs**. A key missing from `update-keys.txt` is a problem in the code at the tag (below).
 - **A problem in the workflow or the packaging:** fix it on `main` (as `ci:` or `build:`, which the
   changelog does not show), then Actions → Package → Run workflow on `main` with **tag** set to
   `vX.Y.Z`. It builds the tagged code with the fixed workflow, replaces any files already attached

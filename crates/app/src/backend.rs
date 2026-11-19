@@ -116,7 +116,7 @@ pub struct MockFlags {
 
 impl MockFlags {
     /// Names accepted by `--mock-fail` (comma-separated).
-    pub const FAILURES: [&'static str; 14] = [
+    pub const FAILURES: [&'static str; 18] = [
         "cli-missing",
         "install-fails",
         "keyring",
@@ -130,6 +130,10 @@ impl MockFlags {
         "watchdog-restart-fails",
         "update-available",
         "update-check-fails",
+        "update-unsupported",
+        "update-download-fails",
+        "update-unverified",
+        "update-install-fails",
         "runtimes-fail",
     ];
 
@@ -173,6 +177,10 @@ impl MockFlags {
                     "plugin-fails" => flags.failures.plugin_fail_stage = Some("download".into()),
                     "update-available" => flags.failures.update_available = true,
                     "update-check-fails" => flags.failures.update_check_fails = true,
+                    "update-unsupported" => flags.failures.update_unsupported = true,
+                    "update-download-fails" => flags.failures.update_download_fails = true,
+                    "update-unverified" => flags.failures.update_unverified = true,
+                    "update-install-fails" => flags.failures.update_install_fails = true,
                     "runtimes-fail" => flags.failures.runtimes_listing_fails = true,
                     "watchdog-restart-fails" => flags.failures.watchdog_restart_fails = true,
                     "login-invalid-code" => {
@@ -401,6 +409,18 @@ mod tests {
             MockFlags::parse(&["--mock", "--mock-fail=update-available,update-check-fails"])
                 .unwrap();
         assert!(flags.failures.update_available && flags.failures.update_check_fails);
+        let flags = MockFlags::parse(&[
+            "--mock",
+            "--mock-fail=update-unsupported,update-download-fails,update-unverified,update-install-fails",
+        ])
+        .unwrap();
+        let f = &flags.failures;
+        assert!(
+            f.update_unsupported
+                && f.update_download_fails
+                && f.update_unverified
+                && f.update_install_fails
+        );
         assert!(super::usage().contains("update-available"));
         assert!(super::usage().contains("watchdog-restart-fails"));
 

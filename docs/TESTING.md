@@ -113,3 +113,26 @@ and Settings → About → Backend must read "Colab CLI".
 **Afterwards, make sure nothing is billing:** Sessions shows "Nothing is running" with no "Couldn't
 list runtimes on …" error for any account, the burn rate reads "Not in use", and the Colab web UI's
 resources page shows no active session for every account you used.
+
+## Manual check: updating in place
+
+Installing an update replaces the program you run, and only a real release can show it working:
+the tests use the demo data and temporary files. Check it on each platform after changing the
+updater or how Package builds and names the files, once two releases exist whose downloads have no
+version in their names and come with `SHA256SUMS.sig`: an older one to start from and a newer one
+to update to. The app runs on the real backend, so close it with nothing running.
+
+1. Download the older release as in [Install a release](USAGE.md#install-a-release) and start it
+   (on macOS, from Applications). Settings → About shows its version.
+2. Settings → About → "Check for updates", then "Download and restart". The dialog says what a
+   restart affects; confirm. Expect the download, the check, the restart, and the newer version in
+   Settings → About. Windows: the exe keeps its name, SmartScreen does not ask again, and no
+   `.colab-playground-update-…` folder is left beside it after the restart. Linux:
+   `colab-playground` in its folder is still executable. macOS: the app opens without the "Open
+   Anyway" step.
+3. Put the older release back as in step 1 and start it, choose "Download and restart" and click
+   Cancel during the download. The dialog closes, the older version keeps running and its folder
+   holds nothing new.
+4. Where it cannot update itself it says why and offers the download page: on Windows, the exe in
+   a folder you cannot write to (for example under `C:\Program Files`); on macOS, the app opened
+   from Downloads without moving it to Applications.

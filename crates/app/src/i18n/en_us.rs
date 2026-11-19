@@ -1071,7 +1071,7 @@ pub(super) const MESSAGES: Messages = &[
     ),
     (
         UPDATE_NOTICE_BODY,
-        "Download it from its release page. This app does not download or install updates itself.",
+        "The app can download it, check that it is the version the project published, and restart into it.",
     ),
     (UPDATE_DISMISS, "Dismiss"),
     (UPDATE_BADGE, "New"),
@@ -1109,6 +1109,133 @@ pub(super) const MESSAGES: Messages = &[
     (
         PROV_NO_ANSWER,
         "Colab hasn't answered for {time}. Some requests take longer; you can also cancel now.",
+    ),
+    (UPDATE_INSTALL, "Download and restart"),
+    (UPDATE_WHATS_NEW, "What's new"),
+    (
+        UPDATE_NOTICE_BODY_MANUAL,
+        "{why} Download it from its release page instead.",
+    ),
+    (
+        UPDATE_AVAILABLE_MANUAL,
+        "Version {version} is available. {why}",
+    ),
+    (
+        UPDATE_UNVERIFIED_STATUS,
+        "Version {version} couldn't be verified, so it wasn't installed. This version is unchanged.",
+    ),
+    (
+        UPDATE_WHY_DEVELOPMENT,
+        "This copy wasn't installed from a release download, so it doesn't update itself.",
+    ),
+    (
+        UPDATE_WHY_NO_DOWNLOAD,
+        "No release download is made for this computer, so the app can't update itself.",
+    ),
+    (
+        UPDATE_WHY_NOT_WRITABLE,
+        "The app can't write to {folder}, so it can't update itself there.",
+    ),
+    (
+        UPDATE_WHY_TRANSLOCATED,
+        "macOS is running this copy from a temporary read-only location. Move Colab Playground to Applications and open it from there to update it in place.",
+    ),
+    (
+        UPDATE_WHY_NOT_IN_BUNDLE,
+        "The app isn't running from inside its app bundle, so it can't update itself.",
+    ),
+    (
+        UPDATE_WHY_LAYOUT,
+        "The app's files aren't laid out the way a release download leaves them, so it can't update itself.",
+    ),
+    (UPDATE_CONFIRM_TITLE, "Update to version {version}?"),
+    (
+        UPDATE_CONFIRM_BODY,
+        "The app downloads version {version}, checks that it is the version the project published, puts it in place of this one and restarts.",
+    ),
+    (
+        UPDATE_CONSEQUENCE_FORWARDS,
+        "Open port forwards close. Forward them again after the restart.",
+    ),
+    (
+        UPDATE_CONSEQUENCE_BILLING,
+        "Runtimes keep running and billing while the app restarts.",
+    ),
+    (
+        UPDATE_CONSEQUENCE_AUTO_STOP,
+        "An auto-stop set on a runtime keeps working: the runtime stops itself, without the app.",
+    ),
+    (
+        UPDATE_BLOCKED_PROVISION,
+        "A runtime is being started. Wait until it is ready or cancel it, then update.",
+    ),
+    (
+        UPDATE_BLOCKED_RUN,
+        "A deployment is under way. Wait until it is ready or cancel it, then update.",
+    ),
+    (
+        UPDATE_BLOCKED_SIGN_IN,
+        "An account is being added. Finish or cancel that first, then update.",
+    ),
+    (
+        UPDATE_BLOCKED_INSTALL,
+        "The Colab CLI is being installed. Wait until it finishes, then update.",
+    ),
+    (UPDATE_WORKING_TITLE, "Updating to version {version}"),
+    (UPDATE_STEP_DOWNLOAD, "Download"),
+    (UPDATE_STEP_CHECK, "Check"),
+    (UPDATE_STEP_INSTALL, "Install"),
+    (UPDATE_STEP_RESTART, "Restart"),
+    (UPDATE_PREPARING, "Preparing the download…"),
+    (UPDATE_DOWNLOADING, "Downloading… {received} of {total}"),
+    (UPDATE_DOWNLOADING_UNSIZED, "Downloading… {received}"),
+    (
+        UPDATE_VERIFYING,
+        "Checking that the download is the version the project published…",
+    ),
+    (UPDATE_INSTALLING, "Putting the new version in place…"),
+    (UPDATE_RESTARTING, "Restarting…"),
+    (
+        UPDATE_RESTART_WAITING,
+        "Restarting as soon as the task under way finishes…",
+    ),
+    (UPDATE_CANCELLING, "Cancelling…"),
+    (
+        UPDATE_CANCEL_NOTE,
+        "Cancelling leaves this version as it is.",
+    ),
+    (UPDATE_FAILED_INSTALL_TITLE, "Couldn't update"),
+    (
+        UPDATE_UNVERIFIED,
+        "The download couldn't be verified as the version the project published, so it wasn't installed. This version is unchanged and keeps working.",
+    ),
+    (
+        UPDATE_UNAVAILABLE,
+        "This release has no download for this computer. This version is unchanged.",
+    ),
+    (
+        UPDATE_INSTALL_FAILED,
+        "The update failed: {why} This version is unchanged.",
+    ),
+    (
+        UPDATE_INSTALL_FAILED_KEPT,
+        "The update failed: {why} This version couldn't be moved back either, so it is now at {previous}. Move it back to {path} to open the app as before.",
+    ),
+    (UPDATE_RESTART_FAILED_TITLE, "Restart the app to finish"),
+    (
+        UPDATE_RESTART_FAILED,
+        "Version {version} is installed, but the app couldn't start it: {why} Quit and open the app again to use it.",
+    ),
+    (UPDATE_QUIT, "Quit"),
+    (UPDATE_SIMULATED_TITLE, "Update simulated"),
+    (
+        UPDATE_SIMULATED_BODY,
+        "Demo data: nothing was downloaded or installed, and the app keeps running.",
+    ),
+    (ERR_UPDATE_UNVERIFIED, "The update couldn't be verified."),
+    (
+        ERR_UPDATE_UNAVAILABLE,
+        "The release has no download for this computer.",
     ),
     (FEEDBACK_TITLE, "Enjoying Colab Playground?"),
     (

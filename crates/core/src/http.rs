@@ -14,10 +14,32 @@ pub struct HttpResponse {
     pub body: Vec<u8>,
 }
 
+/// A response whose body is read as it arrives.
+pub struct HttpStream {
+    pub status: u16,
+    /// `Content-Length`, when the server sent one.
+    pub length: Option<u64>,
+    pub body: Box<dyn Read + Send>,
+}
+
 /// Blocking HTTP GET.
 pub trait HttpClient: Send + Sync {
     /// GETs `url` with extra headers. Non-2xx statuses are returned, not errors.
     fn get(&self, url: &str, headers: &[(&str, &str)]) -> Result<HttpResponse>;
+
+    /// GETs `url` for a download too large to hold in memory or to fetch within [`get`]'s
+    /// time limit: the body is read as it arrives, with no overall limit on size or time (each
+    /// read still times out). The default reads the whole body through [`get`].
+    ///
+    /// [`get`]: HttpClient::get
+    fn get_stream(&self, url: &str, headers: &[(&str, &str)]) -> Result<HttpStream> {
+        let response = self.get(url, headers)?;
+        Ok(HttpStream {
+            status: response.status,
+            length: Some(response.body.len() as u64),
+            body: Box::new(std::io::Cursor::new(response.body)),
+        })
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -33,7 +55,13 @@ impl HttpClient for NoHttp {
 #[derive(Debug, Clone)]
 pub struct UreqClient {
     agent: ureq::Agent,
+    /// For [`HttpClient::get_stream`]: no overall timeout, since a large file on a slow line
+    /// takes minutes; a stalled connection still fails at the per-read timeout.
+    download: ureq::Agent,
 }
+
+#[cfg(feature = "http")]
+const USER_AGENT: &str = concat!("colab-playground/", env!("CARGO_PKG_VERSION"));
 
 #[cfg(feature = "http")]
 impl Default for UreqClient {
@@ -41,10 +69,18 @@ impl Default for UreqClient {
         let config = ureq::Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(30)))
             .http_status_as_error(false)
-            .user_agent(concat!("colab-playground/", env!("CARGO_PKG_VERSION")))
+            .user_agent(USER_AGENT)
+            .build();
+        let download = ureq::Agent::config_builder()
+            .timeout_connect(Some(Duration::from_secs(30)))
+            .timeout_recv_response(Some(Duration::from_secs(30)))
+            .timeout_per_read(Some(Duration::from_secs(60)))
+            .http_status_as_error(false)
+            .user_agent(USER_AGENT)
             .build();
         UreqClient {
             agent: ureq::Agent::new_with_config(config),
+            download: ureq::Agent::new_with_config(download),
         }
     }
 }
@@ -73,6 +109,26 @@ impl HttpClient for UreqClient {
                     .detail(e.to_string())
             })?;
         Ok(HttpResponse { status, body })
+    }
+
+    fn get_stream(&self, url: &str, headers: &[(&str, &str)]) -> Result<HttpStream> {
+        let mut req = self.download.get(url);
+        for (k, v) in headers {
+            req = req.header(*k, *v);
+        }
+        let resp = req.call().map_err(|e| {
+            Error::new(ErrorKind::Http)
+                .with("url", url)
+                .detail(e.to_string())
+        })?;
+        let status = resp.status().as_u16();
+        let length = resp.body().content_length();
+        Ok(HttpStream {
+            status,
+            length,
+            // No size limit here: the caller counts what it reads and stops at its own.
+            body: Box::new(resp.into_body().into_reader()),
+        })
     }
 }
 

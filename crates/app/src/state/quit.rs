@@ -129,6 +129,13 @@ impl AppState {
             // Already quitting.
             return;
         }
+        // A download in progress is simply abandoned: nothing was changed yet. Once the new
+        // version is being put in place, or the app is about to restart into it, the quit
+        // waits: stopping halfway could leave no program where the app was. The install call
+        // can pass that point before the dialog shows it, which the cancel reports.
+        if self.update_committed() || !self.ops.cancel(Op::UpdateInstall) {
+            return;
+        }
         if matches!(self.overlay, Some(Overlay::Quit(_))) {
             // Already asking (maybe mid "Stop all"): keep that prompt as it is.
             return;
@@ -169,6 +176,12 @@ impl AppState {
     }
 
     pub fn quit_leaving_running(&mut self, cx: &mut Context<Self>) {
+        self.approve_quit(cx);
+    }
+
+    /// Quits so the version an update installed can take over. The user confirmed what that
+    /// affects in the update dialog, so the quit prompt is not asked again.
+    pub(super) fn quit_for_restart(&mut self, cx: &mut Context<Self>) {
         self.approve_quit(cx);
     }
 

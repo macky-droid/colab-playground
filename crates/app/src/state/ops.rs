@@ -74,6 +74,14 @@ pub enum Op {
     StopAll,
     /// Checking GitHub for a newer release.
     UpdateCheck,
+    /// Finding out whether this copy can replace itself.
+    UpdateSupport,
+    /// Deleting what an earlier update left beside the app.
+    UpdateCleanup,
+    /// Downloading, checking and installing an update.
+    UpdateInstall,
+    /// Starting the installed version.
+    UpdateRestart,
 }
 
 impl Op {
@@ -94,6 +102,24 @@ impl Op {
                 | Op::Adopt
                 | Op::Rebuild
                 | Op::StopAll
+        )
+    }
+
+    /// Whether a restart after an update waits for this call to return. Only calls that read
+    /// and change nothing may be cut off by quitting; the rest (a stop, a sign-in, a guard
+    /// round that may stop a runtime, writing a file) finish first.
+    pub fn delays_restart(self) -> bool {
+        !matches!(
+            self,
+            Op::UpdateCheck
+                | Op::UpdateSupport
+                | Op::UpdateCleanup
+                | Op::UpdateInstall
+                | Op::UpdateRestart
+                | Op::SessionName
+                | Op::RunTemplate
+                | Op::Plugins
+                | Op::HfFiles(_)
         )
     }
 }
@@ -129,10 +155,19 @@ impl Ops {
         self.running.keys().any(|op| op.pauses_polling())
     }
 
-    pub(crate) fn cancel(&self, op: Op) {
-        if let Some(token) = self.running.get(&op) {
-            log::info!("ops: cancelling {op:?}");
-            token.cancel();
+    pub(crate) fn delaying_restart(&self) -> bool {
+        self.running.keys().any(|op| op.delays_restart())
+    }
+
+    /// Cancels the call of `op`, if one runs. False when that call has passed its point of no
+    /// return ([`CancelToken::commit`]) and runs to its end.
+    pub(crate) fn cancel(&self, op: Op) -> bool {
+        match self.running.get(&op) {
+            Some(token) => {
+                log::info!("ops: cancelling {op:?}");
+                token.cancel()
+            }
+            None => true,
         }
     }
 
@@ -199,6 +234,8 @@ impl AppState {
                 done(state, result, cx);
                 // What this call found may settle a quit prompt waiting on the check.
                 state.settle_waiting_quit(cx);
+                // An installed update restarts once no call it waits for is running.
+                state.settle_pending_restart(cx);
                 cx.notify();
             })
             .ok();
@@ -257,6 +294,7 @@ impl AppState {
                 state.ops.finish(op);
                 log::debug!("ops: {op:?} finished ({})", outcome(&result));
                 done(state, result, cx);
+                state.settle_pending_restart(cx);
                 cx.notify();
             })
             .ok();
@@ -270,5 +308,34 @@ fn outcome<R>(result: &Result<R>) -> String {
     match result {
         Ok(_) => "ok".to_owned(),
         Err(error) => error.kind.as_str().to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Op, Ops};
+
+    #[test]
+    fn a_cancel_says_whether_the_call_will_stop() {
+        let mut ops = Ops::default();
+        assert!(
+            ops.cancel(Op::UpdateInstall),
+            "nothing runs: nothing to wait for"
+        );
+        let worker = ops.start(Op::UpdateInstall).expect("started");
+        worker.commit().unwrap();
+        assert!(
+            !ops.cancel(Op::UpdateInstall),
+            "past its point of no return it runs to its end"
+        );
+        assert!(!ops.is_cancelling(Op::UpdateInstall));
+        ops.finish(Op::UpdateInstall);
+
+        let worker = ops.start(Op::UpdateInstall).expect("started again");
+        assert!(ops.cancel(Op::UpdateInstall));
+        assert!(
+            worker.commit().is_err(),
+            "a cancel first keeps it from committing"
+        );
     }
 }

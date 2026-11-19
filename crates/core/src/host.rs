@@ -56,6 +56,74 @@ pub enum Host {
     },
 }
 
+/// The operating system of the computer the app runs on, where an update decides what to
+/// replace and how (the app on the other side of `Host::Wsl` is still a Windows program).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Platform {
+    Windows,
+    Linux,
+    MacOs,
+}
+
+impl Platform {
+    pub fn current() -> Option<Platform> {
+        if cfg!(windows) {
+            Some(Platform::Windows)
+        } else if cfg!(target_os = "macos") {
+            Some(Platform::MacOs)
+        } else if cfg!(target_os = "linux") {
+            Some(Platform::Linux)
+        } else {
+            None
+        }
+    }
+}
+
+/// The target triple of the release download built for this system and processor, if the
+/// release workflow builds one.
+pub fn release_target() -> Option<&'static str> {
+    if cfg!(all(windows, target_arch = "x86_64", target_env = "msvc")) {
+        Some("x86_64-pc-windows-msvc")
+    } else if cfg!(all(
+        target_os = "linux",
+        target_arch = "x86_64",
+        target_env = "gnu"
+    )) {
+        Some("x86_64-unknown-linux-gnu")
+    } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        Some("aarch64-apple-darwin")
+    } else {
+        None
+    }
+}
+
+/// The running program's file. On unix, its real path, so a link to it is never mistaken for
+/// the file; on Windows as reported, since resolving would add the `\\?\` prefix to every path
+/// shown.
+pub fn current_program() -> std::io::Result<std::path::PathBuf> {
+    let exe = std::env::current_exe()?;
+    if cfg!(unix) {
+        Ok(std::fs::canonicalize(&exe).unwrap_or(exe))
+    } else {
+        Ok(exe)
+    }
+}
+
+/// Makes the file at `path` executable (`rwxr-xr-x`). Only unix has the bit; elsewhere this
+/// does nothing.
+#[cfg(unix)]
+pub fn make_executable(path: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+}
+
+/// Makes the file at `path` executable (`rwxr-xr-x`). Only unix has the bit; elsewhere this
+/// does nothing.
+#[cfg(not(unix))]
+pub fn make_executable(_: &std::path::Path) -> std::io::Result<()> {
+    Ok(())
+}
+
 /// The `bash -lc` string shared by every invocation; see the module docs.
 /// (`base64 -D` is the spelling of older macOS releases.)
 pub const BOOTSTRAP: &str = r#"eval "$(printf %s "$0" | { base64 -d 2>/dev/null || base64 -D; })""#;
@@ -435,6 +503,34 @@ impl Host {
         let mut child = HostChild::start(Host::Local, child, None, false);
         child.direct = true;
         collect(&mut child, timeout, cancel, &mut |_| LineAction::Continue)
+    }
+
+    /// Starts `program` on the local machine and leaves it running on its own: nothing is
+    /// piped, nothing waits for it and nothing kills it, so it outlives this process. Only
+    /// valid for [`Host::Local`]; used to start the app again after an update.
+    pub fn launch_detached(&self, program: &std::path::Path, args: &[String]) -> Result<()> {
+        if *self != Host::Local {
+            return Err(Error::new(ErrorKind::Unsupported)
+                .detail("launch_detached runs on the local machine only"));
+        }
+        let mut cmd = Command::new(program);
+        cmd.args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt as _;
+            // Its own process group and no console: closing a terminal this process was
+            // started from must not take the new one with it.
+            const DETACHED_PROCESS: u32 = 0x0000_0008;
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+            cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+        }
+        // Dropping a `Child` neither waits for nor kills the process.
+        cmd.spawn()
+            .map(drop)
+            .map_err(|e| Error::from(e).with("program", program.display()))
     }
 
     /// Reports what is available on this host. Spawns real processes; never

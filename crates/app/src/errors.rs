@@ -102,6 +102,8 @@ pub fn kind_key(kind: ErrorKind) -> Option<&'static str> {
         K::Io => keys::ERR_IO,
         K::Timeout => keys::ERR_TIMEOUT,
         K::UnsupportedCliVersion => keys::ERR_UNSUPPORTED_CLI,
+        K::UpdateUnverified => keys::ERR_UPDATE_UNVERIFIED,
+        K::UpdateUnavailable => keys::ERR_UPDATE_UNAVAILABLE,
         K::Other => keys::ERR_OTHER,
         _ => return None,
     })
@@ -175,6 +177,8 @@ mod tests {
             ErrorKind::LoginInvalidCode,
             ErrorKind::InstallFailed,
             ErrorKind::UnsupportedCliVersion,
+            ErrorKind::UpdateUnverified,
+            ErrorKind::UpdateUnavailable,
             ErrorKind::Other,
         ];
         for kind in kinds {

@@ -38,6 +38,7 @@ use crate::sessions::{
     Accelerator, Ledger, ServerSession, StopReason, StopRecord, TrackedSession, WatchdogInfo,
 };
 use crate::tunnel::{TunnelEvent, TunnelId, TunnelInfo, TunnelSpec, TunnelState};
+use crate::updater::{Installed, SelfUpdate, Unsupported, UpdateProgress};
 use crate::usage::{AccountUsage, Usage, poll_due};
 use crate::vm::{RunState, RunStatus};
 
@@ -90,6 +91,20 @@ pub struct MockFailures {
     pub update_available: bool,
     /// The update check fails (as if GitHub could not be reached).
     pub update_check_fails: bool,
+    /// This copy cannot replace itself: the folder holding it is not writable.
+    pub update_unsupported: bool,
+    /// The update's download fails halfway (as if the connection dropped).
+    pub update_download_fails: bool,
+    /// The downloaded update fails its checksum check, so it is not installed.
+    pub update_unverified: bool,
+    /// Putting the update in place fails; the old version stays.
+    pub update_install_fails: bool,
+    /// A completed update asks to be started again, as a real one does
+    /// (`Installed::relaunch`); `relaunch` then only counts. Off, the update reports that
+    /// nothing was installed, so the interactive demo keeps running.
+    pub update_relaunch: bool,
+    /// Starting the updated version fails.
+    pub update_relaunch_fails: bool,
     /// `switch_impact` cannot list the unmanaged runtimes either.
     pub runtimes_listing_fails: bool,
     /// Accounts (by email) whose runtimes cannot be listed: listings leave their runtimes out
@@ -116,6 +131,12 @@ impl Default for MockFailures {
             watchdog_restart_fails: false,
             update_available: false,
             update_check_fails: false,
+            update_unsupported: false,
+            update_download_fails: false,
+            update_unverified: false,
+            update_install_fails: false,
+            update_relaunch: false,
+            update_relaunch_fails: false,
             runtimes_listing_fails: false,
             unlisted_accounts: vec![],
         }
@@ -340,6 +361,8 @@ struct World {
     pending_add: Option<Option<AccountId>>,
     login_live: bool,
     update_checks: u32,
+    update_installs: u32,
+    update_relaunches: u32,
 }
 
 /// Email of the credential `MockFailures::unadopted_slot` puts in the slot.
@@ -512,6 +535,7 @@ impl World {
             .cloned()
             .collect();
         let mut vanished = Vec::new();
+        let mut unmatched = Vec::new();
         let mut verified = true;
         for e in live {
             let endpoint = e.endpoint.clone().or_else(|| {
@@ -521,7 +545,7 @@ impl World {
                     .map(|r| r.endpoint.clone())
             });
             let Some(endpoint) = endpoint else {
-                verified = false;
+                unmatched.push(e.name);
                 continue;
             };
             if self
@@ -556,6 +580,41 @@ impl World {
                     name: Some(e.name),
                 });
             }
+        }
+        // Like the real backend: a session without an endpoint can only be a runtime that
+        // no other live session claims.
+        let claimed = |endpoint: &str| {
+            self.ledger.entries().iter().any(|e| {
+                &e.account == id && e.stopped.is_none() && e.endpoint.as_deref() == Some(endpoint)
+            })
+        };
+        let all_claimed = self
+            .runtimes
+            .iter()
+            .filter(|r| &r.account == id)
+            .all(|r| claimed(&r.endpoint));
+        if all_claimed {
+            for name in unmatched {
+                if self
+                    .ledger
+                    .update(id, &name, |e| {
+                        e.stopped = Some(StopRecord {
+                            at: now,
+                            reason: StopReason::Vanished,
+                        })
+                    })
+                    .is_err()
+                {
+                    verified = false;
+                }
+                vanished.push(RuntimeRef {
+                    account: id.clone(),
+                    endpoint: String::new(),
+                    name: Some(name),
+                });
+            }
+        } else if !unmatched.is_empty() {
+            verified = false;
         }
         (verified, vanished)
     }
@@ -670,6 +729,8 @@ impl MockBackend {
             pending_add: None,
             login_live: false,
             update_checks: 0,
+            update_installs: 0,
+            update_relaunches: 0,
         };
         let off = MockFailures {
             cli_missing: cfg.failures.cli_missing,
@@ -726,6 +787,16 @@ impl MockBackend {
     /// How many update checks were made (the simulation never contacts GitHub).
     pub fn update_checks(&self) -> u32 {
         self.w().update_checks
+    }
+
+    /// How many simulated updates completed (nothing is ever downloaded or replaced).
+    pub fn update_installs(&self) -> u32 {
+        self.w().update_installs
+    }
+
+    /// How many times the app asked to start an updated version (nothing is started).
+    pub fn update_relaunches(&self) -> u32 {
+        self.w().update_relaunches
     }
 
     /// Replaces the failure switches at runtime (UI tests flip them mid-test).
@@ -813,6 +884,12 @@ impl MockBackend {
     }
 
     fn stop_inner(&self, target: &RuntimeRef, reason: StopReason) -> Result<()> {
+        // Like the real backend: without an endpoint it cannot tell that the runtime is gone.
+        if target.endpoint.is_empty() {
+            return Err(
+                Error::new(ErrorKind::OrphanSuspected).detail("the session's runtime is not known")
+            );
+        }
         let now = self.now_();
         let mut w = self.w();
         w.settle(now);
@@ -2011,7 +2088,94 @@ impl Backend for MockBackend {
             },
         ))
     }
+
+    fn self_update(&self) -> SelfUpdate {
+        if self.w().failures.update_unsupported {
+            SelfUpdate::Unsupported(Unsupported::NotWritable {
+                folder: mock_app_folder().to_owned(),
+            })
+        } else {
+            SelfUpdate::Supported
+        }
+    }
+
+    fn install_update(
+        &self,
+        release: &crate::update::Release,
+        events: Events<UpdateProgress>,
+        cancel: &CancelToken,
+    ) -> Result<Installed> {
+        // Never touches the network or a file: each phase is a paced step, and failures come
+        // from the switches.
+        let failures = self.w().failures.clone();
+        if failures.update_unsupported {
+            return Err(Error::new(ErrorKind::Unsupported).detail("simulated: not writable"));
+        }
+        let _ = events.send(UpdateProgress::Preparing);
+        self.step(cancel)?;
+        for step in 0..=MOCK_UPDATE_STEPS {
+            let _ = events.send(UpdateProgress::Downloading {
+                received: MOCK_UPDATE_SIZE * step / MOCK_UPDATE_STEPS,
+                total: Some(MOCK_UPDATE_SIZE),
+            });
+            if failures.update_download_fails && step == MOCK_UPDATE_STEPS / 2 {
+                return Err(Error::new(ErrorKind::Http)
+                    .with("url", &release.page)
+                    .detail("simulated: the connection dropped"));
+            }
+            if step < MOCK_UPDATE_STEPS {
+                self.step(cancel)?;
+            }
+        }
+        let _ = events.send(UpdateProgress::Verifying);
+        self.step(cancel)?;
+        if failures.update_unverified {
+            return Err(Error::new(ErrorKind::UpdateUnverified)
+                .detail("simulated: the download's SHA-256 differs from SHA256SUMS"));
+        }
+        // The point of no return, as in the real backend: a cancel from here on does not apply.
+        cancel.commit()?;
+        let _ = events.send(UpdateProgress::Installing);
+        self.step(cancel)?;
+        if failures.update_install_fails {
+            return Err(Error::new(ErrorKind::Io)
+                .with("path", mock_app_folder())
+                .detail("simulated: access denied"));
+        }
+        self.w().update_installs += 1;
+        Ok(Installed {
+            version: release.version.clone(),
+            relaunch: failures.update_relaunch.then(|| crate::updater::Relaunch {
+                program: std::path::PathBuf::from("colab-playground (simulated)"),
+                args: Vec::new(),
+                launcher: false,
+            }),
+        })
+    }
+
+    fn relaunch(&self, installed: &Installed) -> Result<()> {
+        let _ = installed;
+        let mut w = self.w();
+        w.update_relaunches += 1;
+        if w.failures.update_relaunch_fails {
+            return Err(Error::new(ErrorKind::Io).detail("simulated: the program did not start"));
+        }
+        Ok(())
+    }
 }
+
+/// The folder the simulation says holds the app (named when it "cannot write" there).
+pub fn mock_app_folder() -> &'static str {
+    match crate::host::Platform::current() {
+        Some(crate::host::Platform::Windows) => r"C:\Program Files\Colab Playground",
+        Some(crate::host::Platform::MacOs) => "/Applications",
+        _ => "/opt/colab-playground",
+    }
+}
+
+/// The simulated download: its size and the steps it takes (long enough to watch).
+const MOCK_UPDATE_SIZE: u64 = 31_457_280;
+const MOCK_UPDATE_STEPS: u64 = 16;
 
 #[cfg(test)]
 mod tests {
@@ -2102,6 +2266,106 @@ mod tests {
             .retain(|r| r.endpoint != entry.endpoint.as_deref().unwrap());
         assert!(!w.reconcile(&account, m.now_()).0);
         assert!(w.ledger.live(&account, &entry.name).is_some());
+    }
+
+    #[test]
+    fn a_session_without_an_endpoint_ends_once_no_runtime_could_be_it() {
+        let (m, _) = mock(MockScenario::demo());
+        let (active, other) = {
+            let w = m.w();
+            (w.accounts[0].id.clone(), w.accounts[1].id.clone())
+        };
+        let lose = |account: &AccountId, name: &str| {
+            let mut w = m.w();
+            let endpoint = w
+                .ledger
+                .live(account, name)
+                .unwrap()
+                .endpoint
+                .clone()
+                .unwrap();
+            w.ledger
+                .update(account, name, |e| e.endpoint = None)
+                .unwrap();
+            w.runtimes.retain(|r| r.endpoint != endpoint);
+        };
+        let verified = |views: &[AccountUsageView], account: &AccountId| {
+            views
+                .iter()
+                .find(|v| &v.account == account)
+                .unwrap()
+                .ownership_verified
+        };
+
+        lose(&other, "cpu-0b5e");
+        assert!(m.remove_account(&other, &nc()).is_err());
+        let report = m.guard_poll(&nc()).unwrap();
+        let cpu = RuntimeRef {
+            account: other.clone(),
+            endpoint: String::new(),
+            name: Some("cpu-0b5e".into()),
+        };
+        assert_eq!(report.vanished, [cpu]);
+        assert!(verified(&report.usage, &other));
+        m.remove_account(&other, &nc()).unwrap();
+
+        lose(&active, "t4-91c2");
+        let views = m.refresh_usage(&[], &nc()).unwrap();
+        assert!(m.w().ledger.live(&active, "t4-91c2").is_some());
+        assert!(!verified(&views, &active), "the browser's L4 could be it");
+        let browser = {
+            let w = m.w();
+            let r = w
+                .runtimes
+                .iter()
+                .find(|r| r.account == active && r.name.is_none())
+                .unwrap();
+            RuntimeRef {
+                account: active.clone(),
+                endpoint: r.endpoint.clone(),
+                name: None,
+            }
+        };
+        m.stop_session(&browser, StopOptions::default(), &nc())
+            .unwrap();
+        let views = m.refresh_usage(&[], &nc()).unwrap();
+        assert!(m.w().ledger.live(&active, "t4-91c2").is_none());
+        assert!(verified(&views, &active));
+    }
+
+    #[test]
+    fn a_guard_stop_without_an_endpoint_suspects_an_orphan_and_keeps_the_session() {
+        let (m, clock) = mock(MockScenario::demo());
+        let (account, endpoint, limit) = {
+            let mut w = m.w();
+            let account = w.active.clone().unwrap();
+            let entry = w.ledger.live(&account, "t4-91c2").unwrap().clone();
+            let endpoint = entry.endpoint.unwrap();
+            w.ledger
+                .update(&account, "t4-91c2", |e| e.endpoint = None)
+                .unwrap();
+            let runtime = w
+                .runtimes
+                .iter_mut()
+                .find(|r| r.endpoint == endpoint)
+                .unwrap();
+            runtime.name = None;
+            (account, endpoint, entry.policy.max_runtime.unwrap())
+        };
+        clock.advance(limit);
+        let report = m.guard_poll(&nc()).unwrap();
+        let decision = report
+            .decisions
+            .iter()
+            .find(|d| d.session.name.as_deref() == Some("t4-91c2"))
+            .unwrap();
+        assert!(matches!(decision.decision, Decision::Stop(_)));
+        assert!(!decision.stopped);
+        let error = decision.error.as_ref().unwrap();
+        assert!(error.is(ErrorKind::OrphanSuspected), "{error:?}");
+        assert!(m.w().ledger.live(&account, "t4-91c2").is_some());
+        let listed = m.runtimes(&nc()).unwrap().runtimes;
+        assert!(listed.iter().any(|r| r.id.endpoint == endpoint));
     }
 
     #[test]

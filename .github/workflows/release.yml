@@ -47,3 +47,6 @@ jobs:
     uses: ./.github/workflows/package.yml
     with:
       tag: ${{ needs.release-please.outputs.tag_name }}
+    secrets:
+      # Signs SHA256SUMS; without it the release is not published (docs/RELEASING.md).
+      UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}

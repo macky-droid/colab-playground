@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.0](https://github.com/scarletkc/colab-playground/compare/v0.2.0...v0.3.0) (2026-11-19)
+
+
+### Added
+
+* download, check and install updates from inside the app ([#41](https://github.com/scarletkc/colab-playground/issues/41)) ([cfd98c2](https://github.com/scarletkc/colab-playground/commit/cfd98c2e6781e97a42cca35fa976d30a27f51a70))
+
+
+### Changed
+
+* name the downloads without the version ([cfd98c2](https://github.com/scarletkc/colab-playground/commit/cfd98c2e6781e97a42cca35fa976d30a27f51a70))
+
+
+### Fixed
+
+* **core:** end a session whose runtime was never recorded once nothing running could be it ([#38](https://github.com/scarletkc/colab-playground/issues/38)) ([9e5eb7e](https://github.com/scarletkc/colab-playground/commit/9e5eb7e34b7b1f8eb4800e66a1cf6243bf0ea6f7))
+
 ## [0.2.0](https://github.com/scarletkc/colab-playground/compare/v0.1.0...v0.2.0) (2026-11-18)
 
 

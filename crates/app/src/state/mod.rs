@@ -22,8 +22,13 @@ mod usage;
 use std::sync::Arc;
 
 use colab_playground_core::{
-    Error, ErrorKind, accounts::AccountsView, backend::Backend, backend::BackendKind as Flavor,
-    backend::LoginFlow, host::ProbeReport,
+    Error, ErrorKind,
+    accounts::AccountsView,
+    backend::Backend,
+    backend::BackendKind as Flavor,
+    backend::LoginFlow,
+    host::ProbeReport,
+    updater::{Installed, SelfUpdate},
 };
 use ely_gpui_component::{
     feedback::{Toast, Toaster},
@@ -49,7 +54,7 @@ pub use quit::{Billing, QuitPrompt};
 pub use runs::{HF_RESULTS, HfLookup, PluginRun, PluginView, RunForm, RunPhase};
 pub use sessions::{EndReason, Ended, StopPrompt, runtime_label};
 pub use tunnels::{FORWARD_START_PORT, ForwardForm, local_url};
-pub use updates::{UPDATE_INTERVAL, UpdateCheck, is_newer};
+pub use updates::{UPDATE_INTERVAL, UpdateCheck, UpdatePhase, UpdatePrompt, is_newer};
 pub use usage::{
     POLL_CHECK, UsageSummary, is_stale as usage_is_stale, stale_note as usage_stale_note, summarize,
 };
@@ -150,6 +155,10 @@ pub struct AppState {
     stop_all_pending: bool,
     settings_focus: bool,
     update: updates::UpdateCheck,
+    /// Whether this copy can replace itself (`None` until the backend has said).
+    self_update: Option<SelfUpdate>,
+    /// An update put in place, waiting to restart into it.
+    installed: Option<Installed>,
 }
 
 /// A dialog other than the account ones (those are [`AccountDialog`]).
@@ -166,6 +175,8 @@ pub enum Overlay {
     RemovePlugin(RemovePrompt),
     /// Quit with runtimes still billing.
     Quit(QuitPrompt),
+    /// Download, install and restart into a newer release.
+    Update(UpdatePrompt),
     /// Asking for a star or feedback (see `feedback`).
     Feedback,
 }
@@ -267,6 +278,8 @@ impl AppState {
                 stop_all_pending: false,
                 settings_focus: false,
                 update: updates::UpdateCheck::default(),
+                self_update: None,
+                installed: None,
             };
             state.font_fallbacks = platform::font_fallbacks(language, &state.cjk_fonts);
             state.apply_mode(true, cx);
@@ -278,6 +291,7 @@ impl AppState {
             }
             state._poller = Some(usage::start_poller(cx));
             state.check_environment(cx);
+            state.prepare_updates(cx);
             state
         });
         log::info!(
@@ -323,6 +337,7 @@ impl AppState {
         }
         match self.overlay {
             Some(Overlay::NewSession) => self.close_new_session(cx),
+            Some(Overlay::Update(_)) => self.close_update_dialog(cx),
             Some(_) => {
                 self.overlay = None;
                 cx.notify();
