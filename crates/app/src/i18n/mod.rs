@@ -835,6 +835,25 @@ pub fn tr_args(cx: &App, key: &str, args: &[(&str, &str)]) -> SharedString {
     cx.global::<I18n>().text(key, args)
 }
 
+/// A message about `count` things: `one` for exactly one, otherwise `many`, which also gets
+/// `{count}`. Both get `args`.
+pub fn tr_count(
+    cx: &App,
+    count: usize,
+    one: &str,
+    many: &str,
+    args: &[(&str, &str)],
+) -> SharedString {
+    if count == 1 {
+        tr_args(cx, one, args)
+    } else {
+        let count = count.to_string();
+        let mut args = args.to_vec();
+        args.push(("count", &count));
+        tr_args(cx, many, &args)
+    }
+}
+
 /// The raw message for `key` in the shown language, `{name}` placeholders unfilled.
 pub fn template(cx: &App, key: &str) -> &'static str {
     let tag = current(cx).tag();

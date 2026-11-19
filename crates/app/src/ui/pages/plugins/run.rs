@@ -15,10 +15,10 @@ use ely_gpui_component::{
     feedback::InlineMessage,
     forms::Switch,
     layout::{Card, CardHeader, Page, ScrollArea, Well},
-    motion::{ProgressBar, Spinner},
-    primitives::{Icon, IconName, Severity},
+    motion::ProgressBar,
+    primitives::{IconName, Severity},
     terminal::AnsiText,
-    theme::{ActiveTheme, ControlSize, IconSize, TextSize},
+    theme::{ActiveTheme, ControlSize, TextSize},
     typography::Caption,
 };
 use gpui::{
@@ -28,7 +28,11 @@ use gpui::{
 use crate::{
     i18n::{keys, tr, tr_args},
     state::{AppState, Load, Op, PluginRun, RunPhase},
-    ui::{error_view, metrics, progress, tagged},
+    ui::{
+        error_view, metrics,
+        parts::{cancel_work_button, step_icon, step_spinner},
+        progress, tagged,
+    },
 };
 
 /// Selector of Cancel while running.
@@ -145,25 +149,14 @@ fn stages(run: &PluginRun, info: &PluginInfo, state: &AppState, cx: &App) -> Any
             let label = stage.label.get(tag).unwrap_or(&stage.id).to_owned();
             let is_current = Some(index) == current_index;
             let done = ready || current_index.is_some_and(|c| index < c);
-            let marker: AnyElement = if done {
-                Icon::new(IconName::CircleCheck)
-                    .size(IconSize::Sm)
-                    .color(theme.colors.success)
-                    .into_any_element()
+            let marker = if done {
+                step_icon(IconName::CircleCheck, theme.colors.success)
             } else if is_current && failed {
-                Icon::new(IconName::CircleX)
-                    .size(IconSize::Sm)
-                    .color(theme.colors.danger)
-                    .into_any_element()
+                step_icon(IconName::CircleX, theme.colors.danger)
             } else if is_current {
-                Spinner::new(("stage", index))
-                    .size(IconSize::Sm)
-                    .into_any_element()
+                step_spinner(("stage", index))
             } else {
-                Icon::new(IconName::Circle)
-                    .size(IconSize::Sm)
-                    .color(theme.colors.fg_subtle)
-                    .into_any_element()
+                step_icon(IconName::Circle, theme.colors.fg_subtle)
             };
             let mut row = div().flex().flex_col().gap_1().child(
                 div()
@@ -213,25 +206,11 @@ fn outcome(run: &PluginRun, state: &AppState, handle: &Entity<AppState>, cx: &Ap
                     .flex()
                     .items_center()
                     .gap_3()
-                    .child(tagged(
+                    .child(cancel_work_button(
                         RUN_CANCEL,
-                        Button::new(
-                            RUN_CANCEL,
-                            tr(
-                                cx,
-                                if cancelling {
-                                    keys::NEW_CANCELLING
-                                } else {
-                                    keys::ACTION_CANCEL
-                                },
-                            ),
-                        )
-                        .variant(ButtonVariant::Danger)
-                        .loading(cancelling)
-                        .disabled(cancelling)
-                        .on_click(move |_, _, cx| {
-                            cancel.update(cx, |state, cx| state.cancel_run(cx))
-                        }),
+                        cancelling,
+                        move |_, cx| cancel.update(cx, |state, cx| state.cancel_run(cx)),
+                        cx,
                     ))
                     .child(Caption::new(tr(
                         cx,

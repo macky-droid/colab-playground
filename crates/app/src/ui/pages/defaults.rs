@@ -1,48 +1,30 @@
 //! Settings sections for core's `Defaults` and for where the CLI lives.
 //!
-//! Every field of `Defaults` has a row. Optional limits have a switch: off means no limit
-//! (`None`). Turning on a limit core leaves unset starts the field at a `START_*` value below;
-//! that is only where the field starts, the user picks the value. Each change is saved to
-//! settings.json and pushed to the backend (`AppState::update_defaults`).
+//! Every field of `Defaults` has a row. Each change is saved to settings.json and pushed to the
+//! backend (`AppState::update_defaults`).
 
 use std::time::Duration;
 
-use colab_playground_core::{
-    Defaults, provision::MAX_ATTEMPTS_CAP, provision::OnExhausted, sessions::Accelerator,
-};
+use colab_playground_core::{Defaults, provision::MAX_ATTEMPTS_CAP};
 use ely_gpui_component::{
     buttons::{Button, ButtonVariant},
-    forms::{Choice, Input, NumberInput, Select, Switch},
+    forms::{Choice, Input, NumberInput, Select, TextInput},
+    layout::{Card, CardHeader},
     settings::{SettingsRow, SettingsSection},
     theme::{ActiveTheme, ControlSize},
-    typography::Caption,
 };
-use gpui::{AnyElement, App, Entity, IntoElement, ParentElement, SharedString, Styled, div};
+use gpui::{App, Entity, IntoElement, ParentElement, SharedString, Styled, Window, div};
 
 use crate::{
-    backend, format,
+    backend,
     i18n::{keys, tr, tr_args},
     platform,
     state::AppState,
-    ui::{Inputs, metrics, tagged},
+    ui::{Inputs, duration_field::DurationField, metrics, runtime_options::Controls, tagged},
 };
 
-/// Where an idle limit starts when turned on.
-pub const START_IDLE: Duration = Duration::from_secs(30 * 60);
-/// Where a spending cap starts when turned on, in compute units.
-pub const START_SPEND_CU: f64 = 10.0;
-/// Where a balance floor starts when turned on, in compute units.
-pub const START_MIN_BALANCE_CU: f64 = 5.0;
-/// Where a minimum GPU memory starts when turned on, in GiB.
-pub const START_MIN_VRAM_GIB: u32 = 40;
 /// The most runtimes per account the field accepts (input sanity, not a policy).
 pub const MAX_CONCURRENT_FIELD: f64 = 20.0;
-/// The largest compute-unit amount the fields accept.
-pub const MAX_CU_FIELD: f64 = 100_000.0;
-/// The largest GPU memory the field accepts, in GiB.
-pub const MAX_VRAM_FIELD_GIB: f64 = 1024.0;
-/// GPU memory is set in GiB and stored in MiB.
-pub const MIB_PER_GIB: u32 = 1024;
 
 /// The selector around a defaults row's control: `def <field>`.
 pub fn field_selector(field: &str) -> String {
@@ -59,7 +41,7 @@ type Edit<T> = fn(&mut Defaults, T);
 fn edit<T: 'static>(
     handle: &Entity<AppState>,
     apply: Edit<T>,
-) -> impl Fn(T, &mut gpui::Window, &mut App) + 'static {
+) -> impl Fn(T, &mut Window, &mut App) + 'static {
     let handle = handle.clone();
     move |value, _, cx| {
         handle.update(cx, |state, cx| {
@@ -82,122 +64,30 @@ fn row(
     }
 }
 
-/// An optional limit: a switch, and the value's field while it is on.
-fn optional(
-    field: &'static str,
-    on: bool,
-    toggle: impl Fn(bool, &mut gpui::Window, &mut App) + 'static,
-    value: AnyElement,
-    cx: &App,
-) -> impl IntoElement {
-    div()
-        .flex()
-        .items_center()
-        .gap_3()
-        .child(tagged(
-            switch_selector(field),
-            Switch::new(SharedString::from(format!("def-switch-{field}")), on)
-                .name(tr(cx, keys::DEF_LIMIT))
-                .on_change(toggle),
-        ))
-        .child(if on {
-            value
-        } else {
-            Caption::new(tr(cx, keys::DEF_NO_LIMIT)).into_any_element()
-        })
-}
-
-fn duration_field(
+/// A duration that is set to the second.
+fn seconds_field(
     id: &'static str,
     value: Duration,
-    seconds: bool,
-    on_change: impl Fn(Duration, &mut gpui::Window, &mut App) + 'static,
-) -> AnyElement {
-    let field = crate::ui::duration_field::DurationField::new(id, value, on_change);
-    if seconds { field.seconds() } else { field }.into_any_element()
-}
-
-fn cu_field(
-    id: &'static str,
-    value: f64,
-    on_change: impl Fn(f64, &mut gpui::Window, &mut App) + 'static,
-    cx: &App,
-) -> AnyElement {
-    div()
-        .w(cx.theme().menu_width())
-        .child(
-            NumberInput::new(id, value)
-                .range(0.0, MAX_CU_FIELD)
-                .precision(1)
-                .step(1.0)
-                .suffix(div().child(tr(cx, keys::UNIT_CU)))
-                .on_change(on_change),
-        )
-        .into_any_element()
+    on_change: impl Fn(Duration, &mut Window, &mut App) + 'static,
+) -> DurationField {
+    DurationField::new(id, value, on_change).seconds()
 }
 
 pub fn defaults_section(state: &AppState, handle: &Entity<AppState>, cx: &App) -> impl IntoElement {
     let d = state.defaults();
     let core = Defaults::default();
     let theme = cx.theme();
+    let controls = Controls {
+        prefix: "def",
+        switch_selector: Some(switch_selector),
+        cx,
+    };
 
-    let max_runtime = optional(
-        "max_runtime",
-        d.max_runtime.is_some(),
-        edit(handle, move |d, on: bool| {
-            d.max_runtime = on.then(|| Defaults::default().max_runtime.unwrap_or(START_IDLE));
-        }),
-        duration_field(
-            "def-max-runtime",
-            d.max_runtime
-                .unwrap_or(core.max_runtime.unwrap_or(START_IDLE)),
-            false,
-            edit(handle, |d, v: Duration| d.max_runtime = Some(v)),
-        ),
-        cx,
-    );
-    let max_spend = optional(
-        "max_spend",
-        d.max_spend_cu.is_some(),
-        edit(handle, |d, on: bool| {
-            d.max_spend_cu = on.then_some(START_SPEND_CU)
-        }),
-        cu_field(
-            "def-max-spend",
-            d.max_spend_cu.unwrap_or(START_SPEND_CU),
-            edit(handle, |d, v: f64| d.max_spend_cu = Some(v)),
-            cx,
-        ),
-        cx,
-    );
-    let min_balance = optional(
-        "min_balance",
-        d.min_balance_cu.is_some(),
-        edit(handle, |d, on: bool| {
-            d.min_balance_cu = on.then_some(START_MIN_BALANCE_CU)
-        }),
-        cu_field(
-            "def-min-balance",
-            d.min_balance_cu.unwrap_or(START_MIN_BALANCE_CU),
-            edit(handle, |d, v: f64| d.min_balance_cu = Some(v)),
-            cx,
-        ),
-        cx,
-    );
-    let idle = optional(
-        "idle_timeout",
-        d.idle_timeout.is_some(),
-        edit(handle, |d, on: bool| {
-            d.idle_timeout = on.then_some(START_IDLE)
-        }),
-        duration_field(
-            "def-idle",
-            d.idle_timeout.unwrap_or(START_IDLE),
-            false,
-            edit(handle, |d, v: Duration| d.idle_timeout = Some(v)),
-        ),
-        cx,
-    );
+    let max_runtime = controls.max_runtime(d.max_runtime, edit(handle, |d, v| d.max_runtime = v));
+    let max_spend = controls.max_spend(d.max_spend_cu, edit(handle, |d, v| d.max_spend_cu = v));
+    let min_balance =
+        controls.min_balance(d.min_balance_cu, edit(handle, |d, v| d.min_balance_cu = v));
+    let idle = controls.idle_timeout(d.idle_timeout, edit(handle, |d, v| d.idle_timeout = v));
     let concurrent = div().w(theme.menu_width()).child(
         NumberInput::new("def-concurrent", f64::from(d.max_concurrent_sessions))
             .range(1.0, MAX_CONCURRENT_FIELD)
@@ -207,90 +97,11 @@ pub fn defaults_section(state: &AppState, handle: &Entity<AppState>, cx: &App) -
                 d.max_concurrent_sessions = v.round() as u32
             })),
     );
-    let attempts = div().w(theme.menu_width()).child(
-        NumberInput::new("def-attempts", f64::from(d.max_attempts))
-            .range(1.0, f64::from(MAX_ATTEMPTS_CAP))
-            .precision(0)
-            .step(1.0)
-            .on_change(edit(handle, |d, v: f64| d.max_attempts = v.round() as u32)),
-    );
-    let exhausted = div().w(theme.menu_width()).child(
-        Select::new(
-            "def-on-exhausted",
-            [
-                Choice::new("stop", tr(cx, keys::DEF_EXHAUSTED_STOP)),
-                Choice::new("keep", tr(cx, keys::DEF_EXHAUSTED_KEEP)),
-            ],
-        )
-        .label(tr(cx, keys::DEF_ON_EXHAUSTED))
-        .selected(match d.on_exhausted {
-            OnExhausted::StopAndFail => "stop",
-            OnExhausted::KeepLast => "keep",
-        })
-        .on_change({
-            let handle = handle.clone();
-            move |value, _, cx| {
-                let choice = if value.as_ref() == "keep" {
-                    OnExhausted::KeepLast
-                } else {
-                    OnExhausted::StopAndFail
-                };
-                handle.update(cx, |state, cx| {
-                    state.update_defaults(|d| d.on_exhausted = choice, cx)
-                })
-            }
-        }),
-    );
-    let accelerator = div().w(theme.menu_width()).child(
-        Select::new(
-            "def-accelerator",
-            Accelerator::ALL.map(|a| Choice::new(a.as_str(), tr(cx, format::accelerator_key(a)))),
-        )
-        .label(tr(cx, keys::DEF_ACCELERATOR))
-        .selected(d.accelerator.as_str())
-        .on_change({
-            let handle = handle.clone();
-            move |value, _, cx| {
-                if let Some(a) = Accelerator::ALL
-                    .into_iter()
-                    .find(|a| a.as_str() == value.as_ref())
-                {
-                    handle.update(cx, |state, cx| {
-                        state.update_defaults(|d| d.accelerator = a, cx)
-                    })
-                }
-            }
-        }),
-    );
-    let high_mem = Switch::new("def-high-mem", d.high_mem)
-        .name(tr(cx, keys::DEF_HIGH_MEM))
-        .on_change(edit(handle, |d, on: bool| d.high_mem = on));
-    let min_vram = optional(
-        "min_vram",
-        d.min_vram_mib.is_some(),
-        edit(handle, |d, on: bool| {
-            d.min_vram_mib = on.then_some(START_MIN_VRAM_GIB * MIB_PER_GIB)
-        }),
-        div()
-            .w(theme.menu_width())
-            .child(
-                NumberInput::new(
-                    "def-min-vram",
-                    f64::from(
-                        d.min_vram_mib.unwrap_or(START_MIN_VRAM_GIB * MIB_PER_GIB) / MIB_PER_GIB,
-                    ),
-                )
-                .range(1.0, MAX_VRAM_FIELD_GIB)
-                .precision(0)
-                .step(1.0)
-                .suffix(div().child(tr(cx, keys::UNIT_GB)))
-                .on_change(edit(handle, |d, v: f64| {
-                    d.min_vram_mib = Some((v.round() as u32).max(1) * MIB_PER_GIB)
-                })),
-            )
-            .into_any_element(),
-        cx,
-    );
+    let attempts = controls.attempts(d.max_attempts, edit(handle, |d, v| d.max_attempts = v));
+    let exhausted = controls.on_exhausted(d.on_exhausted, edit(handle, |d, v| d.on_exhausted = v));
+    let accelerator = controls.accelerator(d.accelerator, edit(handle, |d, v| d.accelerator = v));
+    let high_mem = controls.high_mem(d.high_mem, edit(handle, |d, on| d.high_mem = on));
+    let min_vram = controls.min_vram(d.min_vram_mib, edit(handle, |d, v| d.min_vram_mib = v));
     let reset = {
         let handle = handle.clone();
         tagged(
@@ -354,10 +165,9 @@ pub fn defaults_section(state: &AppState, handle: &Entity<AppState>, cx: &App) -
             "retry_delay",
             keys::DEF_RETRY_DELAY,
             None,
-            duration_field(
+            seconds_field(
                 "def-retry-delay",
                 d.retry_delay,
-                true,
                 edit(handle, |d, v: Duration| d.retry_delay = v),
             ),
             cx,
@@ -388,10 +198,9 @@ pub fn defaults_section(state: &AppState, handle: &Entity<AppState>, cx: &App) -
             "winddown",
             keys::DEF_WINDDOWN,
             Some(tr(cx, keys::DEF_WINDDOWN_HINT)),
-            duration_field(
+            seconds_field(
                 "def-winddown",
                 d.winddown_grace,
-                true,
                 edit(handle, |d, v: Duration| d.winddown_grace = v),
             ),
             cx,
@@ -400,10 +209,9 @@ pub fn defaults_section(state: &AppState, handle: &Entity<AppState>, cx: &App) -
             "poll_active",
             keys::DEF_POLL_ACTIVE,
             Some(tr(cx, keys::DEF_POLL_HINT)),
-            duration_field(
+            seconds_field(
                 "def-poll-active",
                 d.usage_poll_active,
-                true,
                 edit(handle, |d, v: Duration| d.usage_poll_active = v),
             ),
             cx,
@@ -412,10 +220,9 @@ pub fn defaults_section(state: &AppState, handle: &Entity<AppState>, cx: &App) -
             "poll_idle",
             keys::DEF_POLL_IDLE,
             None,
-            duration_field(
+            seconds_field(
                 "def-poll-idle",
                 d.usage_poll_idle,
-                true,
                 edit(handle, |d, v: Duration| d.usage_poll_idle = v),
             ),
             cx,
@@ -465,7 +272,7 @@ pub fn host_section(
             cx,
         ));
     }
-    let path = |input: &Entity<ely_gpui_component::forms::TextInput>| {
+    let path = |input: &Entity<TextInput>| {
         div()
             .w(metrics::path_field_width(theme))
             .child(Input::new(input))
@@ -505,8 +312,7 @@ pub fn host_section(
                         .size(ControlSize::Sm)
                         .disabled(busy)
                         .on_click(move |_, _, cx| {
-                            let read = |input: &Entity<ely_gpui_component::forms::TextInput>,
-                                        cx: &App| {
+                            let read = |input: &Entity<TextInput>, cx: &App| {
                                 let text = input.read(cx).text().trim().to_owned();
                                 (!text.is_empty()).then_some(text)
                             };
@@ -533,9 +339,9 @@ pub fn limit_focus(state: &AppState, handle: &Entity<AppState>, cx: &App) -> imp
     let d = state.defaults();
     tagged(
         LIMIT_FOCUS_SELECTOR,
-        ely_gpui_component::layout::Card::new()
+        Card::new()
             .header(
-                ely_gpui_component::layout::CardHeader::new(tr(cx, keys::DEF_CONCURRENT))
+                CardHeader::new(tr(cx, keys::DEF_CONCURRENT))
                     .description(tr(cx, keys::LIMIT_FOCUS_HINT)),
             )
             .child(

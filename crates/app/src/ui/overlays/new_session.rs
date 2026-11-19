@@ -15,12 +15,17 @@ use ely_gpui_component::{
 };
 use gpui::{AnyElement, App, Entity, FontWeight, IntoElement, ParentElement, Styled, div};
 
-use super::{cancel_button, close, scrolled};
+use super::scrolled;
 use crate::{
+    format,
     i18n::{keys, tr, tr_args},
     route::Route,
     state::{AppState, ProvisionPhase},
-    ui::{Inputs, error_view, progress, provision_form, tagged},
+    ui::{
+        Inputs, error_view,
+        parts::{Layer, cancel_work_button, field},
+        progress, provision_form, tagged,
+    },
 };
 
 pub const NEW_SESSION_START: &str = "new-session-start";
@@ -35,7 +40,11 @@ pub(super) fn render(
     cx: &App,
 ) -> Option<AnyElement> {
     let session = state.new_session()?;
-    let dialog = Dialog::new("new-session", tr(cx, keys::NEW_TITLE), close(handle));
+    let dialog = Dialog::new(
+        "new-session",
+        tr(cx, keys::NEW_TITLE),
+        Layer::Overlay.close(handle),
+    );
     let theme = cx.theme();
     Some(match &session.phase {
         ProvisionPhase::Editing if state.session_limit_reached().is_some() => {
@@ -53,19 +62,11 @@ pub(super) fn render(
                 .flex()
                 .flex_col()
                 .gap_3()
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .child(
-                            div()
-                                .text_size(theme.text_size(TextSize::Sm))
-                                .font_weight(FontWeight::MEDIUM)
-                                .child(tr(cx, keys::NEW_NAME)),
-                        )
-                        .child(tagged("new-session-name", Input::new(&inputs.session_name))),
-                )
+                .child(field(
+                    tr(cx, keys::NEW_NAME),
+                    tagged("new-session-name", Input::new(&inputs.session_name)),
+                    cx,
+                ))
                 .child(provision_form::render(
                     "new",
                     &session.spec,
@@ -87,7 +88,7 @@ pub(super) fn render(
                 .child(scrolled(NEW_SESSION_FORM, Some(&session.scroll), body))
                 .action({
                     let handle = handle.clone();
-                    move |_| cancel_button(cancel, handle)
+                    move |_| Layer::Overlay.cancel_button(cancel, handle)
                 })
                 .action(move |_| {
                     tagged(
@@ -106,18 +107,14 @@ pub(super) fn render(
         }
         ProvisionPhase::Running => {
             let cancelling = state.is_cancelling_provision();
-            let (hide, cancel) = (
-                tr(cx, keys::ACTION_HIDE),
-                tr(
-                    cx,
-                    if cancelling {
-                        keys::NEW_CANCELLING
-                    } else {
-                        keys::ACTION_CANCEL
-                    },
-                ),
-            );
+            let hide = tr(cx, keys::ACTION_HIDE);
             let (hide_handle, cancel_handle) = (handle.clone(), handle.clone());
+            let cancel = cancel_work_button(
+                NEW_SESSION_CANCEL_RUN,
+                cancelling,
+                move |_, cx| cancel_handle.update(cx, |state, cx| state.cancel_provision(cx)),
+                cx,
+            );
             dialog
                 .child(
                     div()
@@ -145,18 +142,7 @@ pub(super) fn render(
                             }),
                     )
                 })
-                .action(move |_| {
-                    tagged(
-                        NEW_SESSION_CANCEL_RUN,
-                        Button::new(NEW_SESSION_CANCEL_RUN, cancel)
-                            .variant(ButtonVariant::Danger)
-                            .loading(cancelling)
-                            .disabled(cancelling)
-                            .on_click(move |_, _, cx| {
-                                cancel_handle.update(cx, |state, cx| state.cancel_provision(cx))
-                            }),
-                    )
-                })
+                .action(move |_| cancel)
                 .into_any_element()
         }
         ProvisionPhase::Ready(outcome) => {
@@ -170,7 +156,7 @@ pub(super) fn render(
                 ))
                 .action({
                     let handle = handle.clone();
-                    move |_| cancel_button(close_label, handle)
+                    move |_| Layer::Overlay.cancel_button(close_label, handle)
                 })
                 .action(move |_| {
                     tagged(
@@ -219,7 +205,7 @@ pub(super) fn render(
             dialog
                 .action({
                     let handle = handle.clone();
-                    move |_| cancel_button(close_label, handle)
+                    move |_| Layer::Overlay.cancel_button(close_label, handle)
                 })
                 .action(move |_| {
                     tagged(
@@ -250,9 +236,7 @@ fn limit_dialog(
     let max = limit
         .as_ref()
         .map_or(state.defaults().max_concurrent_sessions, |l| l.limit);
-    let email = state
-        .active_email()
-        .unwrap_or_else(|| tr(cx, keys::ACCOUNTS_NO_EMAIL).to_string());
+    let email = format::email(cx, state.active_email().as_deref());
     let counted = limit
         .as_ref()
         .map(|l| crate::format::list(cx, &l.counted))
@@ -283,7 +267,7 @@ fn limit_dialog(
         .child(tagged(NEW_SESSION_LIMIT, body))
         .action({
             let handle = handle.clone();
-            move |_| cancel_button(close_label, handle)
+            move |_| Layer::Overlay.cancel_button(close_label, handle)
         })
         .action(move |_| {
             tagged(

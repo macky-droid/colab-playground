@@ -26,7 +26,10 @@ use crate::{
     errors, format,
     i18n::{keys, tr, tr_args},
     state::{AppState, Op, key_of, local_url, runtime_label},
-    ui::tagged,
+    ui::{
+        parts::{captioned, figure},
+        tagged,
+    },
 };
 
 /// Selector around a runtime's card: `runtime <label>`.
@@ -53,20 +56,10 @@ pub fn switch_selector(label: &str) -> String {
 }
 
 fn stat(label: SharedString, value: SharedString, cx: &App) -> impl IntoElement {
-    let theme = cx.theme();
-    div()
+    captioned(label, figure(value, TextSize::Base, cx))
         .flex_1()
-        .min_w(theme.label_width())
-        .flex()
-        .flex_col()
+        .min_w(cx.theme().label_width())
         .gap_0p5()
-        .child(Caption::new(label))
-        .child(
-            div()
-                .text_size(theme.text_size(TextSize::Base))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(value),
-        )
 }
 
 pub(super) fn render(

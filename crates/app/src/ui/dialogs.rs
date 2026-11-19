@@ -3,29 +3,29 @@
 //! button carries a selector (`dialog-cancel`, `add-continue`, `add-submit`,
 //! `add-start-again`, `add-open-again`, `switch-confirm`, `remove-confirm`).
 
-use std::{rc::Rc, time::SystemTime};
+use std::time::SystemTime;
 
 use colab_playground_core::backend::SwitchImpact;
 use ely_gpui_component::{
     buttons::{Button, ButtonVariant, CopyButton},
     feedback::InlineMessage,
     forms::Input,
-    motion::Spinner,
     overlays::Dialog,
     primitives::{IconName, Severity},
-    theme::{ActiveTheme, IconSize, TextSize},
+    theme::{ActiveTheme, TextSize},
     typography::{Caption, MiddleEllipsis, Paragraph},
 };
-use gpui::{
-    AnyElement, App, Entity, FontWeight, IntoElement, ParentElement, SharedString, Styled, Window,
-    div,
-};
+use gpui::{AnyElement, App, Entity, IntoElement, ParentElement, SharedString, Styled, div};
 
 use crate::{
     format,
     i18n::{keys, tr, tr_args},
     state::{AccountDialog, AddPhase, AppState, Load, Op},
-    ui::{Inputs, error_view, tagged},
+    ui::{
+        Inputs, error_view,
+        parts::{Layer, busy_line, field},
+        tagged,
+    },
 };
 
 pub const SWITCH_NOTHING_SELECTOR: &str = "switch-nothing";
@@ -56,29 +56,6 @@ pub fn render(
     })
 }
 
-fn close(handle: &Entity<AppState>) -> impl Fn(&mut Window, &mut App) + 'static {
-    let handle = handle.clone();
-    move |_, cx| handle.update(cx, |state, cx| state.close_dialog(cx))
-}
-
-fn cancel_button(label: SharedString, handle: Entity<AppState>) -> impl IntoElement {
-    tagged(
-        "dialog-cancel",
-        Button::new("dialog-cancel", label)
-            .variant(ButtonVariant::Ghost)
-            .on_click(move |_, _, cx| handle.update(cx, |state, cx| state.close_dialog(cx))),
-    )
-}
-
-fn busy_line(id: &'static str, text: SharedString) -> impl IntoElement {
-    div()
-        .flex()
-        .items_center()
-        .gap_2()
-        .child(Spinner::new(id).size(IconSize::Sm))
-        .child(Caption::new(text))
-}
-
 fn add(
     phase: &AddPhase,
     state: &AppState,
@@ -86,7 +63,11 @@ fn add(
     inputs: &Inputs,
     cx: &App,
 ) -> AnyElement {
-    let dialog = Dialog::new("add-account", tr(cx, keys::ADD_TITLE), close(handle));
+    let dialog = Dialog::new(
+        "add-account",
+        tr(cx, keys::ADD_TITLE),
+        Layer::Dialog.close(handle),
+    );
     let cancel_label = tr(cx, keys::ACTION_CANCEL);
     let continue_label = tr(cx, keys::ADD_CONTINUE);
     let submit_label = tr(cx, keys::ADD_SUBMIT);
@@ -99,7 +80,7 @@ fn add(
                 .child(InlineMessage::new(Severity::Info, tr(cx, keys::ADD_IMPACT)))
                 .action({
                     let handle = handle.clone();
-                    move |_| cancel_button(cancel_label, handle)
+                    move |_| Layer::Dialog.cancel_button(cancel_label, handle)
                 })
                 .action(move |_| {
                     tagged(
@@ -117,7 +98,7 @@ fn add(
             .child(busy_line("add-starting", tr(cx, keys::ADD_STARTING)))
             .action({
                 let handle = handle.clone();
-                move |_| cancel_button(cancel_label, handle)
+                move |_| Layer::Dialog.cancel_button(cancel_label, handle)
             }),
         AddPhase::Code { url } | AddPhase::Submitting { url } => {
             let submitting = matches!(phase, AddPhase::Submitting { .. });
@@ -143,17 +124,11 @@ fn add(
                         .variant(ButtonVariant::Ghost)
                         .on_click(move |_, _, cx| cx.open_url(&open)),
                 ));
-            let field = div()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .child(
-                    div()
-                        .text_size(theme.text_size(TextSize::Sm))
-                        .font_weight(FontWeight::MEDIUM)
-                        .child(tr(cx, keys::ADD_CODE_LABEL)),
-                )
-                .child(tagged("add-code-field", Input::new(&inputs.code)));
+            let field = field(
+                tr(cx, keys::ADD_CODE_LABEL),
+                tagged("add-code-field", Input::new(&inputs.code)),
+                cx,
+            );
             let (submit, code) = (handle.clone(), inputs.code.clone());
             let mut dialog = dialog
                 .child(Paragraph::new(tr(cx, keys::ADD_OPENED)))
@@ -165,7 +140,7 @@ fn add(
             dialog
                 .action({
                     let handle = handle.clone();
-                    move |_| cancel_button(cancel_label, handle)
+                    move |_| Layer::Dialog.cancel_button(cancel_label, handle)
                 })
                 .action(move |_| {
                     tagged(
@@ -187,10 +162,7 @@ fn add(
         AddPhase::Failed { error } => {
             let again = handle.clone();
             let close_label = tr(cx, keys::ACTION_CLOSE);
-            let retry: error_view::Retry = {
-                let handle = handle.clone();
-                Rc::new(move |_, cx| handle.update(cx, |state, cx| state.begin_sign_in(cx)))
-            };
+            let retry = error_view::retry(handle, AppState::begin_sign_in);
             dialog
                 .child(error_view::alert(
                     "add",
@@ -203,7 +175,7 @@ fn add(
                 .child(Caption::new(tr(cx, keys::ADD_ROLLED_BACK)))
                 .action({
                     let handle = handle.clone();
-                    move |_| cancel_button(close_label, handle)
+                    move |_| Layer::Dialog.cancel_button(close_label, handle)
                 })
                 .action(move |_| {
                     tagged(
@@ -229,14 +201,12 @@ fn switch(
     handle: &Entity<AppState>,
     cx: &App,
 ) -> AnyElement {
-    let email = email
-        .map(str::to_owned)
-        .unwrap_or_else(|| tr(cx, keys::ACCOUNTS_NO_EMAIL).to_string());
+    let email = format::email(cx, email);
     let switching = state.is_busy(Op::Switch);
     let mut dialog = Dialog::new(
         "switch-account",
         tr_args(cx, keys::SWITCH_TITLE, &[("email", &email)]),
-        close(handle),
+        Layer::Dialog.close(handle),
     );
     let ready = matches!(impact, Load::Ready(_));
     dialog = match impact {
@@ -262,7 +232,7 @@ fn switch(
     dialog
         .action({
             let handle = handle.clone();
-            move |_| cancel_button(cancel_label, handle)
+            move |_| Layer::Dialog.cancel_button(cancel_label, handle)
         })
         .action(move |_| {
             tagged(
@@ -385,14 +355,12 @@ fn remove(
     handle: &Entity<AppState>,
     cx: &App,
 ) -> AnyElement {
-    let email = email
-        .map(str::to_owned)
-        .unwrap_or_else(|| tr(cx, keys::ACCOUNTS_NO_EMAIL).to_string());
+    let email = format::email(cx, email);
     let removing = state.is_busy(Op::Remove);
     let mut dialog = Dialog::new(
         "remove-account",
         tr_args(cx, keys::REMOVE_TITLE, &[("email", &email)]),
-        close(handle),
+        Layer::Dialog.close(handle),
     )
     .child(Paragraph::new(tr(cx, keys::REMOVE_BODY)));
     if let Some(error) = error {
@@ -404,7 +372,7 @@ fn remove(
     dialog
         .action({
             let handle = handle.clone();
-            move |_| cancel_button(cancel_label, handle)
+            move |_| Layer::Dialog.cancel_button(cancel_label, handle)
         })
         .action(move |_| {
             tagged(

@@ -5,7 +5,7 @@ use std::time::Duration;
 use colab_playground::{
     i18n::keys,
     route::Route,
-    ui::pages::defaults::{START_SPEND_CU, switch_selector},
+    ui::{pages::defaults::switch_selector, runtime_options::START_SPEND_CU},
 };
 use colab_playground_core::{Defaults, backend::Backend, sessions::Accelerator};
 use gpui::TestAppContext;

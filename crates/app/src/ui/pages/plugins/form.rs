@@ -28,7 +28,7 @@ use crate::{
     format,
     i18n::{keys, tr, tr_args},
     state::{AppState, Load, RunForm},
-    ui::{Inputs, error_view, pages::defaults::MIB_PER_GIB, provision_form, tagged},
+    ui::{Inputs, error_view, parts::field, provision_form, runtime_options::MIB_PER_GIB, tagged},
 };
 
 pub const RUN_START: &str = "run-start";
@@ -229,23 +229,17 @@ fn input_row(
                 .into_any_element()
         }
     };
-    let mut row = div()
-        .flex()
-        .flex_col()
-        .gap_1()
-        .child(
-            div()
-                .text_size(theme.text_size(TextSize::Sm))
-                .font_weight(FontWeight::MEDIUM)
-                .child(title),
-        )
-        .child(tagged(format!("run-input {}", input.id), control))
-        .children(
-            input
-                .help
-                .get(tag)
-                .map(|help| Caption::new(help.to_owned())),
-        );
+    let mut row = field(
+        title,
+        tagged(format!("run-input {}", input.id), control),
+        cx,
+    )
+    .children(
+        input
+            .help
+            .get(tag)
+            .map(|help| Caption::new(help.to_owned())),
+    );
     if input.kind == InputKind::Secret {
         row = row.child(Caption::new(tr(cx, keys::RUN_SECRET_NOTE)));
     }
@@ -479,10 +473,7 @@ fn target_card(
     if form.existing.is_none()
         && let Some(limit) = state.session_limit_reached()
     {
-        let email = limit
-            .email
-            .clone()
-            .unwrap_or_else(|| tr(cx, keys::ACCOUNTS_NO_EMAIL).to_string());
+        let email = format::email(cx, limit.email.as_deref());
         let settings = handle.clone();
         card = card.child(tagged(
             "run-limit",
