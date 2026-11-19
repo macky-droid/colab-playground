@@ -337,6 +337,20 @@ struct MRuntime {
     watchdog_alive: bool,
 }
 
+impl MRuntime {
+    fn is(&self, account: &AccountId, name: &str) -> bool {
+        &self.account == account && self.name.as_deref() == Some(name)
+    }
+
+    fn hardware(&self) -> String {
+        if self.accelerator == Accelerator::None {
+            "CPU".into()
+        } else {
+            self.accelerator.as_str().into()
+        }
+    }
+}
+
 struct World {
     cli_installed: bool,
     accounts: Vec<MAccount>,
@@ -433,6 +447,14 @@ impl World {
             }
             n += 1;
         }
+    }
+
+    fn runtime(&self, account: &AccountId, name: &str) -> Option<&MRuntime> {
+        self.runtimes.iter().find(|r| r.is(account, name))
+    }
+
+    fn runtime_mut(&mut self, account: &AccountId, name: &str) -> Option<&mut MRuntime> {
+        self.runtimes.iter_mut().find(|r| r.is(account, name))
     }
 
     fn unmanaged_on(&self, account: &AccountId) -> Vec<RuntimeRef> {
@@ -851,11 +873,7 @@ impl ProvisionOps for MockOps<'_> {
             .map(|r| ServerSession {
                 name: r.name.clone(),
                 endpoint: r.endpoint.clone(),
-                hardware: if r.accelerator == Accelerator::None {
-                    "CPU".into()
-                } else {
-                    r.accelerator.as_str().into()
-                },
+                hardware: r.hardware(),
                 accelerator: Some(r.accelerator),
                 shape: if r.high_mem {
                     "High-RAM".into()
@@ -931,9 +949,7 @@ impl ProvisionOps for MockOps<'_> {
         self.m.step(cancel)?;
         let w = self.m.w();
         let r = w
-            .runtimes
-            .iter()
-            .find(|r| r.account == self.account && r.name.as_deref() == Some(name))
+            .runtime(&self.account, name)
             .ok_or_else(|| Error::new(ErrorKind::SessionGone))?;
         Ok(Hardware {
             gpu: mock_gpu(r.accelerator, r.vram_mib),
@@ -946,8 +962,7 @@ impl ProvisionOps for MockOps<'_> {
         let mut w = self.m.w();
         w.settle(now);
         let before = w.runtimes.len();
-        w.runtimes
-            .retain(|r| !(r.account == self.account && r.name.as_deref() == Some(name)));
+        w.runtimes.retain(|r| !r.is(&self.account, name));
         Ok(if w.runtimes.len() < before {
             StopOutcome::Terminated
         } else {
@@ -976,9 +991,7 @@ impl ProvisionOps for MockOps<'_> {
             return Err(Error::new(ErrorKind::Other).detail("the watchdog process is not running"));
         }
         let rt = w
-            .runtimes
-            .iter_mut()
-            .find(|r| r.account == self.account && r.name.as_deref() == Some(name))
+            .runtime_mut(&self.account, name)
             .ok_or_else(|| Error::new(ErrorKind::SessionGone))?;
         rt.watchdog_alive = true;
         Ok(Some(WatchdogInfo {
@@ -1388,11 +1401,7 @@ impl Backend for MockBackend {
                 account_email: w.email(&r.account),
                 on_active_account: w.active.as_ref() == Some(&r.account),
                 accelerator: Some(r.accelerator),
-                hardware: if r.accelerator == Accelerator::None {
-                    "CPU".into()
-                } else {
-                    r.accelerator.as_str().into()
-                },
+                hardware: r.hardware(),
                 high_mem: r.high_mem,
                 managed: tracked.is_some(),
                 estimated_rate_cu_per_hour: rate.filter(|_| tracked.is_some()),
@@ -1449,9 +1458,7 @@ impl Backend for MockBackend {
         w.reserved = w.reserved.saturating_sub(1);
         let outcome = r?;
         let endpoint = w
-            .runtimes
-            .iter()
-            .find(|r| r.account == account && r.name.as_deref() == Some(&outcome.name))
+            .runtime(&account, &outcome.name)
             .map(|r| r.endpoint.clone());
         w.ledger.upsert(TrackedSession {
             name: outcome.name.clone(),
@@ -1497,11 +1504,7 @@ impl Backend for MockBackend {
         // moving the deadline of a running watchdog and starting it again.
         let (alive, tracked, vm_idle) = {
             let w = self.w();
-            let rt = w
-                .runtimes
-                .iter()
-                .find(|r| r.account == target.account && r.name.as_deref() == Some(&name))
-                .ok_or_else(gone)?;
+            let rt = w.runtime(&target.account, &name).ok_or_else(gone)?;
             let e = w.ledger.live(&target.account, &name).ok_or_else(gone)?;
             (
                 rt.watchdog_alive,
@@ -1549,11 +1552,7 @@ impl Backend for MockBackend {
         self.step(cancel)?;
         let mut w = self.w();
         // The cancelled watchdog exits without releasing the runtime.
-        if let Some(rt) = w
-            .runtimes
-            .iter_mut()
-            .find(|r| r.account == target.account && r.name.as_deref() == Some(&name))
-        {
+        if let Some(rt) = w.runtime_mut(&target.account, &name) {
             rt.watchdog_alive = false;
         }
         w.ledger.update(&target.account, &name, |e| {
@@ -1646,11 +1645,7 @@ impl Backend for MockBackend {
         spec.validate()?;
         self.require_active(&spec.account)?;
         let mut w = self.w();
-        if !w
-            .runtimes
-            .iter()
-            .any(|r| r.account == spec.account && r.name.as_deref() == Some(&spec.session))
-        {
+        if !w.runtime(&spec.account, &spec.session).is_some() {
             return Err(Error::new(ErrorKind::SessionGone).with("session", &spec.session));
         }
         if w.tunnels
@@ -1774,12 +1769,7 @@ impl Backend for MockBackend {
         let endpoints = resolve_endpoints(&plugin.manifest, &resolved.values)?;
         let (session, provisioned) = match &spec.target {
             RunTarget::Existing { name } => {
-                if !self
-                    .w()
-                    .runtimes
-                    .iter()
-                    .any(|r| r.account == account && r.name.as_deref() == Some(name))
-                {
+                if !self.w().runtime(&account, name).is_some() {
                     return Err(Error::new(ErrorKind::SessionGone).with("session", name));
                 }
                 (name.clone(), false)
@@ -1795,9 +1785,7 @@ impl Backend for MockBackend {
         };
         let endpoint_of = |m: &MockBackend| {
             m.w()
-                .runtimes
-                .iter()
-                .find(|r| r.account == account && r.name.as_deref() == Some(&session))
+                .runtime(&account, &session)
                 .map(|r| r.endpoint.clone())
         };
         let stop_it = |m: &MockBackend| {
@@ -1819,9 +1807,7 @@ impl Backend for MockBackend {
         });
         let vram = self
             .w()
-            .runtimes
-            .iter()
-            .find(|r| r.account == account && r.name.as_deref() == Some(&session))
+            .runtime(&account, &session)
             .and_then(|r| r.vram_mib);
         let fail_stage = self.w().failures.plugin_fail_stage.clone();
         let stages: Vec<String> = plugin
