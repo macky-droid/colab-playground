@@ -387,9 +387,12 @@ def credential_for(account_id, slot_raw):
         raise Fail("account_not_found", "no saved credential", field="account")
     creds, token_json = refreshed(source)
     if token_json != source:
-        if use_slot:
+        # A switch, an add or a removal can land while the refresh is on the
+        # wire: write back only over the same account.
+        if use_slot and same_identity(read_slot(), source):
             kr_set_verified(COLAB_SERVICE, COLAB_USER, token_json)
-        kr_set_verified(VAULT_SERVICE, user, token_json)
+        if same_identity(read_account(account_id), source):
+            kr_set_verified(VAULT_SERVICE, user, token_json)
     return creds
 
 
