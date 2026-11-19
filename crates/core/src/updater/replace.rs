@@ -48,7 +48,18 @@ fn bad_archive(detail: impl Into<String>) -> Error {
 /// while its update needs it.
 pub struct Staging {
     path: PathBuf,
-    _lock: File,
+    _lock: Held,
+}
+
+/// A locked lock file, unlocked when dropped. Closing the file is not enough: the lock holds
+/// while any copy of the handle is open, and a child process that is being started has one
+/// until it runs its program.
+struct Held(File);
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
 }
 
 impl Staging {
@@ -82,11 +93,12 @@ pub fn create_staging(folder: &Path) -> Result<Staging> {
     let lock = lock_path(&path);
     let file = File::create(&lock).map_err(|e| io_error(e, &lock))?;
     file.lock().map_err(|e| io_error(e, &lock))?;
+    let held = Held(file);
     if let Err(error) = fs::create_dir(&path) {
         let _ = fs::remove_file(&lock);
         return Err(io_error(error, &path));
     }
-    Ok(Staging { path, _lock: file })
+    Ok(Staging { path, _lock: held })
 }
 
 pub fn is_staging_name(name: &str) -> bool {
@@ -144,10 +156,10 @@ fn may_hold_only_copy(stage: &Path) -> bool {
 
 /// Locks `stage` for cleanup, or `None`: while an update holds it (see [`Staging`]), and
 /// whenever the lock cannot be taken for another reason, the folder is left as it is.
-fn claim(stage: &Path) -> Option<File> {
+fn claim(stage: &Path) -> Option<Held> {
     let file = File::open(lock_path(stage)).ok()?;
     file.try_lock().ok()?;
-    Some(file)
+    Some(Held(file))
 }
 
 /// Moves `target` to `aside`, then `new` to where `target` was. When the second move fails the
@@ -389,7 +401,7 @@ pub(crate) mod tests {
             "made under a held lock: in use"
         );
         assert!(stage.exists());
-        drop(lock);
+        drop(Held(lock));
         assert_eq!(remove_leftovers(dir.path()), 0);
         assert!(names(dir.path()).is_empty());
     }
@@ -445,6 +457,26 @@ pub(crate) mod tests {
         File::create(path.join(REPLACED_FILE)).unwrap();
         assert_eq!(remove_leftovers(dir.path()), 0);
         assert!(!path.exists(), "let go finished: removed");
+    }
+
+    #[test]
+    fn a_lock_is_let_go_while_a_copy_of_its_handle_is_open() {
+        // A child process that is being started holds such a copy until it runs its program.
+        let dir = tempfile::tempdir().unwrap();
+        let stage = create_staging(dir.path()).unwrap();
+        let copy = stage._lock.0.try_clone().unwrap();
+        let path = stage.release();
+        assert_eq!(remove_leftovers(dir.path()), 0, "released, not in use");
+        assert!(!path.exists());
+        drop(copy);
+
+        // The lock cleanup takes is let go the same way.
+        let stage = create_staging(dir.path()).unwrap().release();
+        let held = claim(&stage).unwrap();
+        let copy = held.0.try_clone().unwrap();
+        drop(held);
+        assert!(claim(&stage).is_some());
+        drop(copy);
     }
 
     #[test]
