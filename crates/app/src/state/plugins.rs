@@ -190,7 +190,6 @@ impl AppState {
         cx.notify();
     }
 
-    /// Closes the install dialog.
     pub(super) fn close_install_plugin(&mut self, cx: &mut Context<Self>) {
         self.drop_install_preview(cx);
         self.overlay = None;

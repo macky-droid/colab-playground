@@ -851,8 +851,8 @@ pub fn clone_git(url: &str, staging: &Path, cancel: &CancelToken) -> Result<Path
     finished_checkout(dest, cloned)
 }
 
-/// The checkout at `dest` if `cloned` says it is complete; otherwise what git wrote there
-/// before it stopped is removed.
+/// A cancel or the timeout kills git in the middle of a clone, so every failure can leave a
+/// partial checkout at `dest`, not only a non-zero exit.
 fn finished_checkout(dest: PathBuf, cloned: Result<()>) -> Result<PathBuf> {
     if let Err(error) = cloned {
         let _ = std::fs::remove_dir_all(&dest);
@@ -861,15 +861,14 @@ fn finished_checkout(dest: PathBuf, cloned: Result<()>) -> Result<PathBuf> {
     Ok(dest)
 }
 
-/// Name prefixes of what the staging directory holds: the copy a preview is
-/// installed from, and a Git checkout being inspected.
+/// The clean-up deletes only directories with these prefixes: the path it is given comes
+/// from the user's data folder or from a preview, which is plain data.
 const STAGE_PREFIX: &str = "stage-";
 const CHECKOUT_PREFIX: &str = "git-";
 
-/// Removes what earlier runs left in `staging`: nothing in it outlives the
-/// install dialog that made it, so anything found when the app starts is a
-/// leftover (the app quit or crashed with the dialog open). Entries with
-/// other names are not this module's and stay.
+/// Nothing in `staging` outlives the install dialog that made it, so what is
+/// found when the app starts is a leftover (the app quit or crashed with the
+/// dialog open).
 pub fn clear_staging(staging: &Path) {
     let Ok(entries) = std::fs::read_dir(staging) else {
         return;
@@ -883,9 +882,7 @@ pub fn clear_staging(staging: &Path) {
     }
 }
 
-/// Removes the staged copy of a preview that will not be installed (the
-/// dialog was closed). Only a directory [`PluginStore::inspect_folder`] named
-/// is removed.
+/// For a preview that will not be installed (the dialog was closed).
 pub fn discard_preview(preview: &PluginPreview) {
     let staged = preview
         .staged_dir
@@ -1381,7 +1378,6 @@ kind = "openai"
         assert!(!data.join("plugins").join("demo").exists());
     }
 
-    /// A plugin folder and a store whose data directory is next to it.
     fn folder_and_store(tmp: &Path, manifest: &str) -> (PathBuf, PathBuf, PluginStore) {
         let src = tmp.join("src");
         std::fs::create_dir_all(&src).unwrap();
