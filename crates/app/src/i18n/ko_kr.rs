@@ -922,6 +922,10 @@ pub(super) const MESSAGES: Messages = &[
     (RUN_PROVISIONING, "런타임 할당"),
     (RUN_STAGES, "진행 상황"),
     (RUN_LOG, "로그"),
+    (
+        RUN_LOG_SKIPPED,
+        "로그의 일부는 여기에 표시되지 않습니다. 스크립트가 앱이 읽는 속도보다 빠르게 기록했기 때문입니다. 전체 로그는 런타임의 {path}에 있습니다.",
+    ),
     (RUN_OUTPUTS, "세부 정보"),
     (RUN_READY, "준비되었습니다. 주소는 아래에 있습니다."),
     (RUN_FAILED, "배포하지 못했습니다"),

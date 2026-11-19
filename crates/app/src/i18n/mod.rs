@@ -533,6 +533,7 @@ catalog_keys! {
     RUN_HF_TOKEN_SENT => "app.b2.run_hf_token_sent",
     RUN_INPUTS => "app.b2.run_inputs",
     RUN_LOG => "app.b2.run_log",
+    RUN_LOG_SKIPPED => "app.b2.run_log_skipped",
     RUN_NO_SESSION => "app.b2.run_no_session",
     RUN_ON_SESSION => "app.b2.run_on_session",
     RUN_OUTPUTS => "app.b2.run_outputs",

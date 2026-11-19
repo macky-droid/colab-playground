@@ -719,6 +719,7 @@ fn plugin_run_shows_the_whole_log_without_waiting_for_what_is_already_written() 
             .try_iter()
             .filter_map(|e| match e {
                 PluginRunEvent::Log { lines } => Some(lines),
+                PluginRunEvent::LogSkipped { path } => Some(vec![format!("not shown, see {path}")]),
                 _ => None,
             })
             .flatten()
@@ -741,8 +742,8 @@ fn plugin_run_shows_the_whole_log_without_waiting_for_what_is_already_written() 
     assert_eq!(took, usual, "no wait before reading what is already there");
     let (lines, _) = run(3, true);
     assert!(
-        lines[0].starts_with("[colab-playground] 3 KiB of the log are not shown")
-            && lines[0].contains("/run.log"),
+        lines[0].starts_with("not shown, see /root/.colab-playground/runs/")
+            && lines[0].ends_with("/run.log"),
         "{}",
         lines[0]
     );

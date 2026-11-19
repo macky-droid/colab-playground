@@ -910,6 +910,10 @@ pub(super) const MESSAGES: Messages = &[
     (RUN_PROVISIONING, "Getting a runtime"),
     (RUN_STAGES, "Progress"),
     (RUN_LOG, "Log"),
+    (
+        RUN_LOG_SKIPPED,
+        "Part of the log is not shown here: the script wrote faster than the app can read. The whole log is {path} on the runtime.",
+    ),
     (RUN_OUTPUTS, "Details"),
     (RUN_READY, "Ready. Its addresses are below."),
     (RUN_FAILED, "The deployment failed"),

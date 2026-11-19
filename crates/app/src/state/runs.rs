@@ -18,7 +18,7 @@ use colab_playground_core::{
     tunnel::TunnelSpec,
     vm::RunStatus,
 };
-use gpui::{AppContext, Context};
+use gpui::{App, AppContext, Context};
 
 use super::{AppState, InputSlot, Load, Op, ProvisionProgress, ops::key_of};
 use crate::{
@@ -354,7 +354,7 @@ impl AppState {
             cx,
             move |backend, events, cancel| backend.run_plugin(spec, events, cancel),
             |state, event, cx| {
-                state.apply_run_event(event);
+                state.apply_run_event(event, cx);
                 cx.notify();
             },
             |state, result, cx| {
@@ -366,7 +366,7 @@ impl AppState {
         cx.notify();
     }
 
-    fn apply_run_event(&mut self, event: PluginRunEvent) {
+    fn apply_run_event(&mut self, event: PluginRunEvent, cx: &App) {
         let at = self.backend_now();
         let Some(run) = &mut self.plugin_run else {
             return;
@@ -376,6 +376,9 @@ impl AppState {
             PluginRunEvent::Launched { session, .. } => run.session = Some(session),
             PluginRunEvent::Status(status) => run.status = Some(status),
             PluginRunEvent::Log { lines } => run.log.extend(lines),
+            PluginRunEvent::LogSkipped { path } => run
+                .log
+                .push(tr_args(cx, keys::RUN_LOG_SKIPPED, &[("path", &path)]).into()),
         }
     }
 

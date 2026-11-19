@@ -2353,16 +2353,16 @@ impl RealBackend {
             if contains_secret(&poll.log, secrets) || contains_secret(&status_text, secrets) {
                 self.scrub_history(session, secrets, events);
             }
-            let mut lines = Vec::new();
             if poll.skipped > 0 {
-                lines.push(format!(
-                    "[colab-playground] {} KiB of the log are not shown: the script wrote faster than the app reads. The whole log is {}/run.log on the runtime.",
-                    poll.skipped.div_ceil(1024),
-                    vm::run_dir(&run_id)
-                ));
+                let _ = events.send(PluginRunEvent::LogSkipped {
+                    path: format!("{}/run.log", vm::run_dir(&run_id)),
+                });
             }
-            lines.extend(redact(&poll.log, secrets).lines().map(str::to_owned));
-            if !lines.is_empty() {
+            if !poll.log.is_empty() {
+                let lines: Vec<String> = redact(&poll.log, secrets)
+                    .lines()
+                    .map(str::to_owned)
+                    .collect();
                 let _ = events.send(PluginRunEvent::Log { lines });
             }
             Ok(poll)
@@ -2370,8 +2370,9 @@ impl RealBackend {
         // The run is over, so what the script wrote last (after a failure, the error) is shown
         // before the result. A script that reported its failure and is still alive may write
         // more while it exits, so its log is read once more even when all of it was read.
-        // Best effort: the result does not depend on it.
-        let show_rest_of_log = |mut poll: vm::RunPoll, mut exiting: bool| {
+        // Best effort: the result does not depend on it, except that a run cancelled meanwhile
+        // ends as cancelled, as it does between two polls.
+        let show_rest_of_log = |mut poll: vm::RunPoll, mut exiting: bool| -> Result<()> {
             for _ in 0..vm::LOG_BACKLOG_READS {
                 if poll.offset >= poll.size {
                     if !(exiting && poll.alive) {
@@ -2384,6 +2385,7 @@ impl RealBackend {
                 };
                 poll = next;
             }
+            Ok(())
         };
         let mut offset = 0u64;
         let mut last: Option<RunStatus> = None;
@@ -2444,7 +2446,7 @@ impl RealBackend {
                 }
                 match s.state {
                     RunState::Ready => {
-                        show_rest_of_log(poll, false);
+                        show_rest_of_log(poll, false)?;
                         return Ok(PluginRunOutcome {
                             session: session.to_owned(),
                             account: account.clone(),
@@ -2454,7 +2456,7 @@ impl RealBackend {
                         });
                     }
                     RunState::Failed => {
-                        show_rest_of_log(poll, true);
+                        show_rest_of_log(poll, true)?;
                         return Err(Error::new(ErrorKind::PluginRunFailed)
                             .with("stage", s.stage.clone().unwrap_or_default())
                             .with("message", s.message.clone().unwrap_or_default()));
@@ -2463,7 +2465,7 @@ impl RealBackend {
                 }
             }
             if !poll.alive {
-                show_rest_of_log(poll, false);
+                show_rest_of_log(poll, false)?;
                 let stage = last
                     .as_ref()
                     .and_then(|s| s.stage.clone())
