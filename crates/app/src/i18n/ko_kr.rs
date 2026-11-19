@@ -453,15 +453,7 @@ pub(super) const MESSAGES: Messages = &[
         ERR_PORT_RESERVED,
         "포트 {port}번은 Colab이 예약한 포트입니다.",
     ),
-    (
-        ERR_INVALID_INPUT,
-        "{field}의 값 “{value}”이(가) 올바르지 않습니다.",
-    ),
-    (
-        ERR_INVALID_INPUT_FIELD,
-        "{field}의 입력이 올바르지 않습니다.",
-    ),
-    (ERR_INVALID_INPUT_PLAIN, "일부 입력이 올바르지 않습니다."),
+    (ERR_INVALID_INPUT, "일부 입력이 올바르지 않습니다."),
     (ERR_NO_ACTIVE_ACCOUNT, "로그인된 계정이 없습니다."),
     (
         ERR_ACTIVE_NOT_ADOPTED,
@@ -506,10 +498,6 @@ pub(super) const MESSAGES: Messages = &[
     ),
     (
         ERR_MANIFEST_INVALID,
-        "플러그인의 설명 파일이 올바르지 않습니다({field}: {reason}).",
-    ),
-    (
-        ERR_MANIFEST_INVALID_PLAIN,
         "플러그인의 설명 파일이 올바르지 않습니다.",
     ),
     (ERR_PLUGIN_EXISTS, "이 플러그인은 이미 설치되어 있습니다."),
@@ -517,22 +505,7 @@ pub(super) const MESSAGES: Messages = &[
         ERR_PLUGIN_NOT_FOUND,
         "해당 플러그인은 설치되어 있지 않습니다.",
     ),
-    (
-        ERR_PLUGIN_RUN_FAILED,
-        "플러그인이 {stage} 단계에서 오류로 중지되었습니다: {message}",
-    ),
-    (
-        ERR_PLUGIN_RUN_FAILED_MESSAGE,
-        "플러그인이 오류로 중지되었습니다: {message}",
-    ),
-    (
-        ERR_PLUGIN_RUN_FAILED_STAGE,
-        "플러그인이 {stage} 단계에서 오류로 중지되었습니다.",
-    ),
-    (
-        ERR_PLUGIN_RUN_FAILED_PLAIN,
-        "플러그인이 오류로 중지되었습니다.",
-    ),
+    (ERR_PLUGIN_RUN_FAILED, "플러그인이 오류로 중지되었습니다."),
     (ERR_HEALTH_CHECK_FAILED, "서비스가 응답하지 않았습니다."),
     (ERR_GIT_FAILED, "Git 저장소를 다운로드하지 못했습니다."),
     (ERR_INSTALL_FAILED, "Colab CLI를 설치하지 못했습니다."),

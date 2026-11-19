@@ -10,7 +10,7 @@
 use colab_playground_core::{Error, ErrorKind, NextStep};
 use gpui::{App, SharedString};
 
-use crate::i18n::{CATALOGS, Language, fill_lenient, keys, template, tr};
+use crate::i18n::{keys, tr, tr_lenient};
 
 /// Something the app can do about an error right away.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -141,136 +141,32 @@ pub fn next_step(step: NextStep, can_retry: bool) -> (Option<ErrorAction>, Optio
     }
 }
 
-fn has_param(params: &[(&str, &str)], name: &str) -> bool {
-    params
-        .iter()
-        .any(|(key, value)| *key == name && !value.is_empty())
-}
-
-// Variants without every parameter fall back to a plain key so raw `{name}` placeholders never show.
-fn message_key(kind: ErrorKind, params: &[(&str, &str)]) -> Option<&'static str> {
-    match kind {
-        ErrorKind::ManifestInvalid => Some(
-            if has_param(params, "field") && has_param(params, "reason") {
-                keys::ERR_MANIFEST_INVALID
-            } else {
-                keys::ERR_MANIFEST_INVALID_PLAIN
-            },
-        ),
-        ErrorKind::PluginRunFailed => Some(
-            match (has_param(params, "stage"), has_param(params, "message")) {
-                (true, true) => keys::ERR_PLUGIN_RUN_FAILED,
-                (false, true) => keys::ERR_PLUGIN_RUN_FAILED_MESSAGE,
-                (true, false) => keys::ERR_PLUGIN_RUN_FAILED_STAGE,
-                (false, false) => keys::ERR_PLUGIN_RUN_FAILED_PLAIN,
-            },
-        ),
-        ErrorKind::InvalidInput => Some(
-            match (has_param(params, "field"), has_param(params, "value")) {
-                (true, true) => keys::ERR_INVALID_INPUT,
-                (true, false) => keys::ERR_INVALID_INPUT_FIELD,
-                _ => keys::ERR_INVALID_INPUT_PLAIN,
-            },
-        ),
-        _ => kind_key(kind),
-    }
-}
-
-fn template_uses_param(raw_template: &str, name: &str) -> bool {
-    let mut rest = raw_template;
-    while let Some(open) = rest.find('{') {
-        let after = &rest[open + 1..];
-        let Some(close) = after.find('}') else {
-            break;
-        };
-        if &after[..close] == name {
-            return true;
-        }
-        rest = &after[close + 1..];
-    }
-    false
-}
-
-fn explain_with(
-    error: &Error,
-    can_retry: bool,
-    lookup_template: impl Fn(&str) -> &'static str,
-) -> Explained {
+pub fn explain(error: &Error, can_retry: bool, cx: &App) -> Explained {
     let params: Vec<(&str, &str)> = error
         .params
         .iter()
-        .filter_map(|(name, value)| {
-            let trimmed = value.trim();
-            (!trimmed.is_empty()).then_some((name.as_str(), trimmed))
-        })
+        .map(|(name, value)| (name.as_str(), value.as_str()))
         .collect();
-    let (raw_template, message) = match message_key(error.kind, &params) {
-        Some(key) => {
-            let raw = lookup_template(key);
-            (raw, fill_lenient(raw, &params))
-        }
-        None => {
-            let raw = lookup_template(keys::ERR_UNKNOWN);
-            (raw, fill_lenient(raw, &[("kind", error.kind.as_str())]))
-        }
+    let message = match kind_key(error.kind) {
+        Some(key) => tr_lenient(cx, key, &params),
+        None => tr_lenient(cx, keys::ERR_UNKNOWN, &[("kind", error.kind.as_str())]),
     };
-    // Parameters the chosen message did not name still carry diagnostic context for the details line.
-    let unused_params: Vec<String> = params
-        .iter()
-        .filter(|(name, _)| !template_uses_param(raw_template, name))
-        .map(|(name, value)| format!("{name}={value}"))
-        .collect();
-    let detail_body = match (error.detail.trim(), unused_params.is_empty()) {
-        ("", true) => None,
-        ("", false) => Some(unused_params.join(", ")),
-        (detail, true) => Some(detail.to_owned()),
-        (detail, false) => Some(format!("{} ({})", detail, unused_params.join(", "))),
-    };
-    let detail = detail_body.map(|body| {
-        SharedString::from(fill_lenient(
-            lookup_template(keys::ERR_DETAILS),
-            &[("detail", body.as_str())],
-        ))
-    });
     let (action, hint) = next_step(error.next_step, can_retry);
+    let detail = (!error.detail.trim().is_empty())
+        .then(|| tr_lenient(cx, keys::ERR_DETAILS, &[("detail", error.detail.trim())]));
     Explained {
-        message: message.into(),
-        hint: hint.map(|key| SharedString::from(lookup_template(key))),
+        message,
+        hint: hint.map(|key| tr(cx, key)),
         action,
         detail,
     }
 }
 
-pub fn explain_in_language(error: &Error, can_retry: bool, language: Language) -> Explained {
-    let tag = language.tag();
-    let messages = CATALOGS
-        .iter()
-        .find(|(each, _)| *each == tag)
-        .map(|(_, messages)| *messages)
-        .unwrap_or(CATALOGS[0].1);
-    explain_with(error, can_retry, |key| {
-        messages
-            .iter()
-            .find(|(k, _)| *k == key)
-            .map(|(_, msg)| *msg)
-            .unwrap_or_else(|| panic!("i18n: no message {key:?} in {tag}"))
-    })
-}
-
-pub fn explain(error: &Error, can_retry: bool, cx: &App) -> Explained {
-    let mut out = explain_with(error, can_retry, |key| template(cx, key));
-    if let (_, Some(key)) = next_step(error.next_step, can_retry) {
-        out.hint = Some(tr(cx, key));
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
-    use colab_playground_core::{Error, ErrorKind, NextStep};
+    use colab_playground_core::{ErrorKind, NextStep};
 
-    use super::{ErrorAction, explain_in_language, kind_key, next_step};
-    use crate::i18n::Language;
+    use super::{ErrorAction, kind_key, next_step};
 
     #[test]
     fn every_kind_this_build_knows_has_a_message() {
@@ -304,73 +200,5 @@ mod tests {
         assert!(next_step(NextStep::TryAgain, false).1.is_some());
         assert_eq!(next_step(NextStep::StopASession, true).0, None);
         assert_eq!(next_step(NextStep::None, true), (None, None));
-    }
-
-    #[test]
-    fn manifest_plugin_and_input_errors_interpolate_details_and_fall_back_cleanly() {
-        let manifest_err = Error::new(ErrorKind::ManifestInvalid)
-            .with("field", "api")
-            .with("reason", "unsupported api version");
-        let run_err = Error::new(ErrorKind::PluginRunFailed)
-            .with("stage", "download")
-            .with("message", "HTTP 401");
-        let input_err = Error::new(ErrorKind::InvalidInput)
-            .with("field", "port")
-            .with("value", "abc");
-
-        for lang in Language::ALL {
-            let m = explain_in_language(&manifest_err, false, lang);
-            assert!(
-                m.message.contains("api") && m.message.contains("unsupported api version"),
-                "{lang:?}: {}",
-                m.message
-            );
-            assert!(!m.message.contains('{'), "{lang:?}: {}", m.message);
-
-            let r = explain_in_language(&run_err, false, lang);
-            assert!(
-                r.message.contains("download") && r.message.contains("HTTP 401"),
-                "{lang:?}: {}",
-                r.message
-            );
-            assert!(!r.message.contains('{'), "{lang:?}: {}", r.message);
-
-            let i = explain_in_language(&input_err, false, lang);
-            assert!(
-                i.message.contains("port") && i.message.contains("abc"),
-                "{lang:?}: {}",
-                i.message
-            );
-            assert!(!i.message.contains('{'), "{lang:?}: {}", i.message);
-        }
-
-        let crash_only_msg = Error::new(ErrorKind::PluginRunFailed)
-            .with("stage", "   ")
-            .with("message", "server exited (code 1)");
-        let explained = explain_in_language(&crash_only_msg, false, Language::EnUs);
-        assert!(explained.message.contains("server exited (code 1)"));
-        assert!(!explained.message.contains('{'));
-
-        let field_only_input = Error::invalid("repo", "expected owner/name");
-        let explained = explain_in_language(&field_only_input, false, Language::EnUs);
-        assert!(explained.message.contains("repo"));
-        assert!(!explained.message.contains('{'));
-        assert!(
-            explained
-                .detail
-                .as_deref()
-                .is_some_and(|d| d.contains("expected owner/name"))
-        );
-
-        let partial_manifest = Error::new(ErrorKind::ManifestInvalid).with("field", "run.script");
-        let explained = explain_in_language(&partial_manifest, false, Language::EnUs);
-        assert!(!explained.message.contains('{'));
-        assert!(
-            explained
-                .detail
-                .as_deref()
-                .is_some_and(|d| d.contains("field=run.script")),
-            "{explained:?}"
-        );
     }
 }
