@@ -404,6 +404,24 @@ fn run(
         return Err(Error::new(ErrorKind::SessionLimitReached).with("limit", limit.max_concurrent));
     }
     let mut before: BTreeSet<String> = existing.into_iter().map(|s| s.endpoint).collect();
+    let wait_to_retry = |attempt: u32| {
+        events(ProvisionEvent::Retrying {
+            attempt: attempt + 1,
+            delay_secs: spec.retry_delay.as_secs(),
+        });
+        clock.sleep(spec.retry_delay, cancel)
+    };
+    let give_back = |attempt: u32| {
+        events(ProvisionEvent::Releasing { attempt });
+        release(ops, name)
+    };
+    let give_back_if_cancelled = |attempt: u32| {
+        if cancel.is_cancelled() {
+            give_back(attempt)?;
+            return Err(Error::cancelled());
+        }
+        Ok(())
+    };
 
     for attempt in 1..=max {
         cancel.check()?;
@@ -434,26 +452,17 @@ fn run(
             if cancel.is_cancelled() {
                 return Err(Error::cancelled());
             }
-            events(ProvisionEvent::Retrying {
-                attempt: attempt + 1,
-                delay_secs: spec.retry_delay.as_secs(),
-            });
-            clock.sleep(spec.retry_delay, cancel)?;
+            wait_to_retry(attempt)?;
             continue;
         }
         events(ProvisionEvent::Allocated { attempt });
         let started_at = clock.now();
-        if cancel.is_cancelled() {
-            events(ProvisionEvent::Releasing { attempt });
-            release(ops, name)?;
-            return Err(Error::cancelled());
-        }
+        give_back_if_cancelled(attempt)?;
 
         let hardware = match ops.probe(name, cancel) {
             Ok(hw) => hw,
             Err(e) if e.kind == ErrorKind::Cancelled => {
-                events(ProvisionEvent::Releasing { attempt });
-                release(ops, name)?;
+                give_back(attempt)?;
                 return Err(e);
             }
             Err(e) if e.kind == ErrorKind::SessionGone => {
@@ -466,11 +475,7 @@ fn run(
                 if attempt == max {
                     return Err(e);
                 }
-                events(ProvisionEvent::Retrying {
-                    attempt: attempt + 1,
-                    delay_secs: spec.retry_delay.as_secs(),
-                });
-                clock.sleep(spec.retry_delay, cancel)?;
+                wait_to_retry(attempt)?;
                 continue;
             }
             // Unknown hardware: acceptable only without a VRAM requirement.
@@ -497,8 +502,7 @@ fn run(
             });
             let keep = attempt == max && spec.on_exhausted == OnExhausted::KeepLast;
             if !keep {
-                events(ProvisionEvent::Releasing { attempt });
-                release(ops, name)?;
+                give_back(attempt)?;
                 if attempt == max {
                     return Err(Error::new(ErrorKind::ProvisionExhausted)
                         .with("attempts", max)
@@ -513,20 +517,12 @@ fn run(
                 if let Ok(list) = ops.sessions(&nc) {
                     before = list.into_iter().map(|s| s.endpoint).collect();
                 }
-                events(ProvisionEvent::Retrying {
-                    attempt: attempt + 1,
-                    delay_secs: spec.retry_delay.as_secs(),
-                });
-                clock.sleep(spec.retry_delay, cancel)?;
+                wait_to_retry(attempt)?;
                 continue;
             }
         }
 
-        if cancel.is_cancelled() {
-            events(ProvisionEvent::Releasing { attempt });
-            release(ops, name)?;
-            return Err(Error::cancelled());
-        }
+        give_back_if_cancelled(attempt)?;
         let watchdog = if spec.guard.needs_watchdog() {
             match start_watchdog(ops, name, &spec.guard) {
                 Ok(w) => {
@@ -543,11 +539,7 @@ fn run(
         } else {
             None
         };
-        if cancel.is_cancelled() {
-            events(ProvisionEvent::Releasing { attempt });
-            release(ops, name)?;
-            return Err(Error::cancelled());
-        }
+        give_back_if_cancelled(attempt)?;
         events(ProvisionEvent::Ready {
             name: name.to_owned(),
             gpu: hardware.gpu.clone(),

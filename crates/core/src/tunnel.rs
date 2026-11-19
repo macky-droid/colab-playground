@@ -578,19 +578,6 @@ impl TunnelManager {
         Ok(())
     }
 
-    pub fn close_account(&self, account: &AccountId) -> Vec<TunnelId> {
-        let ids: Vec<TunnelId> = self
-            .list()
-            .into_iter()
-            .filter(|t| &t.spec.account == account)
-            .map(|t| t.id)
-            .collect();
-        for id in &ids {
-            let _ = self.close(*id);
-        }
-        ids
-    }
-
     pub fn close_session(&self, account: &AccountId, session: &str) {
         for t in self
             .list()

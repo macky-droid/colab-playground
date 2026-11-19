@@ -255,22 +255,6 @@ impl TrackedSession {
     }
 }
 
-/// A session as shown in the UI: server view joined with the ledger.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Session {
-    pub server: ServerSession,
-    /// Owning account (the active one for listed sessions).
-    pub account: Option<AccountId>,
-    pub tracked: Option<TrackedSession>,
-}
-
-impl Session {
-    /// Display name (`?` for orphans).
-    pub fn display_name(&self) -> &str {
-        self.server.name.as_deref().unwrap_or("?")
-    }
-}
-
 /// Persistent list of tracked sessions (`<data>/ledger.json`).
 #[derive(Debug)]
 pub struct Ledger {
@@ -305,12 +289,30 @@ impl Ledger {
         &self.entries
     }
 
+    pub fn names(&self) -> Vec<String> {
+        self.entries.iter().map(|e| e.name.clone()).collect()
+    }
+
+    pub fn all_live(&self) -> impl DoubleEndedIterator<Item = &TrackedSession> {
+        self.entries.iter().filter(|e| e.stopped.is_none())
+    }
+
+    pub fn live_of<'a>(
+        &'a self,
+        account: &AccountId,
+    ) -> impl DoubleEndedIterator<Item = &'a TrackedSession> {
+        self.all_live().filter(move |e| &e.account == account)
+    }
+
     /// The live (not stopped) entry for `account`/`name`.
     pub fn live(&self, account: &AccountId, name: &str) -> Option<&TrackedSession> {
-        self.entries
-            .iter()
+        self.live_of(account).rev().find(|e| e.name == name)
+    }
+
+    pub fn live_by_endpoint(&self, account: &AccountId, endpoint: &str) -> Option<&TrackedSession> {
+        self.live_of(account)
             .rev()
-            .find(|e| &e.account == account && e.name == name && e.stopped.is_none())
+            .find(|e| e.endpoint.as_deref() == Some(endpoint))
     }
 
     pub fn live_mut(&mut self, account: &AccountId, name: &str) -> Option<&mut TrackedSession> {
@@ -350,6 +352,40 @@ impl Ledger {
         Ok(found)
     }
 
+    pub fn mark_stopped(
+        &mut self,
+        account: &AccountId,
+        name: &str,
+        at: SystemTime,
+        reason: StopReason,
+    ) -> Result<bool> {
+        self.update(account, name, |e| {
+            e.stopped = Some(StopRecord { at, reason })
+        })
+    }
+
+    /// Applies a listing of `account`'s runtimes to its live entries: see [`reconcile`].
+    pub fn reconcile(
+        &mut self,
+        account: &AccountId,
+        judged: impl Fn(&TrackedSession) -> bool,
+        listed: &[&str],
+        names: &[(&str, &str)],
+        now: SystemTime,
+    ) -> Reconciliation {
+        let live: Vec<TrackedSession> = self.live_of(account).cloned().collect();
+        let outcome = reconcile(&live, judged, listed, names);
+        // A failed save keeps the change in memory and the next save writes it, so the
+        // round goes on: a session that ended is still reported.
+        for (name, endpoint) in &outcome.confirmed {
+            let _ = self.update(account, name, |e| e.endpoint = Some(endpoint.clone()));
+        }
+        for (name, _) in &outcome.vanished {
+            let _ = self.mark_stopped(account, name, now, StopReason::Vanished);
+        }
+        outcome
+    }
+
     /// Keeps at most 200 stopped entries.
     fn trim(&mut self) {
         let stopped = self.entries.iter().filter(|e| e.stopped.is_some()).count();
@@ -376,6 +412,72 @@ impl Ledger {
         }
         Ok(())
     }
+}
+
+/// What a listing of one account's runtimes says about its live sessions.
+#[derive(Debug, Default, PartialEq)]
+pub struct Reconciliation {
+    /// Sessions that had no endpoint and whose runtime the listing confirms: (name, endpoint).
+    pub confirmed: Vec<(String, String)>,
+    /// Sessions whose runtime has ended: (name, endpoint), the endpoint empty when it was
+    /// never known.
+    pub vanished: Vec<(String, String)>,
+    /// A session without an endpoint is left, and a listed runtime no session claims could
+    /// be its own.
+    pub unsettled: bool,
+}
+
+/// Pure: depends only on its arguments.
+///
+/// `live` are the account's live entries, of which only the `judged` ones can be confirmed
+/// or end; `listed` are the endpoints of its runtimes; `names` pairs an endpoint with the
+/// session name recorded for it, and may be out of date.
+pub fn reconcile(
+    live: &[TrackedSession],
+    judged: impl Fn(&TrackedSession) -> bool,
+    listed: &[&str],
+    names: &[(&str, &str)],
+) -> Reconciliation {
+    let mut outcome = Reconciliation::default();
+    let mut unmatched = Vec::new();
+    let mut claimed: Vec<&str> = Vec::new();
+    for e in live {
+        if !judged(e) {
+            claimed.extend(e.endpoint.as_deref());
+            continue;
+        }
+        match &e.endpoint {
+            Some(endpoint) if listed.contains(&endpoint.as_str()) => claimed.push(endpoint),
+            Some(endpoint) => outcome.vanished.push((e.name.clone(), endpoint.clone())),
+            None => {
+                // `names` may still hold the record of an earlier session with this name,
+                // so only an endpoint the listing confirms is taken from it, and an
+                // unlisted one never ends the session.
+                let confirmed = names
+                    .iter()
+                    .find(|(endpoint, name)| *name == e.name && listed.contains(endpoint));
+                match confirmed {
+                    Some((endpoint, _)) => {
+                        claimed.push(endpoint);
+                        outcome
+                            .confirmed
+                            .push((e.name.clone(), (*endpoint).to_owned()));
+                    }
+                    None => unmatched.push(e.name.clone()),
+                }
+            }
+        }
+    }
+    // A session without an endpoint can only be a listed runtime that no other live
+    // session claims; with none left, its runtime has ended.
+    if listed.iter().all(|endpoint| claimed.contains(endpoint)) {
+        outcome
+            .vanished
+            .extend(unmatched.into_iter().map(|name| (name, String::new())));
+    } else {
+        outcome.unsettled = !unmatched.is_empty();
+    }
+    outcome
 }
 
 #[cfg(test)]
@@ -443,6 +545,84 @@ mod tests {
         assert_eq!(
             e.uptime(t0 + Duration::from_secs(10)),
             Duration::from_secs(10)
+        );
+    }
+
+    fn live(name: &str, endpoint: Option<&str>) -> TrackedSession {
+        TrackedSession {
+            name: name.into(),
+            account: AccountId::new("a1").unwrap(),
+            endpoint: endpoint.map(str::to_owned),
+            accelerator: Accelerator::None,
+            high_mem: false,
+            gpu: None,
+            vram_mib: None,
+            policy: GuardPolicy::default(),
+            spend: SpendMeter::new(SystemTime::UNIX_EPOCH),
+            watchdog: None,
+            stopped: None,
+        }
+    }
+
+    fn pairs(items: &[(&str, &str)]) -> Vec<(String, String)> {
+        items
+            .iter()
+            .map(|(a, b)| ((*a).to_owned(), (*b).to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn a_session_ends_when_its_endpoint_is_no_longer_listed() {
+        let entries = [live("kept", Some("e1")), live("gone", Some("e2"))];
+        let outcome = reconcile(&entries, |_| true, &["e1"], &[]);
+        assert_eq!(outcome.vanished, pairs(&[("gone", "e2")]));
+        assert!(outcome.confirmed.is_empty() && !outcome.unsettled);
+    }
+
+    #[test]
+    fn a_session_without_an_endpoint_takes_only_a_listed_one_recorded_for_its_name() {
+        let entries = [live("new", None), live("stale", None)];
+        let names = [("e0", "new"), ("e1", "new"), ("e9", "stale")];
+        let outcome = reconcile(&entries, |_| true, &["e1", "e2"], &names);
+        assert_eq!(outcome.confirmed, pairs(&[("new", "e1")]));
+        assert!(outcome.vanished.is_empty(), "e2 could be the other session");
+        assert!(outcome.unsettled);
+    }
+
+    #[test]
+    fn a_session_without_an_endpoint_ends_once_every_listed_runtime_is_claimed() {
+        let entries = [live("a", Some("e1")), live("b", None), live("later", None)];
+        let judged = |e: &TrackedSession| e.name != "later";
+        let outcome = reconcile(&entries, judged, &["e1"], &[]);
+        assert_eq!(outcome.vanished, pairs(&[("b", "")]));
+        assert!(!outcome.unsettled);
+
+        let entries = [live("b", None), live("later", Some("e1"))];
+        let outcome = reconcile(&entries, judged, &["e1"], &[]);
+        assert_eq!(
+            outcome.vanished,
+            pairs(&[("b", "")]),
+            "a session that is not judged still claims its runtime"
+        );
+    }
+
+    #[test]
+    fn reconciling_the_ledger_records_what_the_listing_says() {
+        let acct = AccountId::new("a1").unwrap();
+        let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let mut ledger = Ledger::in_memory();
+        for entry in [live("gone", Some("e2")), live("new", None)] {
+            ledger.upsert(entry).unwrap();
+        }
+        ledger.reconcile(&acct, |_| true, &["e1"], &[("e1", "new")], t0);
+        assert_eq!(ledger.live_by_endpoint(&acct, "e1").unwrap().name, "new");
+        assert!(ledger.live(&acct, "gone").is_none());
+        assert_eq!(
+            ledger.entries()[0].stopped,
+            Some(StopRecord {
+                at: t0,
+                reason: StopReason::Vanished
+            })
         );
     }
 

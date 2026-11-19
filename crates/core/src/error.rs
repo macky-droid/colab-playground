@@ -121,57 +121,9 @@ pub enum ErrorKind {
 }
 
 impl ErrorKind {
-    /// Stable snake_case identifier (matches the serde representation).
+    /// Stable snake_case identifier: the name serde writes for the kind.
     pub fn as_str(self) -> &'static str {
-        match self {
-            ErrorKind::NotInstalled => "not_installed",
-            ErrorKind::AuthRequired => "auth_required",
-            ErrorKind::NotEntitled => "not_entitled",
-            ErrorKind::CapacityRefused => "capacity_refused",
-            ErrorKind::AllocationTimeout => "allocation_timeout",
-            ErrorKind::SshBusy => "ssh_busy",
-            ErrorKind::SessionGone => "session_gone",
-            ErrorKind::ConnectionLost => "connection_lost",
-            ErrorKind::ExecTimeout => "exec_timeout",
-            ErrorKind::PortInUse => "port_in_use",
-            ErrorKind::PortReserved => "port_reserved",
-            ErrorKind::InvalidInput => "invalid_input",
-            ErrorKind::NoActiveAccount => "no_active_account",
-            ErrorKind::ActiveAccountNotAdopted => "active_account_not_adopted",
-            ErrorKind::AccountNotActive => "account_not_active",
-            ErrorKind::AccountNotFound => "account_not_found",
-            ErrorKind::KeyringUnavailable => "keyring_unavailable",
-            ErrorKind::AddInProgress => "add_in_progress",
-            ErrorKind::LegacyTokenPresent => "legacy_token_present",
-            ErrorKind::LoginCancelled => "login_cancelled",
-            ErrorKind::LoginInvalidCode => "login_invalid_code",
-            ErrorKind::LoginVerificationFailed => "login_verification_failed",
-            ErrorKind::Cancelled => "cancelled",
-            ErrorKind::Unsupported => "unsupported",
-            ErrorKind::WslUnavailable => "wsl_unavailable",
-            ErrorKind::CommandTooLong => "command_too_long",
-            ErrorKind::SessionLimitReached => "session_limit_reached",
-            ErrorKind::Busy => "busy",
-            ErrorKind::ProvisionExhausted => "provision_exhausted",
-            ErrorKind::OrphanSuspected => "orphan_suspected",
-            ErrorKind::ManifestInvalid => "manifest_invalid",
-            ErrorKind::PluginExists => "plugin_exists",
-            ErrorKind::PluginNotFound => "plugin_not_found",
-            ErrorKind::PluginRunFailed => "plugin_run_failed",
-            ErrorKind::HealthCheckFailed => "health_check_failed",
-            ErrorKind::GitFailed => "git_failed",
-            ErrorKind::InstallFailed => "install_failed",
-            ErrorKind::Http => "http",
-            ErrorKind::HttpUnavailable => "http_unavailable",
-            ErrorKind::RateLimited => "rate_limited",
-            ErrorKind::Parse => "parse",
-            ErrorKind::Io => "io",
-            ErrorKind::Timeout => "timeout",
-            ErrorKind::UnsupportedCliVersion => "unsupported_cli_version",
-            ErrorKind::UpdateUnverified => "update_unverified",
-            ErrorKind::UpdateUnavailable => "update_unavailable",
-            ErrorKind::Other => "other",
-        }
+        serde::Serialize::serialize(&self, VariantName).unwrap_or("other")
     }
 
     pub fn default_next_step(self) -> NextStep {
@@ -222,6 +174,94 @@ impl ErrorKind {
     /// [`ErrorKind::Other`].
     pub fn from_str_lossy(s: &str) -> ErrorKind {
         serde_json::from_value(serde_json::Value::String(s.to_owned())).unwrap_or(ErrorKind::Other)
+    }
+}
+
+/// Serializer that answers with the name serde gives a unit variant, and refuses anything else.
+struct VariantName;
+
+type NoName = serde::de::value::Error;
+type Unnamed = serde::ser::Impossible<&'static str, NoName>;
+
+fn no_name<T>() -> Result<T, NoName> {
+    Err(serde::ser::Error::custom("not a unit variant"))
+}
+
+macro_rules! refuse {
+    ($($method:ident($($arg:ty),*) -> $ok:ty;)*) => {
+        $(fn $method(self, $(_: $arg),*) -> Result<$ok, NoName> {
+            no_name()
+        })*
+    };
+}
+
+impl serde::Serializer for VariantName {
+    type Ok = &'static str;
+    type Error = NoName;
+    type SerializeSeq = Unnamed;
+    type SerializeTuple = Unnamed;
+    type SerializeTupleStruct = Unnamed;
+    type SerializeTupleVariant = Unnamed;
+    type SerializeMap = Unnamed;
+    type SerializeStruct = Unnamed;
+    type SerializeStructVariant = Unnamed;
+
+    fn serialize_unit_variant(
+        self,
+        _: &'static str,
+        _: u32,
+        variant: &'static str,
+    ) -> Result<&'static str, NoName> {
+        Ok(variant)
+    }
+
+    refuse! {
+        serialize_bool(bool) -> &'static str;
+        serialize_i8(i8) -> &'static str;
+        serialize_i16(i16) -> &'static str;
+        serialize_i32(i32) -> &'static str;
+        serialize_i64(i64) -> &'static str;
+        serialize_u8(u8) -> &'static str;
+        serialize_u16(u16) -> &'static str;
+        serialize_u32(u32) -> &'static str;
+        serialize_u64(u64) -> &'static str;
+        serialize_f32(f32) -> &'static str;
+        serialize_f64(f64) -> &'static str;
+        serialize_char(char) -> &'static str;
+        serialize_str(&str) -> &'static str;
+        serialize_bytes(&[u8]) -> &'static str;
+        serialize_none() -> &'static str;
+        serialize_unit() -> &'static str;
+        serialize_unit_struct(&'static str) -> &'static str;
+        serialize_seq(Option<usize>) -> Unnamed;
+        serialize_tuple(usize) -> Unnamed;
+        serialize_tuple_struct(&'static str, usize) -> Unnamed;
+        serialize_tuple_variant(&'static str, u32, &'static str, usize) -> Unnamed;
+        serialize_map(Option<usize>) -> Unnamed;
+        serialize_struct(&'static str, usize) -> Unnamed;
+        serialize_struct_variant(&'static str, u32, &'static str, usize) -> Unnamed;
+    }
+
+    fn serialize_some<T: ?Sized + serde::Serialize>(self, _: &T) -> Result<&'static str, NoName> {
+        no_name()
+    }
+
+    fn serialize_newtype_struct<T: ?Sized + serde::Serialize>(
+        self,
+        _: &'static str,
+        _: &T,
+    ) -> Result<&'static str, NoName> {
+        no_name()
+    }
+
+    fn serialize_newtype_variant<T: ?Sized + serde::Serialize>(
+        self,
+        _: &'static str,
+        _: u32,
+        _: &'static str,
+        _: &T,
+    ) -> Result<&'static str, NoName> {
+        no_name()
     }
 }
 
@@ -385,6 +425,12 @@ mod tests {
             assert_eq!(ErrorKind::from_str_lossy(kind.as_str()), kind);
         }
         assert_eq!(ErrorKind::from_str_lossy("nope"), ErrorKind::Other);
+        assert_eq!(
+            ErrorKind::ActiveAccountNotAdopted.as_str(),
+            "active_account_not_adopted"
+        );
+        assert_eq!(ErrorKind::Io.as_str(), "io");
+        assert!(serde::Serialize::serialize("io", VariantName).is_err());
     }
 
     #[test]
