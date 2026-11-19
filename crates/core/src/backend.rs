@@ -109,6 +109,14 @@ pub struct RuntimesView {
     pub errors: Vec<AccountError>,
 }
 
+/// What [`Backend::extend_session`] set.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Extension {
+    /// Time to the new auto-stop, from when it was set.
+    pub runtime: Duration,
+    pub watchdog: WatchdogInfo,
+}
+
 /// Options for stopping a runtime (more pre-stop steps will be added here).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StopOptions {
@@ -292,6 +300,22 @@ pub trait Backend: Send + Sync {
         options: StopOptions,
         cancel: &CancelToken,
     ) -> Result<()>;
+    /// Moves the auto-stop `by` later than where the session has it (active
+    /// account only). A session without an auto-stop, or with one that has
+    /// passed, gets one `by` from now, so the stop never moves earlier.
+    ///
+    /// The time still left is read inside the call (the watchdog's own
+    /// deadline and the ledger's runtime limit, whichever is earlier), so a
+    /// call adds to what the call before it set, whatever listing the caller
+    /// holds. The stop is then put in place like [`Backend::set_auto_stop`]
+    /// does, with the same result when the watchdog cannot be started and
+    /// the same errors.
+    fn extend_session(
+        &self,
+        target: &RuntimeRef,
+        by: Duration,
+        cancel: &CancelToken,
+    ) -> Result<Extension>;
     /// Moves the auto-stop to `runtime` from now (active account only); also
     /// sets one again after [`Backend::cancel_auto_stop`].
     ///
@@ -311,7 +335,7 @@ pub trait Backend: Send + Sync {
     ///
     /// Errors (with nothing recorded) are those of reaching the runtime, e.g.
     /// `AccountNotActive` or `SessionGone`.
-    fn extend_session(
+    fn set_auto_stop(
         &self,
         target: &RuntimeRef,
         runtime: Duration,
@@ -340,7 +364,10 @@ pub trait Backend: Send + Sync {
     fn inspect_plugin_folder(&self, path: &Path) -> Result<PluginPreview>;
     /// Clones a Git URL with the local `git` and validates it.
     fn inspect_plugin_git(&self, url: &str, cancel: &CancelToken) -> Result<PluginPreview>;
+    /// Installs a previewed plugin. The preview is used up whether or not this succeeds.
     fn install_plugin(&self, preview: &PluginPreview) -> Result<PluginInfo>;
+    /// Drops a preview that will not be installed, with the copy staged for it.
+    fn discard_plugin_preview(&self, preview: &PluginPreview);
     fn set_plugin_enabled(&self, id: &str, enabled: bool) -> Result<()>;
     /// Removes a user plugin.
     fn remove_plugin(&self, id: &str) -> Result<()>;
