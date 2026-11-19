@@ -46,6 +46,7 @@ DEFAULT_KNOBS = {
     "watchdog_start_fails": False,  # a started watchdog exits at once
     "keyring_locked": False,        # keyring reads fail
     "cli_api_broken": False,        # colab_cli.client cannot be imported
+    "keyring_during_refresh": None,  # {"<service>\u0000<user>": value or null}, applied by the next token refresh
 }
 
 
@@ -128,6 +129,24 @@ def kr_delete(service, user):
     del values[key]
     _write(KEYRING, values)
     return True
+
+
+def land_keyring_changes():
+    """Another process (a switch, an add, a removal) writing the keyring
+    while a token refresh is on the wire."""
+    s = server()
+    changes = s["knobs"].get("keyring_during_refresh")
+    if not changes:
+        return
+    s["knobs"]["keyring_during_refresh"] = None
+    save_server(s)
+    values = kr_all()
+    for key, value in changes.items():
+        if value is None:
+            values.pop(key, None)
+        else:
+            values[key] = value
+    _write(KEYRING, values)
 
 
 def slot_account():
@@ -219,6 +238,7 @@ def install_fake_modules():
         def refresh(self, request):
             if not (self.refresh_token or "").startswith("rt-"):
                 raise RuntimeError("RefreshError")
+            land_keyring_changes()
             self.token = "fake-access-" + self.refresh_token[3:]
             self.info["token"] = self.token
             self.info.pop("expired", None)

@@ -111,7 +111,8 @@ pub struct Settings {
     /// Check GitHub for a newer release automatically (once a day).
     #[serde(default, deserialize_with = "lenient")]
     pub check_updates: OnByDefault,
-    /// When the last update check was made (seconds since the Unix epoch, backend clock).
+    /// When an update check last got an answer (seconds since the Unix epoch, backend clock).
+    /// A check that failed is not recorded, so the next start tries again.
     #[serde(
         default,
         deserialize_with = "lenient",

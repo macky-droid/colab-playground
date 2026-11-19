@@ -1243,12 +1243,74 @@ impl Backend for RealBackend {
         self.inner.now()
     }
 
-    fn probe(&self, _cancel: &CancelToken) -> Result<ProbeReport> {
-        let report = self.inner.cfg.host.probe();
-        if let Some(t) = report.toolchain() {
-            self.inner.st().toolchain = Some(t);
+    fn probe(&self, cancel: &CancelToken) -> Result<ProbeReport> {
+        let mut report = self.inner.cfg.host.probe();
+        let Some(configured) = self.inner.cfg.toolchain.clone() else {
+            if let Some(t) = report.toolchain() {
+                self.inner.st().toolchain = Some(t);
+            }
+            return Ok(report);
+        };
+        // Host::probe inspects PATH; a configured toolchain must win over whatever colab is on PATH.
+        report.colab = None;
+        report.colab_version = None;
+        report.helper_python = None;
+        report.keyring_ok = false;
+        let host_ready = self.inner.cfg.host == Host::Local
+            || (report.wsl_installed && !report.wsl_distros.is_empty());
+        if !host_ready {
+            self.inner.st().toolchain = Some(configured);
+            return Ok(report);
         }
-        Ok(report)
+        let resolved =
+            match configured.resolve(&self.inner.cfg.host, &self.inner.cfg.base_env, cancel) {
+                Ok(r) => r,
+                Err(e) => {
+                    self.inner.st().toolchain = Some(configured);
+                    return Err(e);
+                }
+            };
+        self.inner.keepalive.ensure();
+        let cli = Cli::new(
+            self.inner.cfg.host.clone(),
+            resolved.colab.clone(),
+            self.inner.cfg.base_env.clone(),
+        );
+        match cli.version(cancel) {
+            Ok(ver) => {
+                let mut keyring_req =
+                    ScriptRequest::new("\"$1\" -c \"import keyring\" >/dev/null 2>&1")
+                        .arg(&resolved.helper_python)
+                        .timeout(Duration::from_secs(30));
+                keyring_req.env = self.inner.cfg.base_env.clone();
+                let keyring_ok = match self.inner.cfg.host.run_quiet(keyring_req, cancel) {
+                    Ok(out) => out.success(),
+                    Err(e) if e.is(ErrorKind::Cancelled) => {
+                        self.inner.st().toolchain = Some(resolved);
+                        return Err(e);
+                    }
+                    Err(_) => false,
+                };
+                report.colab = Some(resolved.colab.clone());
+                report.colab_version = Some(ver);
+                report.helper_python = Some(resolved.helper_python.clone());
+                report.keyring_ok = keyring_ok;
+                self.inner.st().toolchain = Some(resolved);
+                Ok(report)
+            }
+            Err(e) => {
+                let colab = resolved.colab.clone();
+                self.inner.st().toolchain = Some(resolved);
+                // The checklist answers `NotInstalled` by offering to install the CLI. That
+                // leaves a path set in Settings alone, so the offer could never get past this.
+                if e.is(ErrorKind::NotInstalled) {
+                    let what = "nothing runs at this colab path; correct it in Settings, \
+                                or clear it to use the colab on PATH";
+                    return Err(Error::invalid("colab_path", what).with("value", colab));
+                }
+                Err(e)
+            }
+        }
     }
 
     fn install_cli(

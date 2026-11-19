@@ -22,6 +22,9 @@ use crate::error::Error;
 /// Default capacity of [`BalanceHistory`] (one hour at 30 s).
 pub const HISTORY_CAPACITY: usize = 120;
 
+/// A rate (CU/h) at or below this is rounding error, not a runtime burning.
+const NO_RATE: f64 = 1e-9;
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Usage {
     pub balance_cu: f64,
@@ -176,7 +179,10 @@ impl RateAttribution {
     /// sessions that disappeared were estimated at) evenly. Sessions without
     /// an estimate (first reading, no positive increase) share whatever rate
     /// is not yet explained, evenly with the unmanaged runtimes
-    /// (`assignments` beyond `live`).
+    /// (`assignments` beyond `live`). A zero share leaves a session unknown,
+    /// to be worked out again at the next reading: the account rate can lag
+    /// behind a new runtime, and a zero kept for good would hide its spend
+    /// from the cost guard.
     pub fn observe(&mut self, account_rate: f64, assignments: u32, live: &BTreeSet<String>) {
         let rate = account_rate.max(0.0);
         let mut freed = 0.0;
@@ -196,7 +202,7 @@ impl RateAttribution {
         let delta_share = match self.last_rate {
             Some(prev) if !started.is_empty() => {
                 let delta = rate - prev + freed;
-                (delta > 1e-9).then(|| delta / started.len() as f64)
+                (delta > NO_RATE).then(|| delta / started.len() as f64)
             }
             _ => None,
         };
@@ -206,15 +212,18 @@ impl RateAttribution {
         let unknown: Vec<String> = self
             .rates
             .iter()
-            .filter(|(_, r)| r.is_none())
+            // A cache written before zero shares were left unknown can hold one.
+            .filter(|(_, r)| r.is_none_or(|r| r <= NO_RATE))
             .map(|(n, _)| n.clone())
             .collect();
         if !unknown.is_empty() {
             let known: f64 = self.rates.values().flatten().sum();
             let unmanaged = (assignments as usize).saturating_sub(live.len());
             let share = (rate - known).max(0.0) / (unknown.len() + unmanaged) as f64;
-            for name in unknown {
-                self.rates.insert(name, Some(share));
+            if share > NO_RATE {
+                for name in unknown {
+                    self.rates.insert(name, Some(share));
+                }
             }
         }
         self.last_rate = Some(rate);
@@ -423,6 +432,71 @@ mod tests {
         b.observe(5.0, 1, &set(&[]));
         b.observe(5.0, 1, &set(&["late"]));
         assert_eq!(b.rate_of("late"), Some(5.0));
+    }
+
+    #[test]
+    fn a_start_the_rate_lags_behind_stays_unknown_until_its_rate_shows() {
+        let mut a = RateAttribution::default();
+        a.observe(0.0, 0, &set(&[]));
+        a.observe(0.0, 1, &set(&["h"]));
+        assert_eq!(a.rate_of("h"), None);
+        a.observe(0.0, 1, &set(&["h"]));
+        assert_eq!(a.rate_of("h"), None);
+        a.observe(18.3, 1, &set(&["h"]));
+        assert_eq!(a.rate_of("h"), Some(18.3));
+        // Beside a known session it gets the remainder once that shows.
+        a.observe(18.3, 2, &set(&["h", "t"]));
+        assert_eq!(a.rate_of("t"), None);
+        a.observe(20.06, 2, &set(&["h", "t"]));
+        assert!((a.rate_of("t").unwrap() - 1.76).abs() < 1e-9);
+        assert_eq!(a.rate_of("h"), Some(18.3));
+        // On the first reading too.
+        let mut first = RateAttribution::default();
+        first.observe(0.0, 1, &set(&["x"]));
+        assert_eq!(first.rate_of("x"), None);
+        assert!(first.rates().is_empty());
+    }
+
+    #[test]
+    fn a_lagging_start_beside_an_unmanaged_runtime_takes_its_share_at_once() {
+        // An estimate the spend cap can stop on, rather than unknown for as long as it runs.
+        let mut a = RateAttribution::default();
+        a.observe(5.0, 1, &set(&[]));
+        a.observe(5.0, 2, &set(&["m"]));
+        assert_eq!(a.rate_of("m"), Some(2.5));
+    }
+
+    #[test]
+    fn spend_of_a_start_the_rate_lags_behind_counts_from_its_start() {
+        use crate::guard::{Concern, Decision, GuardPolicy, Limit, SpendMeter, evaluate};
+        let policy = GuardPolicy {
+            max_spend_cu: Some(9.0),
+            ..GuardPolicy::unlimited()
+        };
+        let mut a = RateAttribution::default();
+        let mut meter = SpendMeter::new(t(0));
+        a.observe(0.0, 0, &set(&[]));
+        a.observe(0.0, 1, &set(&["h"]));
+        meter.record(t(30), a.rate_of("h"));
+        assert_eq!(
+            evaluate(&policy, t(30), None, &meter),
+            Decision::Warn(vec![Concern::UsageUnknown {
+                limit: Limit::Spend
+            }])
+        );
+        a.observe(18.3, 1, &set(&["h"]));
+        meter.record(t(1800), a.rate_of("h"));
+        assert!((meter.spend().unwrap() - 9.15).abs() < 1e-9);
+        assert!(evaluate(&policy, t(1800), None, &meter).is_stop());
+    }
+
+    #[test]
+    fn a_zero_share_from_an_older_cache_is_worked_out_again() {
+        let mut a: RateAttribution =
+            serde_json::from_value(serde_json::json!({"last_rate": 0.0, "rates": {"h": 0.0}}))
+                .unwrap();
+        a.observe(18.3, 1, &set(&["h"]));
+        assert_eq!(a.rate_of("h"), Some(18.3));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! HTTP access, behind a trait so tests and the mock never touch the network.
 
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{Ipv6Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -175,6 +175,32 @@ pub fn local_port_open(port: u16, timeout: Duration) -> bool {
     TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], port)), timeout).is_ok()
 }
 
+fn addr_bound(addr: SocketAddr) -> bool {
+    match TcpListener::bind(addr) {
+        Ok(listener) => {
+            drop(listener);
+            false
+        }
+        Err(e) => matches!(
+            e.kind(),
+            std::io::ErrorKind::AddrInUse | std::io::ErrorKind::PermissionDenied
+        ),
+    }
+}
+
+/// A forward is opened as `http://localhost:<port>`, and `localhost` can resolve to `[::1]`,
+/// where another program may be listening while `127.0.0.1:<port>` is still free to bind.
+/// A bind also finds a socket that is bound but not accepting. On Windows it does not collide
+/// with a listener on the wildcard address, so the connects stay.
+pub fn local_port_in_use(port: u16, timeout: Duration) -> bool {
+    let v4 = SocketAddr::from(([127, 0, 0, 1], port));
+    let v6 = SocketAddr::from((Ipv6Addr::LOCALHOST, port));
+    addr_bound(v4)
+        || addr_bound(v6)
+        || local_port_open(port, timeout)
+        || TcpStream::connect_timeout(&v6, timeout.min(Duration::from_millis(150))).is_ok()
+}
+
 fn parse_status_line(bytes: &[u8]) -> Result<u16> {
     let line = String::from_utf8_lossy(bytes);
     let first = line.lines().next().unwrap_or_default();
@@ -204,7 +230,6 @@ pub fn encode_query(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::TcpListener;
 
     #[test]
     fn status_line_parsing() {
@@ -246,5 +271,19 @@ mod tests {
                 .unwrap_err()
                 .is(ErrorKind::HttpUnavailable)
         );
+    }
+
+    #[test]
+    fn local_port_in_use_detects_ipv4_and_ipv6_loopback() {
+        let v4 = TcpListener::bind("127.0.0.1:0").unwrap();
+        let v4_port = v4.local_addr().unwrap().port();
+        assert!(local_port_in_use(v4_port, Duration::from_millis(200)));
+        drop(v4);
+
+        if let Ok(v6) = TcpListener::bind("[::1]:0") {
+            let v6_port = v6.local_addr().unwrap().port();
+            assert!(local_port_in_use(v6_port, Duration::from_millis(200)));
+            drop(v6);
+        }
     }
 }

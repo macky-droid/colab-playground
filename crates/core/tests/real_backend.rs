@@ -1082,6 +1082,64 @@ fn keyring_and_cli_api_failures_are_typed() {
     );
 }
 
+/// A usage poll refreshes an expired token over HTTP, so a switch or a removal
+/// can land before it writes the token back.
+#[test]
+fn a_token_refreshed_during_a_switch_or_removal_is_not_written_over_it() {
+    let f = fixture();
+    let alice = f.adopt_alice();
+    f.add_bob();
+    f.b.switch_account(&alice.id, &nc()).unwrap();
+    let path = f.state.join("keyring.json");
+    let keyring =
+        || -> Value { serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap() };
+    let slot = "google-colab-cli\u{0}oauth_token".to_owned();
+    let vault = format!("colab-playground\u{0}account:{}", alice.id.as_str());
+    let fresh = || -> Value { serde_json::from_str(&token("alice")).unwrap() };
+    let expire = |keys: &[&String]| {
+        let mut k = keyring();
+        let mut t = fresh();
+        t["expired"] = json!(true);
+        for key in keys {
+            k[key.as_str()] = json!(t.to_string());
+        }
+        std::fs::write(&path, k.to_string()).unwrap();
+    };
+    let read = |key: &String| -> Option<Value> {
+        keyring()[key.as_str()]
+            .as_str()
+            .map(|s| serde_json::from_str(s).unwrap())
+    };
+    let poll = || {
+        let r = f
+            .helper()
+            .usage_many(std::slice::from_ref(&alice.id), &nc())
+            .unwrap();
+        assert!(r[0].1.is_ok(), "{r:?}");
+    };
+
+    // Nothing lands meanwhile: both copies get the refreshed token.
+    expire(&[&slot, &vault]);
+    poll();
+    assert_eq!(read(&slot), Some(fresh()));
+    assert_eq!(read(&vault), Some(fresh()));
+
+    expire(&[&slot, &vault]);
+    f.knob(
+        "keyring_during_refresh",
+        json!({ slot.clone(): token("bob") }),
+    );
+    poll();
+    assert_eq!(f.slot(), token("bob"), "the switch to bob stands");
+    assert_eq!(read(&vault), Some(fresh()));
+
+    expire(&[&vault]);
+    f.knob("keyring_during_refresh", json!({ vault.clone(): null }));
+    poll();
+    assert_eq!(read(&vault), None, "a removed account is not saved again");
+    assert_eq!(f.slot(), token("bob"));
+}
+
 #[test]
 fn history_redaction_scrubs_only_secret_values() {
     let f = fixture();
@@ -1357,4 +1415,78 @@ fn worker_quant_fitting_matches_the_rust_vectors() {
         .unwrap();
     assert!(out.success(), "{}\n{}", out.stdout, out.stderr);
     assert!(!out.stdout.contains("FAIL"), "{}", out.stdout);
+}
+
+#[test]
+fn probe_uses_configured_colab_path_instead_of_path_binary() {
+    let f = fixture();
+    let expected = f.cfg.toolchain.clone().unwrap();
+    let report = f.b.probe(&nc()).unwrap();
+    assert_eq!(report.colab.as_deref(), Some(expected.colab.as_str()));
+    assert_eq!(report.colab_version.as_deref(), Some("0.8.0-fake"));
+    assert_eq!(
+        report.helper_python.as_deref(),
+        Some(expected.helper_python.as_str())
+    );
+    assert!(report.keyring_ok);
+
+    // macOS rejects nested `#!` scripts, so test `Toolchain::from_colab_path` with the
+    // `#!/bin/sh` + sibling `python` launcher layout produced by `uv` and `pip`.
+    let custom = f.root.join("custom-cli");
+    std::fs::create_dir_all(&custom).unwrap();
+    // `RESOLVE_SCRIPT` resolves symlinks with `readlink -f` (e.g. `/var` -> `/private/var`).
+    let custom = std::fs::canonicalize(&custom).unwrap();
+    let fake = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fake");
+    let custom_py = custom.join("python");
+    install(&fake.join("python_shim.py"), &custom_py, true);
+    install(
+        &fake.join("fake_common.py"),
+        &custom.join("fake_common.py"),
+        false,
+    );
+    let custom_colab = custom.join("colab");
+    std::fs::write(
+        &custom_colab,
+        format!("#!/bin/sh\nexec python3 \"{}\" \"$@\"\n", expected.colab),
+    )
+    .unwrap();
+    std::fs::set_permissions(&custom_colab, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let mut cfg = f.cfg.clone();
+    cfg.local_dir = f.root.join("local-custom");
+    cfg.toolchain = Some(Toolchain::from_colab_path(
+        custom_colab.to_string_lossy().into_owned(),
+    ));
+    let b2 = RealBackend::new(cfg).unwrap();
+    let r2 = b2.probe(&nc()).unwrap();
+    assert_eq!(
+        r2.colab.as_deref(),
+        Some(custom_colab.to_string_lossy().as_ref())
+    );
+    assert_eq!(r2.colab_version.as_deref(), Some("0.8.0-fake"));
+    assert_eq!(
+        r2.helper_python.as_deref(),
+        Some(custom_py.to_string_lossy().as_ref())
+    );
+    assert!(r2.keyring_ok);
+
+    let cancelled = CancelToken::new();
+    cancelled.cancel();
+    assert!(f.b.probe(&cancelled).unwrap_err().is(ErrorKind::Cancelled));
+}
+
+#[test]
+fn probe_blames_the_configured_path_when_nothing_runs_there() {
+    let f = fixture();
+    let mut cfg = f.cfg.clone();
+    cfg.local_dir = f.root.join("local-missing");
+    let mut toolchain = cfg.toolchain.clone().unwrap();
+    toolchain.colab = f.root.join("no-such-colab").to_string_lossy().into_owned();
+    cfg.toolchain = Some(toolchain);
+    let backend = RealBackend::new(cfg).unwrap();
+    // `NotInstalled` would make the checklist offer an install that cannot help.
+    let error = backend.probe(&nc()).unwrap_err();
+    assert!(error.is(ErrorKind::InvalidInput), "{error}");
 }
