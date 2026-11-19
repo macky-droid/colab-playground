@@ -225,6 +225,12 @@ pub enum PluginRunEvent {
         /// Lines.
         lines: Vec<String>,
     },
+    /// The script wrote its log faster than it was read: the part before the next
+    /// [`PluginRunEvent::Log`] is left out.
+    LogSkipped {
+        /// The whole log, a file on the runtime.
+        path: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

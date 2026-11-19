@@ -7,11 +7,14 @@ pub mod error_view;
 pub mod metrics;
 pub mod overlays;
 pub mod pages;
+pub mod parts;
 pub mod progress;
 pub mod provision_form;
 pub mod root;
+pub mod runtime_options;
 pub mod sidebar;
 pub mod titlebar;
+pub mod usage;
 
 use ely_gpui_component::forms::TextInput;
 use gpui::{Div, Entity, InteractiveElement, IntoElement, ParentElement, div};

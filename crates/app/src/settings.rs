@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use colab_playground_core::{Defaults, Toolchain};
+use colab_playground_core::{Defaults, Toolchain, paths::write_atomic};
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// Environment variable that replaces the config directory (tests point it at a tempdir).
@@ -20,47 +20,48 @@ pub const APP_DIR_NAME: &str = "colab-playground";
 pub const SETTINGS_FILE: &str = "settings.json";
 pub const CORRUPT_SUFFIX: &str = ".corrupt";
 
-/// The language the user picked; `System` resolves through the OS locale.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum LanguagePref {
-    #[default]
-    #[serde(rename = "system")]
-    System,
-    #[serde(rename = "en-US")]
-    EnUs,
-    #[serde(rename = "zh-CN")]
-    ZhCn,
-    #[serde(rename = "zh-TW")]
-    ZhTw,
-    #[serde(rename = "ja-JP")]
-    JaJp,
-    #[serde(rename = "ko-KR")]
-    KoKr,
+/// Declares [`LanguagePref`] from one list, so the settings file (serde) and the select read
+/// the same value for each choice.
+macro_rules! language_prefs {
+    ($first:ident => $first_value:literal, $($variant:ident => $value:literal),+ $(,)?) => {
+        /// The language the user picked; `System` resolves through the OS locale.
+        #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        pub enum LanguagePref {
+            #[default]
+            #[serde(rename = $first_value)]
+            $first,
+            $(
+                #[serde(rename = $value)]
+                $variant,
+            )+
+        }
+
+        impl LanguagePref {
+            /// Every choice, in the order the settings page offers them.
+            pub const ALL: [LanguagePref; [$first_value, $($value),+].len()] =
+                [LanguagePref::$first, $(LanguagePref::$variant),+];
+
+            /// The stable value used in the settings file and as the select's value.
+            pub fn value(self) -> &'static str {
+                match self {
+                    LanguagePref::$first => $first_value,
+                    $(LanguagePref::$variant => $value,)+
+                }
+            }
+        }
+    };
+}
+
+language_prefs! {
+    System => "system",
+    EnUs => "en-US",
+    ZhCn => "zh-CN",
+    ZhTw => "zh-TW",
+    JaJp => "ja-JP",
+    KoKr => "ko-KR",
 }
 
 impl LanguagePref {
-    /// Every choice, in the order the settings page offers them.
-    pub const ALL: [LanguagePref; 6] = [
-        LanguagePref::System,
-        LanguagePref::EnUs,
-        LanguagePref::ZhCn,
-        LanguagePref::ZhTw,
-        LanguagePref::JaJp,
-        LanguagePref::KoKr,
-    ];
-
-    /// The stable value used in the settings file and as the select's value.
-    pub fn value(self) -> &'static str {
-        match self {
-            LanguagePref::System => "system",
-            LanguagePref::EnUs => "en-US",
-            LanguagePref::ZhCn => "zh-CN",
-            LanguagePref::ZhTw => "zh-TW",
-            LanguagePref::JaJp => "ja-JP",
-            LanguagePref::KoKr => "ko-KR",
-        }
-    }
-
     pub fn from_value(value: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|pref| pref.value() == value)
     }
@@ -101,7 +102,7 @@ pub struct Settings {
         skip_serializing_if = "Option::is_none"
     )]
     pub colab_path: Option<String>,
-    /// Path of the CLI's Python interpreter (needed together with `colab_path`).
+    /// Path of the CLI's Python interpreter; used only together with `colab_path`.
     #[serde(
         default,
         deserialize_with = "lenient",
@@ -238,7 +239,6 @@ impl Settings {
     /// interpreter path is optional; without it core derives the interpreter from `colab`'s
     /// shebang (`Toolchain::from_colab_path`). An interpreter path alone is ignored.
     pub fn host_setup(&self) -> crate::backend::HostSetup {
-        // The interpreter may be left out: core then derives it from `colab`'s shebang.
         let toolchain = match (&self.colab_path, &self.colab_python) {
             (Some(colab), Some(python)) => Some(Toolchain {
                 colab: colab.clone(),
@@ -377,16 +377,13 @@ impl SettingsStore {
         })
     }
 
-    /// Writes the settings atomically (temp file, then rename). A store without a directory
-    /// writes nothing. Blocking: call it from a background task.
+    /// Writes the settings atomically. A store without a directory writes nothing. Blocking:
+    /// call it from a background task.
     pub fn save(&self, settings: &Settings) -> io::Result<()> {
-        let (Some(dir), Some(file)) = (self.dir(), self.file()) else {
+        let Some(file) = self.file() else {
             return Ok(());
         };
-        fs::create_dir_all(dir)?;
-        let temp = dir.join(format!("{SETTINGS_FILE}.tmp"));
-        fs::write(&temp, settings.to_json())?;
-        fs::rename(&temp, &file)?;
+        write_atomic(&file, settings.to_json().as_bytes())?;
         log::info!("settings: saved {}", file.display());
         Ok(())
     }

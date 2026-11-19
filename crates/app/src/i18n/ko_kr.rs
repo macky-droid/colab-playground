@@ -30,11 +30,6 @@ pub(super) const MESSAGES: Messages = &[
         PLUGINS_SUBTITLE,
         "Colab 런타임에서 실행되는 스크립트(예: llama.cpp 서버).",
     ),
-    (PLUGINS_EMPTY_TITLE, "플러그인이 아직 없습니다"),
-    (
-        PLUGINS_EMPTY_BODY,
-        "기본 제공 플러그인과 설치한 플러그인이 여기에 표시됩니다.",
-    ),
     (ACCOUNTS_SUBTITLE, "Colab CLI가 사용하는 Google 계정."),
     (ACCOUNTS_EMPTY_TITLE, "계정이 아직 없습니다"),
     (
@@ -105,7 +100,6 @@ pub(super) const MESSAGES: Messages = &[
     (ACTION_CANCEL, "취소"),
     (ACTION_CLOSE, "닫기"),
     (ACTION_RETRY, "다시 시도"),
-    (ACTION_REFRESH, "새로 고침"),
     (ACTION_CHECK_AGAIN, "다시 확인"),
     (ACTION_DISMISS, "닫기"),
     (ACTION_INSTALL_CLI, "Colab CLI 설치"),
@@ -416,7 +410,7 @@ pub(super) const MESSAGES: Messages = &[
     (HOST_PATH_PLACEHOLDER, "자동으로 찾음"),
     (HOST_APPLY, "적용"),
     (
-        HOST_BOTH_NEEDED,
+        HOST_INTERPRETER_ALONE,
         "colab 경로도 설정하거나 인터프리터를 비워 두십시오.",
     ),
     (HOST_MOCK_NOTE, "데모 데이터는 이 설정을 사용하지 않습니다."),
@@ -528,12 +522,6 @@ pub(super) const MESSAGES: Messages = &[
     (NS_TRY_AGAIN, "다시 시도하십시오."),
     (NS_RETRY_LATER, "잠시 후 다시 시도하십시오."),
     (
-        NS_SWITCH_ACCOUNT,
-        "해당 항목을 소유한 계정으로 전환하십시오.",
-    ),
-    (NS_ADD_ACCOUNT, "먼저 계정을 추가하거나 저장하십시오."),
-    (NS_SIGN_IN_AGAIN, "다시 로그인하십시오."),
-    (
         NS_UNLOCK_KEYRING,
         "시스템 키링 잠금을 해제하거나 키링을 설정한 다음 다시 확인하십시오.",
     ),
@@ -544,12 +532,10 @@ pub(super) const MESSAGES: Messages = &[
         NS_CLOSE_CONNECTION,
         "이 런타임에 대한 다른 연결을 닫으십시오.",
     ),
-    (NS_INSTALL_CLI, "Colab CLI를 설치하십시오."),
     (NS_INSTALL_WSL, "WSL과 Linux 배포판을 설치하십시오."),
     (NS_UPDATE_APP, "Colab Playground를 업데이트하십시오."),
     (NS_CHECK_INPUT, "입력한 내용을 확인하십시오."),
     (NS_CHECK_NETWORK, "네트워크 연결을 확인하십시오."),
-    (NS_REFRESH, "새로 고쳐 현재 상태를 확인하십시오."),
     (
         NS_REVIEW_RUNTIMES,
         "런타임 목록을 확인하십시오. 아직 과금 중인 런타임이 있을 수 있습니다.",
@@ -753,7 +739,6 @@ pub(super) const MESSAGES: Messages = &[
         PROV_READY_BELOW,
         "선택한 대로 최솟값보다 낮은 하드웨어를 유지했습니다: {hardware}",
     ),
-    (PROV_FAILED, "중단했습니다: {why}"),
     // Port forwarding
     (FORWARD_TITLE, "포트 포워딩"),
     (
@@ -930,6 +915,10 @@ pub(super) const MESSAGES: Messages = &[
     (RUN_PROVISIONING, "런타임 할당"),
     (RUN_STAGES, "진행 상황"),
     (RUN_LOG, "로그"),
+    (
+        RUN_LOG_SKIPPED,
+        "로그의 일부는 여기에 표시되지 않습니다. 스크립트가 앱이 읽는 속도보다 빠르게 기록했기 때문입니다. 전체 로그는 런타임의 {path}에 있습니다.",
+    ),
     (RUN_OUTPUTS, "세부 정보"),
     (RUN_READY, "준비되었습니다. 주소는 아래에 있습니다."),
     (RUN_FAILED, "배포하지 못했습니다"),

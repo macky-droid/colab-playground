@@ -1,9 +1,9 @@
 //! Compute-unit usage: polling at core's cadence, the cache and what the UI shows.
 //!
-//! A foreground loop wakes every [`POLL_CHECK`] and, when idle, asks the backend on the
-//! background executor whether a refresh is due (`usage_poll_due`, whose cadence comes from
-//! `Defaults`) and refreshes if so. The backend's own clock (`now()`) comes back with every
-//! result, so ages are measured on the same clock as `fetched_at`.
+//! A foreground loop wakes every [`POLL_CHECK`] and, when idle, asks the backend whether a
+//! refresh is due (`usage_poll_due`, whose cadence comes from `Defaults`; no I/O) and, if so,
+//! refreshes on the background executor. The backend's own clock (`now()`) comes back with
+//! every result, so ages are measured on the same clock as `fetched_at`.
 
 use std::time::{Duration, SystemTime};
 
@@ -218,9 +218,6 @@ impl AppState {
             Op::Usage,
             cx,
             move |backend, cancel| {
-                if !(manual || backend.usage_poll_due()) {
-                    return Ok((None, None, backend.now()));
-                }
                 if guard {
                     match backend.guard_poll(cancel) {
                         Ok(report) => {
@@ -236,26 +233,28 @@ impl AppState {
                                 .map(|u| u.account.clone())
                                 .filter(|id| !covered.contains(id))
                                 .collect();
+                            // Asked again on purpose: the round just fetched the accounts
+                            // with sessions, so this is whether one of the others is due.
                             let views =
                                 if !uncovered.is_empty() && (manual || backend.usage_poll_due()) {
                                     backend.refresh_usage(&uncovered, cancel)?
                                 } else {
                                     report.usage.clone()
                                 };
-                            Ok((Some(views), Some(Ok(report)), backend.now()))
+                            Ok((views, Some(Ok(report)), backend.now()))
                         }
                         Err(error) => {
                             let views = backend.refresh_usage(&[], cancel)?;
-                            Ok((Some(views), Some(Err(error)), backend.now()))
+                            Ok((views, Some(Err(error)), backend.now()))
                         }
                     }
                 } else {
                     let views = backend.refresh_usage(&[], cancel)?;
-                    Ok((Some(views), None, backend.now()))
+                    Ok((views, None, backend.now()))
                 }
             },
             move |state, result, cx| match result {
-                Ok((Some(views), report, now)) => {
+                Ok((views, report, now)) => {
                     state.usage.views = views;
                     state.usage.now = Some(now);
                     state.usage.error = None;
@@ -275,7 +274,6 @@ impl AppState {
                     }
                     cx.notify();
                 }
-                Ok((None, _, now)) => state.usage.now = Some(now),
                 Err(error) if error.is(ErrorKind::Busy) && !manual => {
                     log::info!("usage: the account slot is busy; trying again later");
                 }

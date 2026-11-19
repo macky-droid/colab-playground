@@ -8,7 +8,6 @@ use std::rc::Rc;
 use colab_playground_core::{
     plugins::{InputKind, InputSpec, InputValue, PluginInfo},
     quant::{self, FitInput, GgufListing},
-    sessions::Accelerator,
 };
 use ely_gpui_component::{
     buttons::{Button, ButtonVariant},
@@ -28,30 +27,13 @@ use crate::{
     format,
     i18n::{keys, tr, tr_args},
     state::{AppState, Load, RunForm, TargetLost},
-    ui::{Inputs, error_view, pages::defaults::MIB_PER_GIB, provision_form, tagged},
+    ui::{Inputs, error_view, parts::field, provision_form, runtime_options::MIB_PER_GIB, tagged},
 };
 
 pub const RUN_START: &str = "run-start";
 /// Selector of a Hugging Face search result: `hf-result <repo>`.
 pub fn hf_result_selector(repo: &str) -> String {
     format!("hf-result {repo}")
-}
-
-/// GPU memory sizes (GiB) Colab hands out for an accelerator, for the quantisation preview
-/// when no minimum is set (an A100 is 40 or 80 GB).
-const VRAM_CHOICES_GIB: &[(Accelerator, &[u32])] = &[
-    (Accelerator::T4, &[15]),
-    (Accelerator::L4, &[22]),
-    (Accelerator::A100, &[40, 80]),
-    (Accelerator::H100, &[80]),
-    (Accelerator::G4, &[96]),
-];
-
-fn vram_choices(accelerator: Accelerator) -> &'static [u32] {
-    VRAM_CHOICES_GIB
-        .iter()
-        .find(|(choice, _)| *choice == accelerator)
-        .map_or(&[], |(_, sizes)| sizes)
 }
 
 fn label(input: &InputSpec, tag: &str) -> String {
@@ -229,28 +211,22 @@ fn input_row(
                 .into_any_element()
         }
     };
-    let mut row = div()
-        .flex()
-        .flex_col()
-        .gap_1()
-        .child(
-            div()
-                .text_size(theme.text_size(TextSize::Sm))
-                .font_weight(FontWeight::MEDIUM)
-                .child(title),
-        )
-        .child(tagged(format!("run-input {}", input.id), control))
-        .children(
-            input
-                .help
-                .get(tag)
-                .map(|help| Caption::new(help.to_owned())),
-        );
+    let mut row = field(
+        title,
+        tagged(format!("run-input {}", input.id), control),
+        cx,
+    )
+    .children(
+        input
+            .help
+            .get(tag)
+            .map(|help| Caption::new(help.to_owned())),
+    );
     if input.kind == InputKind::Secret {
         row = row.child(Caption::new(tr(cx, keys::RUN_SECRET_NOTE)));
     }
     if input.kind == InputKind::HfModel {
-        row = row.child(hf_lookup(input, form, info, state, handle, inputs, cx));
+        row = row.child(hf_lookup(input, form, info, handle, inputs, cx));
     }
     row.into_any_element()
 }
@@ -260,7 +236,6 @@ fn hf_lookup(
     input: &InputSpec,
     form: &RunForm,
     info: &PluginInfo,
-    _state: &AppState,
     handle: &Entity<AppState>,
     inputs: &Inputs,
     cx: &App,
@@ -343,7 +318,7 @@ fn hf_lookup(
         }
         Load::Ready(listing) => {
             let ctx = inputs
-                .field("ctx")
+                .field(quant::INPUT_CTX)
                 .and_then(|field| field.read(cx).text().trim().parse::<f64>().ok());
             lookup = lookup.child(quant_preview(listing, form, info, ctx, cx))
         }
@@ -364,14 +339,16 @@ fn quant_preview(
     let theme = cx.theme();
     let sizes: Vec<u32> = match form.provision.min_vram_mib {
         Some(mib) => vec![mib],
-        None => vram_choices(form.provision.accelerator)
+        None => quant::vram_choices_gib(form.provision.accelerator)
             .iter()
             .map(|gib| gib * MIB_PER_GIB)
             .collect(),
     };
     let ctx = ctx.filter(|n| *n > 0.0).map_or(0, |n| n as u32);
-    let fixed = match form.values.get("quant") {
-        Some(InputValue::Text(q)) if q != "auto" && info.manifest.input("quant").is_some() => {
+    let fixed = match form.values.get(quant::INPUT_QUANT) {
+        Some(InputValue::Text(q))
+            if q != quant::QUANT_AUTO && info.manifest.input(quant::INPUT_QUANT).is_some() =>
+        {
             Some(q.clone())
         }
         _ => None,
@@ -491,10 +468,7 @@ fn target_card(
     if form.existing.is_none()
         && let Some(limit) = state.session_limit_reached()
     {
-        let email = limit
-            .email
-            .clone()
-            .unwrap_or_else(|| tr(cx, keys::ACCOUNTS_NO_EMAIL).to_string());
+        let email = format::email(cx, limit.email.as_deref());
         let settings = handle.clone();
         card = card.child(tagged(
             "run-limit",

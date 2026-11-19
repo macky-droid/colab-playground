@@ -2377,45 +2377,14 @@ impl RealBackend {
                 &nc,
             );
         };
-        let mut offset = 0u64;
-        let mut last: Option<RunStatus> = None;
-        let mut transient = 0u32;
-        let mut first = true;
-        loop {
-            let wait = if first {
-                Duration::from_secs(3).min(self.inner.cfg.run_poll_interval)
-            } else {
-                self.inner.cfg.run_poll_interval
-            };
-            first = false;
-            if self.inner.cfg.clock.sleep(wait, cancel).is_err() {
-                kill(&cli);
-                return Err(Error::cancelled());
-            }
+        let poll_at = |offset: u64| -> Result<vm::RunPoll> {
             let env = vec![
                 (vm::ENV_RUN_ID.into(), run_id.clone()),
                 (vm::ENV_LOG_OFFSET.into(), offset.to_string()),
             ];
-            let poll = match cli
+            let poll = cli
                 .exec_json(&state, session, &env, &vm::plugin_poll_snippet(), 60, &nc)
-                .and_then(|v| vm::parse_poll(&v))
-            {
-                Ok(p) => {
-                    transient = 0;
-                    p
-                }
-                Err(e)
-                    if matches!(
-                        e.kind,
-                        ErrorKind::ConnectionLost | ErrorKind::ExecTimeout | ErrorKind::Parse
-                    ) && transient < 5 =>
-                {
-                    transient += 1;
-                    continue;
-                }
-                Err(e) => return Err(e),
-            };
-            offset = poll.offset;
+                .and_then(|v| vm::parse_poll(&v))?;
             // The poll's printed output (log chunk, status) is recorded in the
             // CLI's history too. The VM side normally scrubs it already; if a
             // secret still came through, scrub the history again now.
@@ -2427,6 +2396,11 @@ impl RealBackend {
             if contains_secret(&poll.log, secrets) || contains_secret(&status_text, secrets) {
                 self.scrub_history(session, secrets, events);
             }
+            if poll.skipped > 0 {
+                let _ = events.send(PluginRunEvent::LogSkipped {
+                    path: format!("{}/run.log", vm::run_dir(&run_id)),
+                });
+            }
             if !poll.log.is_empty() {
                 let lines: Vec<String> = redact(&poll.log, secrets)
                     .lines()
@@ -2434,6 +2408,75 @@ impl RealBackend {
                     .collect();
                 let _ = events.send(PluginRunEvent::Log { lines });
             }
+            Ok(poll)
+        };
+        // The run is over, so what the script wrote last (after a failure, the error) is shown
+        // before the result. A script that reported its failure and is still alive may write
+        // more while it exits, so its log is read once more even when all of it was read.
+        // Best effort: the result does not depend on it, except that a run cancelled meanwhile
+        // ends as cancelled, as it does between two polls.
+        let show_rest_of_log = |mut poll: vm::RunPoll, mut exiting: bool| -> Result<()> {
+            for _ in 0..vm::LOG_BACKLOG_READS {
+                if poll.offset >= poll.size {
+                    if !(exiting && poll.alive) {
+                        break;
+                    }
+                    exiting = false;
+                }
+                if cancel.is_cancelled() {
+                    kill(&cli);
+                    return Err(Error::cancelled());
+                }
+                let Ok(next) = poll_at(poll.offset) else {
+                    break;
+                };
+                poll = next;
+            }
+            Ok(())
+        };
+        let mut offset = 0u64;
+        let mut last: Option<RunStatus> = None;
+        let mut transient = 0u32;
+        let mut first = true;
+        let mut catching_up = 0u32;
+        loop {
+            let wait = if catching_up > 0 {
+                Duration::ZERO
+            } else if first {
+                Duration::from_secs(3).min(self.inner.cfg.run_poll_interval)
+            } else {
+                self.inner.cfg.run_poll_interval
+            };
+            first = false;
+            if self.inner.cfg.clock.sleep(wait, cancel).is_err() {
+                kill(&cli);
+                return Err(Error::cancelled());
+            }
+            let poll = match poll_at(offset) {
+                Ok(p) => {
+                    transient = 0;
+                    p
+                }
+                Err(e)
+                    if matches!(
+                        e.kind,
+                        ErrorKind::ConnectionLost | ErrorKind::ExecTimeout | ErrorKind::Parse
+                    ) && transient < 5 =>
+                {
+                    transient += 1;
+                    catching_up = 0;
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
+            offset = poll.offset;
+            // More log than one poll returns is read at once, a bounded number of times, so
+            // that a script which never stops writing is still polled at the usual pace.
+            catching_up = if poll.offset < poll.size && catching_up < vm::LOG_BACKLOG_READS {
+                catching_up + 1
+            } else {
+                0
+            };
             if let Some(mut s) = poll.status.clone() {
                 if let Some(m) = s.message.as_mut() {
                     *m = redact(m, secrets);
@@ -2450,6 +2493,7 @@ impl RealBackend {
                 }
                 match s.state {
                     RunState::Ready => {
+                        show_rest_of_log(poll, false)?;
                         return Ok(PluginRunOutcome {
                             session: session.to_owned(),
                             account: account.clone(),
@@ -2459,6 +2503,7 @@ impl RealBackend {
                         });
                     }
                     RunState::Failed => {
+                        show_rest_of_log(poll, true)?;
                         return Err(Error::new(ErrorKind::PluginRunFailed)
                             .with("stage", s.stage.clone().unwrap_or_default())
                             .with("message", s.message.clone().unwrap_or_default()));
@@ -2467,6 +2512,7 @@ impl RealBackend {
                 }
             }
             if !poll.alive {
+                show_rest_of_log(poll, false)?;
                 let stage = last
                     .as_ref()
                     .and_then(|s| s.stage.clone())

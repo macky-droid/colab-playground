@@ -6,7 +6,7 @@ use colab_playground_core::Error;
 use ely_gpui_component::{
     buttons::Button, feedback::Alert, primitives::Severity, theme::ControlSize,
 };
-use gpui::{AnyElement, App, Entity, IntoElement, SharedString, Window};
+use gpui::{AnyElement, App, Context, Entity, IntoElement, SharedString, Window};
 
 use crate::{
     errors::{ErrorAction, explain},
@@ -18,6 +18,12 @@ use crate::{
 };
 
 pub type Retry = Rc<dyn Fn(&mut Window, &mut App)>;
+
+/// A retry that runs `again` on the app state.
+pub fn retry(handle: &Entity<AppState>, again: fn(&mut AppState, &mut Context<AppState>)) -> Retry {
+    let handle = handle.clone();
+    Rc::new(move |_, cx| handle.update(cx, again))
+}
 
 pub fn perform(
     action: ErrorAction,
