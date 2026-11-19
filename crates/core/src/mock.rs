@@ -449,6 +449,17 @@ impl World {
         }
     }
 
+    /// Names a new session must not get: those of the runtimes and of every recorded session.
+    fn taken_names(&self) -> Vec<String> {
+        let mut taken: Vec<String> = self
+            .runtimes
+            .iter()
+            .filter_map(|r| r.name.clone())
+            .collect();
+        taken.extend(self.ledger.names());
+        taken
+    }
+
     fn runtime(&self, account: &AccountId, name: &str) -> Option<&MRuntime> {
         self.runtimes.iter().find(|r| r.is(account, name))
     }
@@ -1424,8 +1435,7 @@ impl Backend for MockBackend {
 
     fn new_session_name(&self, prefix: Option<&str>) -> String {
         let w = self.w();
-        let mut taken: Vec<String> = w.runtimes.iter().filter_map(|r| r.name.clone()).collect();
-        taken.extend(w.ledger.entries().iter().map(|e| e.name.clone()));
+        let taken = w.taken_names();
         let p = prefix
             .map(str::to_owned)
             .unwrap_or_else(|| accelerator_prefix(w.defaults.accelerator));
@@ -1711,7 +1721,7 @@ impl Backend for MockBackend {
             .into_iter()
             .find(|p| p.manifest.id == plugin)
             .ok_or_else(|| Error::new(ErrorKind::PluginNotFound).with("plugin", plugin))?;
-        let taken: Vec<String> = w.runtimes.iter().filter_map(|r| r.name.clone()).collect();
+        let taken = w.taken_names();
         Ok(run_template(&info, &w.defaults, &taken))
     }
 

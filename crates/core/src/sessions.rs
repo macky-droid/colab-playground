@@ -289,6 +289,11 @@ impl Ledger {
         &self.entries
     }
 
+    /// The name of every entry, ended ones included.
+    pub fn names(&self) -> Vec<String> {
+        self.entries.iter().map(|e| e.name.clone()).collect()
+    }
+
     /// Every live (not stopped) entry, oldest first.
     pub fn all_live(&self) -> impl DoubleEndedIterator<Item = &TrackedSession> {
         self.entries.iter().filter(|e| e.stopped.is_none())

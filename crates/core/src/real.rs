@@ -1567,7 +1567,7 @@ impl Backend for RealBackend {
 
     fn new_session_name(&self, prefix: Option<&str>) -> String {
         let st = self.inner.st();
-        let taken: Vec<String> = st.ledger.entries().iter().map(|e| e.name.clone()).collect();
+        let taken = st.ledger.names();
         let p = prefix
             .map(str::to_owned)
             .unwrap_or_else(|| accelerator_prefix(st.defaults.accelerator));
@@ -1849,7 +1849,7 @@ impl Backend for RealBackend {
             .into_iter()
             .find(|p| p.manifest.id == plugin)
             .ok_or_else(|| Error::new(ErrorKind::PluginNotFound).with("plugin", plugin))?;
-        let taken: Vec<String> = st.ledger.entries().iter().map(|e| e.name.clone()).collect();
+        let taken = st.ledger.names();
         Ok(run_template(&info, &st.defaults, &taken))
     }
 
@@ -1964,26 +1964,18 @@ impl Backend for RealBackend {
         let result = self.run_on(
             &plugin, &account, &session, env, &secrets, &endpoints, &events, cancel,
         );
-        match &result {
-            Err(e) if e.kind == ErrorKind::Cancelled && provisioned => {
-                let _ = self.inner.stop(
-                    &target(&self.inner),
-                    &StopOptions {
-                        reason: StopReason::Provision,
-                    },
-                    &CancelToken::new(),
-                );
-            }
-            Err(e) if e.kind != ErrorKind::Cancelled && provisioned && spec.stop_on_failure => {
-                let _ = self.inner.stop(
-                    &target(&self.inner),
-                    &StopOptions {
-                        reason: StopReason::Provision,
-                    },
-                    &CancelToken::new(),
-                );
-            }
-            _ => {}
+        // A cancelled run always gives back the runtime it provisioned.
+        if let Err(e) = &result
+            && provisioned
+            && (e.kind == ErrorKind::Cancelled || spec.stop_on_failure)
+        {
+            let _ = self.inner.stop(
+                &target(&self.inner),
+                &StopOptions {
+                    reason: StopReason::Provision,
+                },
+                &CancelToken::new(),
+            );
         }
         result
     }
