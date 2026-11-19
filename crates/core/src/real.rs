@@ -1299,7 +1299,15 @@ impl Backend for RealBackend {
                 Ok(report)
             }
             Err(e) => {
+                let colab = resolved.colab.clone();
                 self.inner.st().toolchain = Some(resolved);
+                // The checklist answers `NotInstalled` by offering to install the CLI. That
+                // leaves a path set in Settings alone, so the offer could never get past this.
+                if e.is(ErrorKind::NotInstalled) {
+                    let what = "nothing runs at this colab path; correct it in Settings, \
+                                or clear it to use the colab on PATH";
+                    return Err(Error::invalid("colab_path", what).with("value", colab));
+                }
                 Err(e)
             }
         }

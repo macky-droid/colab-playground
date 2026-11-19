@@ -1418,3 +1418,17 @@ fn probe_uses_configured_colab_path_instead_of_path_binary() {
     cancelled.cancel();
     assert!(f.b.probe(&cancelled).unwrap_err().is(ErrorKind::Cancelled));
 }
+
+#[test]
+fn probe_blames_the_configured_path_when_nothing_runs_there() {
+    let f = fixture();
+    let mut cfg = f.cfg.clone();
+    cfg.local_dir = f.root.join("local-missing");
+    let mut toolchain = cfg.toolchain.clone().unwrap();
+    toolchain.colab = f.root.join("no-such-colab").to_string_lossy().into_owned();
+    cfg.toolchain = Some(toolchain);
+    let backend = RealBackend::new(cfg).unwrap();
+    // `NotInstalled` would make the checklist offer an install that cannot help.
+    let error = backend.probe(&nc()).unwrap_err();
+    assert!(error.is(ErrorKind::InvalidInput), "{error}");
+}
