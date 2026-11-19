@@ -255,22 +255,6 @@ impl TrackedSession {
     }
 }
 
-/// A session as shown in the UI: server view joined with the ledger.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Session {
-    pub server: ServerSession,
-    /// Owning account (the active one for listed sessions).
-    pub account: Option<AccountId>,
-    pub tracked: Option<TrackedSession>,
-}
-
-impl Session {
-    /// Display name (`?` for orphans).
-    pub fn display_name(&self) -> &str {
-        self.server.name.as_deref().unwrap_or("?")
-    }
-}
-
 /// Persistent list of tracked sessions (`<data>/ledger.json`).
 #[derive(Debug)]
 pub struct Ledger {

@@ -101,12 +101,6 @@ impl HfClient {
         }
     }
 
-    /// Overrides the base URL (tests).
-    pub fn with_base(mut self, base: impl Into<String>) -> Self {
-        self.base = base.into();
-        self
-    }
-
     fn get(&self, url: &str) -> Result<Vec<u8>> {
         let auth = self.token.as_ref().map(|t| format!("Bearer {t}"));
         let mut headers = vec![("Accept", "application/json")];

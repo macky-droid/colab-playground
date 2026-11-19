@@ -178,12 +178,6 @@ pub enum Decision {
     Stop(Concern),
 }
 
-impl Decision {
-    pub fn is_stop(&self) -> bool {
-        matches!(self, Decision::Stop(_))
-    }
-}
-
 /// Pure: depends only on its arguments.
 pub fn evaluate(
     policy: &GuardPolicy,
@@ -265,16 +259,6 @@ pub fn evaluate(
     }
 }
 
-/// Seconds until `max_runtime` is reached (`None` without a runtime limit).
-pub fn time_to_auto_stop(
-    policy: &GuardPolicy,
-    now: SystemTime,
-    started_at: SystemTime,
-) -> Option<Duration> {
-    let deadline = started_at + policy.max_runtime?;
-    Some(deadline.duration_since(now).unwrap_or_default())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,8 +311,14 @@ mod tests {
             )),
             d => panic!("{d:?}"),
         }
-        assert!(evaluate(&p, t0() + mins(100), None, &m).is_stop());
-        assert!(evaluate(&p, t0() + mins(500), None, &m).is_stop());
+        assert!(matches!(
+            evaluate(&p, t0() + mins(100), None, &m),
+            Decision::Stop(_)
+        ));
+        assert!(matches!(
+            evaluate(&p, t0() + mins(500), None, &m),
+            Decision::Stop(_)
+        ));
     }
 
     #[test]
@@ -350,7 +340,10 @@ mod tests {
         ));
         // 2 CU more reaches the cap.
         m.record(t0() + mins(120), Some(5.0));
-        assert!(evaluate(&p, t0() + mins(120), None, &m).is_stop());
+        assert!(matches!(
+            evaluate(&p, t0() + mins(120), None, &m),
+            Decision::Stop(_)
+        ));
     }
 
     #[test]
@@ -371,7 +364,10 @@ mod tests {
         // The gap stays open: the first real reading charges the whole hour.
         m.record(t0() + mins(60), Some(2.0));
         assert!((m.spend_cu - 2.0).abs() < 1e-9);
-        assert!(evaluate(&p, t0() + mins(60), None, &m).is_stop());
+        assert!(matches!(
+            evaluate(&p, t0() + mins(60), None, &m),
+            Decision::Stop(_)
+        ));
     }
 
     #[test]
@@ -408,10 +404,16 @@ mod tests {
             evaluate(&p, now, Some(&sample(now, 12.5, 1.0)), &m),
             Decision::Warn(_)
         ));
-        assert!(evaluate(&p, now, Some(&sample(now, 10.0, 1.0)), &m).is_stop());
+        assert!(matches!(
+            evaluate(&p, now, Some(&sample(now, 10.0, 1.0)), &m),
+            Decision::Stop(_)
+        ));
         // 4 minutes old at 60 CU/h: 13 - 4 = 9 projected -> stop.
         let older = sample(now - mins(4), 13.0, 60.0);
-        assert!(evaluate(&p, now, Some(&older), &m).is_stop());
+        assert!(matches!(
+            evaluate(&p, now, Some(&older), &m),
+            Decision::Stop(_)
+        ));
     }
 
     #[test]
@@ -456,19 +458,5 @@ mod tests {
                 ..
             })
         ));
-    }
-
-    #[test]
-    fn auto_stop_countdown() {
-        let p = runtime_only(60);
-        assert_eq!(time_to_auto_stop(&p, t0() + mins(15), t0()), Some(mins(45)));
-        assert_eq!(
-            time_to_auto_stop(&p, t0() + mins(75), t0()),
-            Some(Duration::ZERO)
-        );
-        assert_eq!(
-            time_to_auto_stop(&GuardPolicy::unlimited(), t0(), t0()),
-            None
-        );
     }
 }
