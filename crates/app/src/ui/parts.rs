@@ -45,12 +45,10 @@ impl Layer {
         }
     }
 
-    /// The button that closes the layer without doing anything.
     pub fn cancel_button(self, label: SharedString, handle: Entity<AppState>) -> Div {
         self.cancel_button_when(label, handle, true)
     }
 
-    /// [`Self::cancel_button`], disabled while `enabled` is false.
     pub fn cancel_button_when(
         self,
         label: SharedString,
@@ -68,7 +66,6 @@ impl Layer {
     }
 }
 
-/// A spinner and what the app is doing.
 pub fn busy_line(id: impl Into<ElementId>, text: SharedString) -> Div {
     div()
         .flex()
@@ -78,7 +75,6 @@ pub fn busy_line(id: impl Into<ElementId>, text: SharedString) -> Div {
         .child(Caption::new(text))
 }
 
-/// The label of a form field.
 pub fn field_label(label: impl Into<SharedString>, cx: &App) -> Div {
     div()
         .text_size(cx.theme().text_size(TextSize::Sm))
@@ -86,7 +82,6 @@ pub fn field_label(label: impl Into<SharedString>, cx: &App) -> Div {
         .child(label.into())
 }
 
-/// A label over its control.
 pub fn field(label: impl Into<SharedString>, control: impl IntoElement, cx: &App) -> Div {
     div()
         .flex()
@@ -96,7 +91,7 @@ pub fn field(label: impl Into<SharedString>, control: impl IntoElement, cx: &App
         .child(control)
 }
 
-/// A caption over the value it names. The caller sets the width and the gap.
+/// Has no width and no gap: the views that share it differ in both.
 pub fn captioned(label: SharedString, value: impl IntoElement) -> Div {
     div()
         .flex()
@@ -105,7 +100,6 @@ pub fn captioned(label: SharedString, value: impl IntoElement) -> Div {
         .child(value)
 }
 
-/// A value that stands out, at `size`.
 pub fn figure(value: SharedString, size: TextSize, cx: &App) -> Div {
     div()
         .text_size(cx.theme().text_size(size))
@@ -113,7 +107,6 @@ pub fn figure(value: SharedString, size: TextSize, cx: &App) -> Div {
         .child(value)
 }
 
-/// The icon beside a step that says how far it is.
 pub fn step_icon(icon: IconName, color: Hsla) -> AnyElement {
     Icon::new(icon)
         .size(IconSize::Sm)
@@ -121,13 +114,10 @@ pub fn step_icon(icon: IconName, color: Hsla) -> AnyElement {
         .into_any_element()
 }
 
-/// The spinner beside a step that is under way.
 pub fn step_spinner(id: impl Into<ElementId>) -> AnyElement {
     Spinner::new(id).size(IconSize::Sm).into_any_element()
 }
 
-/// The button that cancels work under way. While the cancel itself is under way
-/// (`cancelling`) it says so and cannot be pressed again.
 pub fn cancel_work_button(
     selector: &'static str,
     cancelling: bool,

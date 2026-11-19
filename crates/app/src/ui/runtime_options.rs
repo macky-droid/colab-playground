@@ -50,7 +50,6 @@ fn start_runtime() -> Duration {
 
 type Set<T> = Rc<dyn Fn(T, &mut Window, &mut App)>;
 
-/// Builds the controls of one form.
 pub struct Controls<'a> {
     /// Starts every element id, which keeps the ids of two forms apart.
     pub prefix: &'static str,

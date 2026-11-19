@@ -34,7 +34,6 @@ pub fn time_left(usage: Option<&AccountUsageView>, cx: &App) -> SharedString {
     }
 }
 
-/// Says that a total leaves `count` accounts out.
 pub fn accounts_missing(count: usize, cx: &App) -> SharedString {
     tr_count(
         cx,
