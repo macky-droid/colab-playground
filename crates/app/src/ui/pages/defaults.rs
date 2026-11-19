@@ -313,15 +313,12 @@ pub fn host_section(
                         .disabled(busy)
                         .on_click(move |_, _, cx| {
                             let read = |input: &Entity<TextInput>, cx: &App| {
-                                let text = input.read(cx).text().trim().to_owned();
-                                (!text.is_empty()).then_some(text)
+                                input.read(cx).text().to_owned()
                             };
                             let (colab, python) = (read(&colab, cx), read(&python, cx));
-                            if colab.is_none() && python.is_some() {
-                                apply.update(cx, |state, cx| state.warn_host_paths(cx));
-                                return;
-                            }
-                            apply.update(cx, |state, cx| state.set_toolchain(colab, python, cx));
+                            apply.update(cx, |state, cx| {
+                                state.apply_host_paths(&colab, &python, cx)
+                            });
                         }),
                 )),
         );

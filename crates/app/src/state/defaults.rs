@@ -94,7 +94,19 @@ impl AppState {
         self.rebuild_backend(cx);
     }
 
-    pub fn warn_host_paths(&mut self, cx: &mut Context<Self>) {
+    /// Applies the paths as typed: blank means not set, and an interpreter without `colab`
+    /// is refused with a warning.
+    pub fn apply_host_paths(&mut self, colab: &str, python: &str, cx: &mut Context<Self>) {
+        let typed = |text: &str| Some(text.trim().to_owned()).filter(|text| !text.is_empty());
+        let (colab, python) = (typed(colab), typed(python));
+        if colab.is_none() && python.is_some() {
+            self.warn_host_paths(cx);
+            return;
+        }
+        self.set_toolchain(colab, python, cx);
+    }
+
+    fn warn_host_paths(&mut self, cx: &mut Context<Self>) {
         let toast = ely_gpui_component::feedback::Toast::new(crate::i18n::tr(
             cx,
             crate::i18n::keys::HOST_BOTH_NEEDED,

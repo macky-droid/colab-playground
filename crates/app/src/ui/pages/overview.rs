@@ -1,7 +1,7 @@
 //! Overview: the first-run checklist until everything is set up, then the compute-unit
 //! summary.
 
-use colab_playground_core::{backend::InstallMethod, host::Stream};
+use colab_playground_core::host::Stream;
 use ely_gpui_component::{
     buttons::{Button, ButtonVariant, IconButton},
     data_display::{Badge, Tone},
@@ -436,7 +436,7 @@ fn install(
         let start = handle.clone();
         let mut controls = div().flex().flex_wrap().items_center().gap_2();
         if methods.len() > 1 {
-            let pick = handle.clone();
+            let (pick, offered) = (handle.clone(), methods.clone());
             let choices = methods.iter().map(|method| {
                 Choice::new(
                     format::install_method_value(*method),
@@ -453,7 +453,10 @@ fn install(
                             .selected(format::install_method_value(chosen))
                             .size(ControlSize::Sm)
                             .on_change(move |value, _, cx| {
-                                if let Some(method) = methods_from_value(value) {
+                                let method = offered.iter().copied().find(|method| {
+                                    format::install_method_value(*method) == value.as_ref()
+                                });
+                                if let Some(method) = method {
                                     pick.update(cx, |state, cx| {
                                         state.set_install_method(method, cx)
                                     });
@@ -479,16 +482,6 @@ fn install(
         extra.push(install_log(state, cx));
     }
     (body, extra)
-}
-
-fn methods_from_value(value: &str) -> Option<InstallMethod> {
-    [
-        InstallMethod::Uv,
-        InstallMethod::InstallUvThenCli,
-        InstallMethod::PipUser,
-    ]
-    .into_iter()
-    .find(|method| format::install_method_value(*method) == value)
 }
 
 /// The install's output: monospace, colours kept, following the newest line.
