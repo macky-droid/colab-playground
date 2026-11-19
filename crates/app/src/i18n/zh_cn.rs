@@ -745,6 +745,10 @@ pub(super) const MESSAGES: Messages = &[
         "{name} 已结束。现在部署会新建一个会话并开始计费。",
     ),
     (
+        RUN_TARGET_OTHER_ACCOUNT,
+        "{name} 在另一个账号上，不属于当前账号。现在部署会新建一个会话并开始计费。",
+    ),
+    (
         RUN_EXISTING_NOTE,
         "会在该会话上原样运行，其限额和自动停止保持不变。",
     ),

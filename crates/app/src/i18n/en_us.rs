@@ -895,6 +895,10 @@ pub(super) const MESSAGES: Messages = &[
         "{name} has ended. Deploy now starts a new session, which is billed.",
     ),
     (
+        RUN_TARGET_OTHER_ACCOUNT,
+        "{name} is on another account, not the active one. Deploy now starts a new session, which is billed.",
+    ),
+    (
         RUN_EXISTING_NOTE,
         "It runs on that session as it is; its limits and auto-stop stay as they are.",
     ),

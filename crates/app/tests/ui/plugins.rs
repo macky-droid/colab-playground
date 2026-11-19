@@ -5,7 +5,7 @@ use colab_playground::{
     i18n::keys,
     route::Route,
     settings::LanguagePref,
-    state::{InstallPrompt, Load, Op, Overlay, PluginView, RunPhase},
+    state::{InstallPrompt, Load, Op, Overlay, PluginView, RunPhase, TargetLost},
     ui::{
         overlays::INSTALL_CONFIRM,
         pages::{
@@ -527,14 +527,47 @@ fn a_stopped_session_is_no_longer_the_forms_target(cx: &mut TestAppContext) {
     );
     // A new session bills, where the run used to fail: the form says what changed.
     assert!(app.shown(TARGET_ENDED));
-    let ended = app.read(|state, _| state.run_form().and_then(|form| form.target_ended.clone()));
-    assert_eq!(ended.as_deref(), Some("a100-7f3a"));
+    let lost = app.read(|state, _| state.run_form().and_then(|form| form.target_lost.clone()));
+    assert_eq!(lost, Some(TargetLost::Ended("a100-7f3a".into())));
 
     app.update(|state, cx| state.pick_run_target(None, cx));
     assert!(
         !app.shown(TARGET_ENDED),
         "gone once a target is picked again"
     );
+}
+
+#[gpui::test]
+fn a_target_left_on_another_account_is_not_called_ended(cx: &mut TestAppContext) {
+    let mut app = TestApp::new(cx);
+    form_on_a100(&mut app);
+    let lin = app.read(|state, _| {
+        let accounts = &state.accounts().ready().expect("accounts").accounts;
+        let lin = accounts
+            .iter()
+            .find(|account| account.email.as_deref() == Some("lin@example.com"));
+        lin.expect("the demo's second account").id.clone()
+    });
+    app.update(|state, cx| state.request_switch(lin, cx));
+    app.update(|state, cx| state.confirm_switch(cx));
+    let running = app.read(|state, _| {
+        let view = state.runtimes().ready().expect("listed");
+        view.runtimes
+            .iter()
+            .any(|runtime| runtime.id.name.as_deref() == Some("a100-7f3a"))
+    });
+    assert!(
+        running,
+        "the session still bills on the account left behind"
+    );
+
+    // It cannot be run on from here, and the form does not say it has ended.
+    assert_eq!(form_target(&mut app), None);
+    let lost = app.read(|state, _| state.run_form().and_then(|form| form.target_lost.clone()));
+    assert_eq!(lost, Some(TargetLost::OtherAccount("a100-7f3a".into())));
+    app.click(Route::Plugins.nav_selector());
+    assert!(app.shown("run-target-other-account"));
+    assert!(!app.shown(TARGET_ENDED));
 }
 
 #[gpui::test]

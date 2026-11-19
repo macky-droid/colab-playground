@@ -27,7 +27,7 @@ use gpui::{
 use crate::{
     format,
     i18n::{keys, tr, tr_args},
-    state::{AppState, Load, RunForm},
+    state::{AppState, Load, RunForm, TargetLost},
     ui::{Inputs, error_view, pages::defaults::MIB_PER_GIB, provision_form, tagged},
 };
 
@@ -474,13 +474,18 @@ fn target_card(
             CardHeader::new(tr(cx, keys::RUN_TARGET)).description(tr(cx, keys::RUN_TARGET_HINT)),
         )
         .child(tagged("run-target", target));
-    if let Some(name) = &form.target_ended {
-        card = card.child(tagged(
-            "run-target-ended",
-            InlineMessage::new(
-                Severity::Warning,
-                tr_args(cx, keys::RUN_TARGET_ENDED, &[("name", name)]),
+    if let Some(lost) = &form.target_lost {
+        let (selector, key, name) = match lost {
+            TargetLost::Ended(name) => ("run-target-ended", keys::RUN_TARGET_ENDED, name),
+            TargetLost::OtherAccount(name) => (
+                "run-target-other-account",
+                keys::RUN_TARGET_OTHER_ACCOUNT,
+                name,
             ),
+        };
+        card = card.child(tagged(
+            selector,
+            InlineMessage::new(Severity::Warning, tr_args(cx, key, &[("name", name)])),
         ));
     }
     if form.existing.is_none()

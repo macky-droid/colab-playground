@@ -10,7 +10,7 @@ use std::sync::Arc;
 use colab_playground_core::{
     Error, ErrorKind,
     accounts::AccountId,
-    backend::{Backend, PluginRunEvent, PluginRunOutcome, PluginRunSpec, RunTarget},
+    backend::{Backend, PluginRunEvent, PluginRunOutcome, PluginRunSpec, RunTarget, Runtime},
     hf::HfModel,
     plugins::{InputKind, InputValue, PluginInfo},
     provision::ProvisionSpec,
@@ -46,6 +46,15 @@ pub struct HfLookup {
     pub files: Load<GgufListing>,
 }
 
+/// Why the session picked as the run form's target was unpicked.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TargetLost {
+    /// It is no longer running.
+    Ended(String),
+    /// The active account changed: it may well be running, and billing, on the other one.
+    OtherAccount(String),
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct RunForm {
     pub plugin: String,
@@ -55,9 +64,11 @@ pub struct RunForm {
     pub provision: ProvisionSpec,
     /// An existing session to run on instead.
     pub existing: Option<String>,
-    /// The session picked above that ended since: the run would now start a new one, and the
-    /// form says so until a target is picked again.
-    pub target_ended: Option<String>,
+    /// The account of the session picked above, when it was picked from the list.
+    pub(crate) existing_account: Option<AccountId>,
+    /// The session picked above that can no longer be run on: the run would now start a new
+    /// one, and the form says so until a target is picked again.
+    pub target_lost: Option<TargetLost>,
     /// Stop a session provisioned for this run when the run fails.
     pub stop_on_failure: bool,
     pub hf: HfLookup,
@@ -179,7 +190,8 @@ impl AppState {
             values,
             provision,
             existing: None,
-            target_ended: None,
+            existing_account: None,
+            target_lost: None,
             stop_on_failure: template.stop_on_failure,
             hf: HfLookup::default(),
             error: None,
@@ -202,10 +214,18 @@ impl AppState {
 
     /// Picks the form's target: an existing session by name, or a new one.
     pub fn pick_run_target(&mut self, existing: Option<String>, cx: &mut Context<Self>) {
+        let account = existing.as_ref().and_then(|name| {
+            let view = self.runtimes().ready()?;
+            let picked = view.runtimes.iter().find(|runtime| {
+                runtime.on_active_account && runtime.id.name.as_ref() == Some(name)
+            })?;
+            Some(picked.id.account.clone())
+        });
         self.edit_run_form(
             |form| {
                 form.existing = existing;
-                form.target_ended = None;
+                form.existing_account = account;
+                form.target_lost = None;
             },
             cx,
         );
@@ -227,23 +247,43 @@ impl AppState {
         };
         // Only the active account's sessions can be picked, so only its listing counts: without
         // it (or without knowing which account that is) nothing says the session is gone.
-        let listed = self
+        let Some(active) = self
             .accounts()
             .ready()
             .and_then(|accounts| accounts.active.as_ref())
-            .is_some_and(|active| !view.errors.iter().any(|failed| &failed.account == active));
-        let live = view.runtimes.iter().any(|runtime| {
-            runtime.on_active_account
-                && runtime.managed
-                && runtime.id.name.as_deref() == Some(name.as_str())
-        });
-        if listed
-            && !live
-            && let Some(form) = &mut self.run_form
+            .filter(|active| !view.errors.iter().any(|failed| &failed.account == *active))
+        else {
+            return;
+        };
+        let named = |runtime: &&Runtime| runtime.id.name.as_deref() == Some(name.as_str());
+        if view
+            .runtimes
+            .iter()
+            .filter(named)
+            .any(|runtime| runtime.on_active_account && runtime.managed)
         {
-            log::info!("plugins: the run form's session {name} has ended; back to a new session");
+            return;
+        }
+        // Gone from the active account. After a switch that is not the end of the session: it
+        // may still be billing on the account it was picked on.
+        let picked_on = self
+            .run_form
+            .as_ref()
+            .and_then(|form| form.existing_account.as_ref());
+        let elsewhere = match picked_on {
+            Some(account) => account != active,
+            None => view.runtimes.iter().any(|runtime| named(&runtime)),
+        };
+        let lost = if elsewhere {
+            TargetLost::OtherAccount(name)
+        } else {
+            TargetLost::Ended(name)
+        };
+        log::info!("plugins: the run form's session is unpicked ({lost:?}); back to a new session");
+        if let Some(form) = &mut self.run_form {
             form.existing = None;
-            form.target_ended = Some(name);
+            form.existing_account = None;
+            form.target_lost = Some(lost);
         }
     }
 
