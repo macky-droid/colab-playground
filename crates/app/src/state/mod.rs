@@ -153,6 +153,9 @@ pub struct AppState {
     pending_inputs: Vec<(InputSlot, String)>,
     quit: quit::QuitState,
     stop_all_pending: bool,
+    /// The user's stop waits for the runtime listing under way before asking for a star or
+    /// feedback (`feedback`).
+    feedback_after_listing: bool,
     settings_focus: bool,
     update: updates::UpdateCheck,
     /// Whether this copy can replace itself (`None` until the backend has said).
@@ -276,6 +279,7 @@ impl AppState {
                 pending_inputs: Vec::new(),
                 quit: quit::QuitState::default(),
                 stop_all_pending: false,
+                feedback_after_listing: false,
                 settings_focus: false,
                 update: updates::UpdateCheck::default(),
                 self_update: None,

@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use gpui::Context;
 
-use super::{AppState, Overlay, updates::secs};
+use super::{AppState, Op, Overlay, updates::secs};
 use crate::{platform, settings::Settings};
 
 /// Runtimes and deployments that must have come up before the app asks.
@@ -52,9 +52,26 @@ impl AppState {
         self.persist_settings(cx);
     }
 
-    /// The user's stop ended a runtime: asks for a star or feedback when it is due and nothing
-    /// else needs the user.
-    pub(crate) fn ask_for_feedback_if_due(&mut self, cx: &mut Context<Self>) {
+    /// The user's stop ended a runtime. The list shown can still lack a runtime that came up
+    /// meanwhile (a start that finished during the stop, one opened in the browser), and that
+    /// one bills, so the ask waits for the listing under way.
+    pub(crate) fn ask_for_feedback_after_stop(&mut self, cx: &mut Context<Self>) {
+        if self.ops.is_running(Op::Runtimes) {
+            self.feedback_after_listing = true;
+        } else {
+            self.ask_for_feedback_if_due(cx);
+        }
+    }
+
+    /// A runtime listing is back: a stop waiting for it asks now, if it may.
+    pub(crate) fn listed_for_feedback(&mut self, cx: &mut Context<Self>) {
+        if std::mem::take(&mut self.feedback_after_listing) {
+            self.ask_for_feedback_if_due(cx);
+        }
+    }
+
+    /// Asks for a star or feedback when it is due and nothing else needs the user.
+    fn ask_for_feedback_if_due(&mut self, cx: &mut Context<Self>) {
         let Some(now) = self.backend_now().map(secs) else {
             return;
         };

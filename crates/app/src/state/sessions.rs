@@ -162,6 +162,7 @@ impl AppState {
                         state.sessions.runtimes = Load::Failed(error);
                     }
                 }
+                state.listed_for_feedback(cx);
                 cx.notify();
             },
         );
@@ -223,7 +224,7 @@ impl AppState {
                         );
                         state.toast_done(tr_args(cx, keys::STOP_DONE, &[("name", &label)]), cx);
                         state.after_runtime_change(cx);
-                        state.ask_for_feedback_if_due(cx);
+                        state.ask_for_feedback_after_stop(cx);
                     }
                     Err(error) => {
                         log::warn!("sessions: stopping {label} failed: {error}");

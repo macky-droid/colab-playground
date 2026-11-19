@@ -5,7 +5,7 @@ use colab_playground::{
     route::Route,
     state::{
         ASK_AGAIN_AFTER, MOST_ASKS, Overlay, PROJECT_PAGE, ProvisionPhase, READY_BEFORE_ASKING,
-        RunPhase, feedback_page,
+        RunPhase, feedback_page, runtime_label,
     },
     ui::{
         overlays::{
@@ -18,7 +18,7 @@ use colab_playground::{
         },
     },
 };
-use colab_playground_core::mock::MockScenario;
+use colab_playground_core::{mock::MockScenario, sessions::Accelerator};
 use gpui::TestAppContext;
 
 use crate::support::{ConfigDir, Options, TestApp};
@@ -187,6 +187,41 @@ fn it_waits_until_nothing_runs_on_any_account(cx: &mut TestAppContext) {
     }
     stop(&mut app, "cpu-0b5e");
     assert!(asking(&mut app), "the last one ended");
+}
+
+#[gpui::test]
+fn it_decides_on_the_list_fetched_after_the_stop(cx: &mut TestAppContext) {
+    let mut app = TestApp::with(cx, used(READY_BEFORE_ASKING));
+    let name = start_session(&mut app);
+    let account = app
+        .read(|state, _| {
+            let view = state.runtimes().ready()?;
+            view.runtimes
+                .iter()
+                .find(|runtime| runtime.id.name.as_deref() == Some(name.as_str()))
+                .map(|runtime| runtime.id.account.clone())
+        })
+        .expect("the new session is listed");
+    // Opened in the browser since the last listing: the list shown lacks it while it bills,
+    // as it lacks a runtime whose start finished during the stop.
+    let elsewhere = app.mock.add_unmanaged_runtime(&account, Accelerator::T4);
+    stop(&mut app, &name);
+    assert!(
+        !asking(&mut app),
+        "the runtime opened elsewhere still bills"
+    );
+
+    let label = app
+        .read(|state, _| {
+            let view = state.runtimes().ready()?;
+            view.runtimes
+                .iter()
+                .find(|runtime| runtime.id.endpoint == elsewhere)
+                .map(runtime_label)
+        })
+        .expect("listed after the stop");
+    stop(&mut app, &label);
+    assert!(asking(&mut app), "nothing bills any more");
 }
 
 #[gpui::test]
