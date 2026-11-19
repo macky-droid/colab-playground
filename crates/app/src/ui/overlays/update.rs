@@ -18,12 +18,11 @@ use ely_gpui_component::{
 };
 use gpui::{AnyElement, App, Entity, IntoElement, ParentElement, SharedString, Styled, div};
 
-use super::{cancel_button, close};
 use crate::{
     errors, format,
     i18n::{keys, tr, tr_args},
     state::{AppState, Op, UpdatePhase, UpdatePrompt},
-    ui::tagged,
+    ui::{parts::Layer, tagged},
 };
 
 pub const UPDATE_CONFIRM: &str = "update-confirm";
@@ -61,7 +60,7 @@ pub(super) fn render(
     match &prompt.phase {
         UpdatePhase::Confirm => confirm(prompt, state, handle, cx),
         UpdatePhase::Working(_) | UpdatePhase::Restarting => working(prompt, state, handle, cx),
-        UpdatePhase::Failed(error) => failed(prompt, error, handle, cx),
+        UpdatePhase::Failed(error) => failed(error, handle, cx),
         UpdatePhase::RestartFailed(error) => restart_failed(prompt, error, handle, cx),
     }
 }
@@ -93,7 +92,7 @@ fn confirm(
     let dialog = Dialog::new(
         "update",
         tr_args(cx, keys::UPDATE_CONFIRM_TITLE, &version),
-        close(handle),
+        Layer::Overlay.close(handle),
     )
     .child(tagged(
         "update-phase confirm",
@@ -119,7 +118,7 @@ fn confirm(
     dialog
         .action({
             let handle = handle.clone();
-            move |_| cancel_button(cancel, handle)
+            move |_| Layer::Overlay.cancel_button(cancel, handle)
         })
         .action(move |_| {
             tagged(
@@ -280,7 +279,7 @@ fn working(
             keys::UPDATE_WORKING_TITLE,
             &[("version", &prompt.version)],
         ),
-        close(handle),
+        Layer::Overlay.close(handle),
     )
     .child(tagged(format!("update-phase {name}"), body))
     .action(move |_| {
@@ -296,12 +295,7 @@ fn working(
     .into_any_element()
 }
 
-fn failed(
-    _prompt: &UpdatePrompt,
-    error: &colab_playground_core::Error,
-    handle: &Entity<AppState>,
-    cx: &App,
-) -> AnyElement {
+fn failed(error: &colab_playground_core::Error, handle: &Entity<AppState>, cx: &App) -> AnyElement {
     let explained = errors::explain(error, false, cx);
     let (name, key) = failure(error);
     let message = match name {
@@ -325,7 +319,7 @@ fn failed(
     let mut dialog = Dialog::new(
         "update",
         tr(cx, keys::UPDATE_FAILED_INSTALL_TITLE),
-        close(handle),
+        Layer::Overlay.close(handle),
     )
     .child(tagged(
         format!("update-phase failed {name}"),
@@ -339,7 +333,7 @@ fn failed(
     let close_label = tr(cx, keys::ACTION_CLOSE);
     dialog = dialog.action({
         let handle = handle.clone();
-        move |_| cancel_button(close_label, handle)
+        move |_| Layer::Overlay.cancel_button(close_label, handle)
     });
     if !unverified {
         let open = handle.clone();
@@ -405,7 +399,7 @@ fn restart_failed(
     Dialog::new(
         "update",
         tr(cx, keys::UPDATE_RESTART_FAILED_TITLE),
-        close(handle),
+        Layer::Overlay.close(handle),
     )
     .child(tagged(
         "update-phase restart-failed",
@@ -418,7 +412,7 @@ fn restart_failed(
     ))
     .action({
         let handle = handle.clone();
-        move |_| cancel_button(close_label, handle)
+        move |_| Layer::Overlay.cancel_button(close_label, handle)
     })
     .action(move |_| {
         tagged(

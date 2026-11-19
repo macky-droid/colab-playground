@@ -14,12 +14,15 @@ use gpui::{
     AnyElement, App, Entity, FontWeight, IntoElement, ParentElement, SharedString, Styled, div,
 };
 
-use super::{busy_line, cancel_button, close};
 use crate::{
     format,
     i18n::{keys, tr, tr_args},
     state::{AppState, InstallPrompt, RemovePrompt},
-    ui::{error_view, tagged},
+    ui::{
+        error_view,
+        parts::{Layer, busy_line},
+        tagged,
+    },
 };
 
 pub const INSTALL_CONFIRM: &str = "plugin-install-confirm";
@@ -50,12 +53,12 @@ pub(super) fn install(
     let dialog = Dialog::new(
         "plugin-install",
         tr(cx, keys::PLUGIN_INSTALL_TITLE),
-        close(handle),
+        Layer::Overlay.close(handle),
     );
     let cancel = tr(cx, keys::ACTION_CANCEL);
     let cancel_action = {
         let handle = handle.clone();
-        move |_| cancel_button(cancel, handle)
+        move |_| Layer::Overlay.cancel_button(cancel, handle)
     };
     match prompt {
         InstallPrompt::Checking => dialog
@@ -190,16 +193,11 @@ pub(super) fn install(
     }
 }
 
-pub(super) fn remove(
-    prompt: &RemovePrompt,
-    _state: &AppState,
-    handle: &Entity<AppState>,
-    cx: &App,
-) -> AnyElement {
+pub(super) fn remove(prompt: &RemovePrompt, handle: &Entity<AppState>, cx: &App) -> AnyElement {
     let mut dialog = Dialog::new(
         "plugin-remove",
         tr_args(cx, keys::PLUGIN_REMOVE_TITLE, &[("name", &prompt.name)]),
-        close(handle),
+        Layer::Overlay.close(handle),
     )
     .child(Paragraph::new(tr(cx, keys::PLUGIN_REMOVE_BODY)));
     if let Some(error) = &prompt.error {
@@ -217,7 +215,7 @@ pub(super) fn remove(
     dialog
         .action({
             let handle = handle.clone();
-            move |_| cancel_button(cancel, handle)
+            move |_| Layer::Overlay.cancel_button(cancel, handle)
         })
         .action(move |_| {
             tagged(

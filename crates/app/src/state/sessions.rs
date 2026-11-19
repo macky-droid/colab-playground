@@ -266,22 +266,14 @@ impl AppState {
         );
     }
 
-    /// How much time Extend adds to `runtime`'s auto-stop: the default runtime limit
-    /// (Settings, else core's own). The session's recorded limit is not used: it counts from
-    /// the session's start and grows with every extension.
-    pub fn extension_for(&self, runtime: &Runtime) -> Option<Duration> {
-        let _ = runtime;
-        self.rearm_duration()
-    }
-
-    /// Adds [`Self::extension_for`] to `target`'s auto-stop; it never moves earlier. Core reads
+    /// Adds [`Self::rearm_duration`] to `target`'s auto-stop; it never moves earlier. Core reads
     /// the time still left inside the call, not from the listing here, which can be older than
     /// the last extension. A runtime without an auto-stop gets one that far from now.
     pub fn extend_session(&mut self, target: RuntimeRef, cx: &mut Context<Self>) {
-        let Some(runtime) = self.runtime(&target) else {
+        if self.runtime(&target).is_none() {
             return;
-        };
-        let Some(by) = self.extension_for(runtime) else {
+        }
+        let Some(by) = self.rearm_duration() else {
             return;
         };
         let work_target = target.clone();
@@ -368,8 +360,10 @@ impl AppState {
         );
     }
 
-    /// How far ahead "Set auto-stop" puts the stop on a runtime that has none: the default
-    /// runtime limit (core's own default when Settings has none).
+    /// How much time Extend adds to a runtime's auto-stop, and how far ahead "Set auto-stop"
+    /// puts the stop on a runtime that has none: the default runtime limit (Settings, else
+    /// core's own). The session's recorded limit is not used: it counts from the session's
+    /// start and grows with every extension.
     pub fn rearm_duration(&self) -> Option<Duration> {
         self.defaults()
             .max_runtime
@@ -401,7 +395,6 @@ impl AppState {
                     }
                     Err(error) => state.toast_error(&error, cx),
                 }
-                let _ = &target;
                 cx.notify();
             },
         );

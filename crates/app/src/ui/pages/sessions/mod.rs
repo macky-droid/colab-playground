@@ -9,19 +9,22 @@ use ely_gpui_component::{
     buttons::{Button, ButtonVariant, IconButton},
     feedback::{EmptyState, InlineMessage},
     layout::{Card, CardHeader, Page},
-    motion::Spinner,
     primitives::{IconName, Severity},
-    theme::{ActiveTheme, IconSize, TextSize},
+    theme::{ActiveTheme, TextSize},
     typography::Caption,
 };
 use gpui::{AnyElement, App, Entity, FontWeight, IntoElement, ParentElement, Styled, div};
 
 use crate::{
     errors, format,
-    i18n::{keys, tr, tr_args},
+    i18n::{keys, tr, tr_args, tr_count},
     route::Route,
     state::{AppState, EndReason, Load, Op, ProvisionPhase},
-    ui::{error_view, progress, tagged},
+    ui::{
+        error_view,
+        parts::{busy_line, cancel_work_button, step_icon},
+        progress, tagged,
+    },
 };
 
 pub use card::{
@@ -96,21 +99,12 @@ pub fn render(state: &AppState, handle: &Entity<AppState>, cx: &App) -> Page {
         ));
     }
     page = match state.runtimes() {
-        Load::Idle | Load::Loading => page.child(
-            div()
-                .flex()
-                .items_center()
-                .gap_2()
-                .child(Spinner::new("sessions-loading").size(IconSize::Sm))
-                .child(Caption::new(tr(cx, keys::SESSIONS_LOADING))),
-        ),
+        Load::Idle | Load::Loading => page.child(busy_line(
+            "sessions-loading",
+            tr(cx, keys::SESSIONS_LOADING),
+        )),
         Load::Failed(error) => {
-            let retry = {
-                let handle = handle.clone();
-                std::rc::Rc::new(move |_: &mut gpui::Window, cx: &mut App| {
-                    handle.update(cx, |state, cx| state.load_runtimes(cx))
-                }) as error_view::Retry
-            };
+            let retry = error_view::retry(handle, AppState::load_runtimes);
             page.child(error_view::alert(
                 "sessions",
                 Some(tr(cx, keys::SESSIONS_FAILED)),
@@ -122,9 +116,7 @@ pub fn render(state: &AppState, handle: &Entity<AppState>, cx: &App) -> Page {
         }
         Load::Ready(view) => {
             for failure in &view.errors {
-                let email = state
-                    .email_of(&failure.account)
-                    .unwrap_or_else(|| tr(cx, keys::ACCOUNTS_NO_EMAIL).to_string());
+                let email = format::email(cx, state.email_of(&failure.account).as_deref());
                 page = page.child(error_view::alert(
                     &format!("sessions-account-{email}"),
                     Some(tr_args(
@@ -194,21 +186,19 @@ fn groups(
     accounts
         .into_iter()
         .map(|(email, active, list)| {
-            let email = email.unwrap_or_else(|| tr(cx, keys::ACCOUNTS_NO_EMAIL).to_string());
+            let email = format::email(cx, email.as_deref());
             let heading = if active {
                 tr_args(cx, keys::SESSIONS_GROUP_ACTIVE, &[("email", &email)])
             } else {
                 tr_args(cx, keys::SESSIONS_GROUP, &[("email", &email)])
             };
-            let count = if list.len() == 1 {
-                tr(cx, keys::SESSIONS_COUNT_ONE)
-            } else {
-                tr_args(
-                    cx,
-                    keys::SESSIONS_COUNT_MANY,
-                    &[("count", &list.len().to_string())],
-                )
-            };
+            let count = tr_count(
+                cx,
+                list.len(),
+                keys::SESSIONS_COUNT_ONE,
+                keys::SESSIONS_COUNT_MANY,
+                &[],
+            );
             div()
                 .flex()
                 .flex_col()
@@ -272,25 +262,11 @@ fn provisioning(state: &AppState, handle: &Entity<AppState>, cx: &App) -> Option
                                     show.update(cx, |state, cx| state.open_new_session(cx))
                                 }),
                         )
-                        .child(tagged(
+                        .child(cancel_work_button(
                             "provisioning-cancel",
-                            Button::new(
-                                "provisioning-cancel",
-                                tr(
-                                    cx,
-                                    if cancelling {
-                                        keys::NEW_CANCELLING
-                                    } else {
-                                        keys::ACTION_CANCEL
-                                    },
-                                ),
-                            )
-                            .variant(ButtonVariant::Danger)
-                            .loading(cancelling)
-                            .disabled(cancelling)
-                            .on_click(move |_, _, cx| {
-                                cancel.update(cx, |state, cx| state.cancel_provision(cx))
-                            }),
+                            cancelling,
+                            move |_, cx| cancel.update(cx, |state, cx| state.cancel_provision(cx)),
+                            cx,
                         )),
                 ),
         )
@@ -308,10 +284,7 @@ fn ended(state: &AppState, handle: &Entity<AppState>, cx: &App) -> Option<AnyEle
     let theme = cx.theme();
     let clear = handle.clone();
     let rows = ended.iter().map(|item| {
-        let email = item
-            .email
-            .clone()
-            .unwrap_or_else(|| tr(cx, keys::ACCOUNTS_NO_EMAIL).to_string());
+        let email = format::email(cx, item.email.as_deref());
         let (icon, color, why) = match &item.reason {
             EndReason::User => (
                 IconName::Square,
@@ -338,13 +311,7 @@ fn ended(state: &AppState, handle: &Entity<AppState>, cx: &App) -> Option<AnyEle
             .items_start()
             .gap_2()
             .py_1()
-            .child(
-                div().pt_0p5().child(
-                    ely_gpui_component::primitives::Icon::new(icon)
-                        .size(IconSize::Sm)
-                        .color(color),
-                ),
-            )
+            .child(div().pt_0p5().child(step_icon(icon, color)))
             .child(
                 div()
                     .flex()

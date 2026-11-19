@@ -44,14 +44,16 @@ fn open_deploy_form(app: &mut TestApp<'_>) {
     assert_eq!(app.route(), Route::Plugins);
     assert_eq!(app.read(|state, _| state.plugin_view()), PluginView::Form);
     let quant = app.read(|state, _| {
-        state
-            .run_form()
-            .and_then(|form| form.values.get("quant").cloned())
+        state.run_form().and_then(|form| {
+            form.values
+                .get(colab_playground_core::quant::INPUT_QUANT)
+                .cloned()
+        })
     });
     assert_eq!(
         quant,
         Some(colab_playground_core::plugins::InputValue::Text(
-            "auto".into()
+            colab_playground_core::quant::QUANT_AUTO.into()
         )),
         "manifest defaults are filled in"
     );
@@ -160,13 +162,11 @@ fn a_failed_stage_says_whether_the_runtime_still_bills(cx: &mut TestAppContext) 
         panic!("expected a failure, got {:?}", run_phase(&mut app));
     };
     assert!(app.shown("error-run"));
-    assert_eq!(
-        app.read(|state, _| state.plugin_run().and_then(|r| r.session_stopped())),
-        Some(true),
-        "stop on failure is on by default"
-    );
     let left = app.mock.runtimes(&CancelToken::new()).expect("listing");
-    assert!(left.runtimes.is_empty(), "nothing bills: {left:?}");
+    assert!(
+        left.runtimes.is_empty(),
+        "stop on failure is on by default, so nothing bills: {left:?}"
+    );
 
     // Again, keeping the session: it is still billing and Stop is right there.
     app.click("run-again");

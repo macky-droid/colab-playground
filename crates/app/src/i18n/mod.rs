@@ -51,8 +51,6 @@ catalog_keys! {
     SESSIONS_EMPTY_TITLE => "app.sessions.empty.title",
     SESSIONS_EMPTY_BODY => "app.sessions.empty.body",
     PLUGINS_SUBTITLE => "app.plugins.subtitle",
-    PLUGINS_EMPTY_TITLE => "app.plugins.empty.title",
-    PLUGINS_EMPTY_BODY => "app.plugins.empty.body",
     ACCOUNTS_SUBTITLE => "app.accounts.subtitle",
     ACCOUNTS_EMPTY_TITLE => "app.accounts.empty.title",
     ACCOUNTS_EMPTY_BODY => "app.accounts.empty.body",
@@ -90,7 +88,6 @@ catalog_keys! {
     ACTION_CANCEL => "app.action.cancel",
     ACTION_CLOSE => "app.action.close",
     ACTION_RETRY => "app.action.retry",
-    ACTION_REFRESH => "app.action.refresh",
     ACTION_CHECK_AGAIN => "app.action.check_again",
     ACTION_DISMISS => "app.action.dismiss",
     ACTION_INSTALL_CLI => "app.action.install_cli",
@@ -280,7 +277,7 @@ catalog_keys! {
     HOST_PYTHON_PATH => "app.host.python_path",
     HOST_PATH_PLACEHOLDER => "app.host.path_placeholder",
     HOST_APPLY => "app.host.apply",
-    HOST_BOTH_NEEDED => "app.host.both_needed",
+    HOST_INTERPRETER_ALONE => "app.host.interpreter_alone",
     HOST_MOCK_NOTE => "app.host.mock_note",
     HOST_BUSY => "app.host.busy",
     // Errors (one per core ErrorKind) and next steps
@@ -332,20 +329,15 @@ catalog_keys! {
     ERR_OTHER => "app.err.other",
     NS_TRY_AGAIN => "app.ns.try_again",
     NS_RETRY_LATER => "app.ns.retry_later",
-    NS_SWITCH_ACCOUNT => "app.ns.switch_account",
-    NS_ADD_ACCOUNT => "app.ns.add_account",
-    NS_SIGN_IN_AGAIN => "app.ns.sign_in_again",
     NS_UNLOCK_KEYRING => "app.ns.unlock_keyring",
     NS_OTHER_ACCELERATOR => "app.ns.other_accelerator",
     NS_STOP_A_SESSION => "app.ns.stop_a_session",
     NS_OTHER_PORT => "app.ns.other_port",
     NS_CLOSE_CONNECTION => "app.ns.close_connection",
-    NS_INSTALL_CLI => "app.ns.install_cli",
     NS_INSTALL_WSL => "app.ns.install_wsl",
     NS_UPDATE_APP => "app.ns.update_app",
     NS_CHECK_INPUT => "app.ns.check_input",
     NS_CHECK_NETWORK => "app.ns.check_network",
-    NS_REFRESH => "app.ns.refresh",
     NS_REVIEW_RUNTIMES => "app.ns.review_runtimes",
     NS_VIEW_LOG => "app.ns.view_log",
     NS_REPORT_PROBLEM => "app.ns.report_problem",
@@ -468,7 +460,6 @@ catalog_keys! {
     PROV_ALLOCATION_FAILED => "app.b2.prov_allocation_failed",
     PROV_ATTEMPT => "app.b2.prov_attempt",
     PROV_ATTEMPTS_BILLED => "app.b2.prov_attempts_billed",
-    PROV_FAILED => "app.b2.prov_failed",
     PROV_NO_GPU => "app.b2.prov_no_gpu",
     PROV_ORPHAN_LEFT => "app.b2.prov_orphan_left",
     PROV_ORPHAN_RELEASED => "app.b2.prov_orphan_released",
@@ -834,6 +825,25 @@ pub fn tr(cx: &App, key: &str) -> SharedString {
 
 pub fn tr_args(cx: &App, key: &str, args: &[(&str, &str)]) -> SharedString {
     cx.global::<I18n>().text(key, args)
+}
+
+/// A message about `count` things: `one` for exactly one, otherwise `many`, which also gets
+/// `{count}`. Both get `args`.
+pub fn tr_count(
+    cx: &App,
+    count: usize,
+    one: &str,
+    many: &str,
+    args: &[(&str, &str)],
+) -> SharedString {
+    if count == 1 {
+        tr_args(cx, one, args)
+    } else {
+        let count = count.to_string();
+        let mut args = args.to_vec();
+        args.push(("count", &count));
+        tr_args(cx, many, &args)
+    }
 }
 
 /// The raw message for `key` in the shown language, `{name}` placeholders unfilled.
