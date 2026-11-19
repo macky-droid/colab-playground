@@ -2176,13 +2176,10 @@ const LEFTOVER_RETRY: Duration = Duration::from_millis(500);
 const LAUNCHER_TIMEOUT: Duration = Duration::from_secs(60);
 
 impl RealBackend {
-    /// Puts the auto-stop `runtime(left)` from now, `left` being the time to
-    /// the stop the session has at this moment (zero without one, or once
-    /// it has passed).
     fn move_auto_stop(
         &self,
         target: &RuntimeRef,
-        runtime: impl FnOnce(Duration) -> Duration,
+        runtime_from_time_left: impl FnOnce(Duration) -> Duration,
         cancel: &CancelToken,
     ) -> Result<Extension> {
         let name = target
@@ -2205,10 +2202,10 @@ impl RealBackend {
             .auto_stop_at(),
             None => reply.info.enforced_deadline(),
         };
-        let left = stop_at
+        let time_left = stop_at
             .and_then(|at| at.duration_since(self.inner.now()).ok())
             .unwrap_or_default();
-        let runtime = runtime(left);
+        let runtime = runtime_from_time_left(time_left);
         if reply.info.armed {
             let env = vec![(
                 watchdog::ENV_DEADLINE.to_owned(),

@@ -1190,12 +1190,10 @@ fn mock_listing(repo: &str) -> GgufListing {
 }
 
 impl MockBackend {
-    /// Like the real backend's: puts the auto-stop `runtime(left)` from now,
-    /// `left` being the time to the stop the session has at this moment.
     fn move_auto_stop(
         &self,
         target: &RuntimeRef,
-        runtime: impl FnOnce(Duration) -> Duration,
+        runtime_from_time_left: impl FnOnce(Duration) -> Duration,
         cancel: &CancelToken,
     ) -> Result<Extension> {
         self.require_active(&target.account)?;
@@ -1222,10 +1220,10 @@ impl MockBackend {
                 e.auto_stop_at(),
             )
         };
-        let left = stop_at
+        let time_left = stop_at
             .and_then(|at| at.duration_since(self.now_()).ok())
             .unwrap_or_default();
-        let runtime = runtime(left);
+        let runtime = runtime_from_time_left(time_left);
         let info = if alive {
             WatchdogInfo {
                 deadline: Some(self.now_() + runtime),
