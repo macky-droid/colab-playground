@@ -295,7 +295,7 @@ fn closing_the_install_confirmation_drops_the_staged_copy(cx: &mut TestAppContex
         else {
             panic!("expected the confirmation");
         };
-        assert_eq!(staged_copies(ID), [preview.staged_dir.clone()]);
+        assert_eq!(staged_copies(ID), std::slice::from_ref(&preview.staged_dir));
         preview.staged_dir.clone()
     };
 
