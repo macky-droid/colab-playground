@@ -204,8 +204,8 @@ impl AppState {
         );
     }
 
-    /// One poller wake: checks when automatic checks are on and a day has passed since the
-    /// last check (on the backend clock).
+    /// One poller wake: checks when automatic checks are on, a day has passed since the last
+    /// check that got an answer and an hour since the last try (on the backend clock).
     pub(crate) fn maybe_check_updates(&mut self, cx: &mut Context<Self>) {
         if self.checks_updates() && !self.ops.is_running(Op::UpdateCheck) {
             self.run_update_check(false, cx);
@@ -216,13 +216,15 @@ impl AppState {
         if self.ops.is_running(Op::UpdateCheck) {
             return;
         }
-        let last = self.settings.update_checked_at;
-        let last_attempt = self.update_attempted_at;
         if !manual && let Ok(backend) = &self.backend {
             let now = secs(backend.now());
-            let due_saved = last.is_none_or(|last| now >= last + UPDATE_INTERVAL.as_secs());
-            let due_retry =
-                last_attempt.is_none_or(|last| now >= last + UPDATE_RETRY_INTERVAL.as_secs());
+            let due_saved = self
+                .settings
+                .update_checked_at
+                .is_none_or(|last| now >= last + UPDATE_INTERVAL.as_secs());
+            let due_retry = self
+                .update_attempted_at
+                .is_none_or(|last| now >= last + UPDATE_RETRY_INTERVAL.as_secs());
             if !(due_saved && due_retry) {
                 return;
             }
@@ -235,21 +237,12 @@ impl AppState {
             cx,
             move |backend, cancel| {
                 let now = secs(backend.now());
-                let due = manual
-                    || (last.is_none_or(|last| now >= last + UPDATE_INTERVAL.as_secs())
-                        && last_attempt
-                            .is_none_or(|last| now >= last + UPDATE_RETRY_INTERVAL.as_secs()));
-                if !due {
-                    return Ok(None);
-                }
-                Ok(Some((backend.check_for_update(cancel), now)))
+                Ok((backend.check_for_update(cancel), now))
             },
             move |state, result, cx| {
-                let Ok(Some((outcome, now))) = result else {
-                    if let Err(error) = result {
-                        state.update_failed(error, manual, cx);
-                    }
-                    return;
+                let (outcome, now) = match result {
+                    Ok(checked) => checked,
+                    Err(error) => return state.update_failed(error, manual, cx),
                 };
                 state.update_attempted_at = Some(now);
                 match outcome {
