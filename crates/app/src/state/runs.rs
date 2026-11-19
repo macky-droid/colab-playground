@@ -5,7 +5,7 @@
 //! Secret inputs never enter this state: they are read from their masked fields when the run
 //! starts, sent with that one request, and the fields are cleared (a second run asks again).
 
-use std::sync::Arc;
+use std::{collections::VecDeque, sync::Arc};
 
 use colab_playground_core::{
     Error, ErrorKind,
@@ -83,8 +83,7 @@ pub struct PluginRun {
     pub session: Option<String>,
     pub account: Option<AccountId>,
     pub status: Option<RunStatus>,
-    /// Log lines (secrets already redacted by core).
-    pub log: Vec<String>,
+    pub log: RunLog,
     pub phase: RunPhase,
 }
 
@@ -101,15 +100,40 @@ impl PluginRun {
     }
 }
 
-/// Lines of a run's log the app keeps. The log view lays out every line it has on each frame,
-/// and a script can write for as long as its runtime lives.
-const RUN_LOG_LINES_KEPT: usize = 5_000;
+/// Lines of a run's log the app keeps, the newest ones. The whole log is a file on the runtime.
+pub const RUN_LOG_LINES_KEPT: usize = 5_000;
 
-/// Runs before an event's lines are added, so `log` holds up to one event's lines more than
-/// [`RUN_LOG_LINES_KEPT`].
-fn drop_oldest_log_lines(log: &mut Vec<String>) {
-    let extra = log.len().saturating_sub(RUN_LOG_LINES_KEPT);
-    log.drain(..extra);
+/// The newest lines of a run's log (secrets already redacted by core).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RunLog {
+    lines: VecDeque<String>,
+    dropped: usize,
+}
+
+impl RunLog {
+    fn extend(&mut self, lines: impl IntoIterator<Item = String>) {
+        self.lines.extend(lines);
+        let extra = self.lines.len().saturating_sub(RUN_LOG_LINES_KEPT);
+        self.lines.drain(..extra);
+        self.dropped += extra;
+    }
+
+    pub fn len(&self) -> usize {
+        self.lines.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.lines.is_empty()
+    }
+
+    pub fn line(&self, ix: usize) -> Option<&str> {
+        self.lines.get(ix).map(String::as_str)
+    }
+
+    /// Lines no longer kept. A view that holds a place in the log moves it up by what this grew.
+    pub fn dropped(&self) -> usize {
+        self.dropped
+    }
 }
 
 impl AppState {
@@ -356,7 +380,7 @@ impl AppState {
             session: None,
             account: None,
             status: None,
-            log: Vec::new(),
+            log: RunLog::default(),
             phase: RunPhase::Running,
         });
         self.plugin_view = PluginView::Run;
@@ -377,20 +401,20 @@ impl AppState {
         cx.notify();
     }
 
-    fn apply_run_event(&mut self, event: PluginRunEvent, cx: &App) {
+    pub fn apply_run_event(&mut self, event: PluginRunEvent, cx: &App) {
         let at = self.backend_now();
         let Some(run) = &mut self.plugin_run else {
             return;
         };
-        drop_oldest_log_lines(&mut run.log);
         match event {
             PluginRunEvent::Provision(event) => run.provision.push(event, at),
             PluginRunEvent::Launched { session, .. } => run.session = Some(session),
             PluginRunEvent::Status(status) => run.status = Some(status),
             PluginRunEvent::Log { lines } => run.log.extend(lines),
-            PluginRunEvent::LogSkipped { path } => run
-                .log
-                .push(tr_args(cx, keys::RUN_LOG_SKIPPED, &[("path", &path)]).into()),
+            PluginRunEvent::LogSkipped { path } => {
+                run.log
+                    .extend([tr_args(cx, keys::RUN_LOG_SKIPPED, &[("path", &path)]).into()])
+            }
         }
     }
 
@@ -524,22 +548,4 @@ fn missing_required(
                 && !matches!(inputs.get(&input.id), Some(InputValue::Number(_) | InputValue::Bool(_)))
         })
         .map(|input| input.id.clone())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_long_log_keeps_its_newest_lines() {
-        let mut log: Vec<String> = (0..RUN_LOG_LINES_KEPT + 3).map(|i| i.to_string()).collect();
-        drop_oldest_log_lines(&mut log);
-        assert_eq!(log.len(), RUN_LOG_LINES_KEPT);
-        assert_eq!(log[0], "3");
-        assert_eq!(log.last().unwrap(), &(RUN_LOG_LINES_KEPT + 2).to_string());
-
-        let mut short = vec!["a".to_owned()];
-        drop_oldest_log_lines(&mut short);
-        assert_eq!(short, ["a"]);
-    }
 }

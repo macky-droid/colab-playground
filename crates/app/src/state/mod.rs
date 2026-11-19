@@ -51,7 +51,9 @@ pub use ops::{Op, key_of};
 pub use plugins::{HF_TOKEN, InstallPrompt, RemovePrompt, is_git_source};
 pub use provision::{LimitReached, NewSession, ProvisionPhase, ProvisionProgress};
 pub use quit::{Billing, QuitPrompt};
-pub use runs::{HF_RESULTS, HfLookup, PluginRun, PluginView, RunForm, RunPhase};
+pub use runs::{
+    HF_RESULTS, HfLookup, PluginRun, PluginView, RUN_LOG_LINES_KEPT, RunForm, RunLog, RunPhase,
+};
 pub use sessions::{EndReason, Ended, StopPrompt, runtime_label};
 pub use tunnels::{FORWARD_START_PORT, ForwardForm, local_url};
 pub use updates::{UPDATE_INTERVAL, UpdateCheck, UpdatePhase, UpdatePrompt, is_newer};
