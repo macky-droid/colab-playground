@@ -26,8 +26,9 @@ const LINUX_DOCS: [&str; 2] = ["LICENSE", "README.md"];
 /// uses the folder. Beside it, not in it: Windows cannot rename a folder with a file in it open.
 const LOCK_SUFFIX: &str = ".lock";
 
-/// Marks a staging folder that holds an old version a failed undo could not put back.
-const KEPT_FILE: &str = "kept";
+/// Marks a staging folder whose swap finished: the old version in it was replaced. Without it,
+/// that version may be the only copy (the undo failed, or the app stopped in the middle).
+const REPLACED_FILE: &str = "replaced";
 
 /// Where a swap moves the running program (Windows) or bundle (macOS) in the staging folder.
 const PREVIOUS_EXE: &str = "previous.exe";
@@ -60,10 +61,12 @@ impl Staging {
         self.path
     }
 
-    /// Deletes the folder and its lock file, the lock still held.
+    /// Deletes the folder, then its lock file, the lock still held. A folder that stays keeps
+    /// its lock file.
     pub fn remove(self) {
-        let _ = fs::remove_dir_all(&self.path);
-        let _ = fs::remove_file(lock_path(&self.path));
+        if fs::remove_dir_all(&self.path).is_ok() {
+            let _ = fs::remove_file(lock_path(&self.path));
+        }
     }
 }
 
@@ -92,10 +95,10 @@ pub fn is_staging_name(name: &str) -> bool {
 }
 
 /// Removes the staging folders earlier updates left in `folder` with their lock files, the
-/// replaced version among them, and nothing else: a folder still holding an old version that a
-/// failed undo could not put back stays until that version has been moved out. Returns how many
-/// could not be removed yet: one an update still uses (in this copy of the app or another), or
-/// one holding a program that is still exiting (Windows cannot delete it yet).
+/// replaced version among them, and nothing else: a folder that may hold the only copy of an old
+/// version stays until that version has been moved out. Returns how many could not be removed
+/// yet: one an update still uses (in this copy of the app or another) or whose lock cannot be
+/// taken, or one holding a program that is still exiting (Windows cannot delete it yet).
 ///
 /// A lock file without its folder is left: it may belong to an update that has locked it and is
 /// about to make the folder. Only a crash in that moment leaves one for good.
@@ -112,13 +115,13 @@ pub fn remove_leftovers(folder: &Path) -> usize {
             continue;
         }
         let stage = entry.path();
-        // Taken before anything is checked and held until the folder is gone: an update marks
-        // a folder it must keep before it lets go of it.
+        // Taken before anything is checked and held until the folder is gone, so what is
+        // checked is what the update left once it let go.
         let Some(_lock) = claim(&stage) else {
             left += 1;
             continue;
         };
-        if holds_kept_version(&stage) {
+        if may_hold_only_copy(&stage) {
             continue;
         }
         if fs::remove_dir_all(&stage).is_err() {
@@ -130,24 +133,21 @@ pub fn remove_leftovers(folder: &Path) -> usize {
     left
 }
 
-/// Whether `stage` still holds the old version of a failed undo (see [`kept`]).
-fn holds_kept_version(stage: &Path) -> bool {
-    stage.join(KEPT_FILE).exists()
+/// Whether `stage` holds an old version that a swap moved there without finishing (see
+/// [`REPLACED_FILE`]).
+fn may_hold_only_copy(stage: &Path) -> bool {
+    !stage.join(REPLACED_FILE).is_file()
         && [PREVIOUS_EXE, PREVIOUS_APP]
             .iter()
             .any(|name| stage.join(name).exists())
 }
 
-/// Locks `stage` for cleanup: `None` while an update holds it (see [`Staging`]), otherwise its
-/// lock file, held, if it has one.
-fn claim(stage: &Path) -> Option<Option<File>> {
-    match File::open(lock_path(stage)) {
-        Err(_) => Some(None),
-        Ok(file) => match file.try_lock() {
-            Err(fs::TryLockError::WouldBlock) => None,
-            _ => Some(Some(file)),
-        },
-    }
+/// Locks `stage` for cleanup, or `None`: while an update holds it (see [`Staging`]), and
+/// whenever the lock cannot be taken for another reason, the folder is left as it is.
+fn claim(stage: &Path) -> Option<File> {
+    let file = File::open(lock_path(stage)).ok()?;
+    file.try_lock().ok()?;
+    Some(file)
 }
 
 /// Moves `target` to `aside`, then `new` to where `target` was. When the second move fails the
@@ -159,19 +159,15 @@ fn swap_aside(target: &Path, new: &Path, aside: &Path) -> Result<()> {
         let error = io_error(error, target);
         return Err(match fs::rename(aside, target) {
             Ok(()) => error,
-            Err(_) => kept(aside, error),
+            Err(_) => error.with("previous", aside.display()),
         });
     }
-    Ok(())
-}
-
-/// After a failed undo, `aside` holds the only copy of the old version: marks its folder so
-/// that cleanup keeps it, and names it in `error`.
-fn kept(aside: &Path, error: Error) -> Error {
+    // Only now may cleanup delete the old version. If the mark cannot be written, the folder
+    // stays: a leftover rather than a lost copy.
     if let Some(stage) = aside.parent() {
-        let _ = File::create(stage.join(KEPT_FILE));
+        let _ = File::create(stage.join(REPLACED_FILE));
     }
-    error.with("previous", aside.display())
+    Ok(())
 }
 
 /// Windows: a running program cannot be overwritten or deleted, but it can be renamed. Moves
@@ -324,7 +320,9 @@ pub(crate) mod tests {
     fn leftovers_are_removed_and_nothing_else() {
         let dir = tempfile::tempdir().unwrap();
         let stage = create_staging(dir.path()).unwrap().release();
-        fs::write(stage.join("previous.exe"), b"old").unwrap();
+        // As a finished swap leaves it.
+        fs::write(stage.join(PREVIOUS_EXE), b"old").unwrap();
+        fs::write(stage.join(REPLACED_FILE), b"").unwrap();
         fs::create_dir(dir.path().join(".colab-playground-update-notmine")).unwrap();
         fs::write(dir.path().join("colab-playground.exe"), b"program").unwrap();
         fs::write(
@@ -397,24 +395,41 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn cleanup_keeps_an_old_version_that_could_not_be_put_back() {
+    fn cleanup_keeps_an_old_version_a_swap_did_not_finish() {
+        // The undo failed, or the app stopped between the two renames.
         let dir = tempfile::tempdir().unwrap();
         let stage = create_staging(dir.path()).unwrap().release();
         let previous = stage.join(PREVIOUS_EXE);
         fs::write(&previous, b"old").unwrap();
-        let error = kept(&previous, Error::new(ErrorKind::Io));
-        let named = previous.display().to_string();
-        assert_eq!(error.param("previous"), Some(named.as_str()));
         assert_eq!(remove_leftovers(dir.path()), 0, "kept, not waited for");
         assert!(previous.exists(), "the only copy of the old version stays");
         fs::rename(&previous, dir.path().join("colab-playground.exe")).unwrap();
         assert_eq!(remove_leftovers(dir.path()), 0);
         assert!(!stage.exists(), "once moved back, the folder is a leftover");
+
+        // A finished swap whose mark could not be written (a full disk, say).
+        let exe = dir.path().join("colab-playground.exe");
+        let stage = create_staging(dir.path()).unwrap().release();
+        fs::create_dir(stage.join(REPLACED_FILE)).unwrap();
+        let new = stage.join("download.exe");
+        fs::write(&new, b"new").unwrap();
+        swap_exe(&exe, &new, &stage).unwrap();
+        assert_eq!(remove_leftovers(dir.path()), 0);
+        assert!(stage.join(PREVIOUS_EXE).exists(), "kept rather than lost");
+    }
+
+    #[test]
+    fn a_folder_whose_lock_cannot_be_taken_is_left() {
+        let dir = tempfile::tempdir().unwrap();
+        let stage = create_staging(dir.path()).unwrap().release();
+        fs::remove_file(lock_path(&stage)).unwrap();
+        assert_eq!(remove_leftovers(dir.path()), 1);
+        assert!(stage.exists());
     }
 
     #[test]
     fn cleanup_decides_only_once_the_update_has_let_go() {
-        // An update that is about to fail its undo: cleanup by another copy meanwhile.
+        // An update in the middle of its swap: cleanup by another copy meanwhile.
         let dir = tempfile::tempdir().unwrap();
         let stage = create_staging(dir.path()).unwrap();
         let previous = stage.path().join(PREVIOUS_APP);
@@ -424,10 +439,12 @@ pub(crate) mod tests {
             1,
             "held: not even looked into"
         );
-        kept(&previous, Error::new(ErrorKind::Io));
-        stage.release();
+        let path = stage.release();
         assert_eq!(remove_leftovers(dir.path()), 0);
-        assert!(previous.is_dir(), "seen with its mark once let go");
+        assert!(previous.is_dir(), "let go unfinished: kept");
+        File::create(path.join(REPLACED_FILE)).unwrap();
+        assert_eq!(remove_leftovers(dir.path()), 0);
+        assert!(!path.exists(), "let go finished: removed");
     }
 
     #[test]
