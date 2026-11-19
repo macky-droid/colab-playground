@@ -162,7 +162,9 @@ pub struct AppState {
     self_update: Option<SelfUpdate>,
     /// An update put in place, waiting to restart into it.
     installed: Option<Installed>,
-    pub(crate) update_attempted_at: Option<u64>,
+    /// When an update check was last tried, answered or not. Kept out of the settings file, so
+    /// a failed check is retried at the next start instead of waiting out the day.
+    update_attempted_at: Option<u64>,
 }
 
 /// A dialog other than the account ones (those are [`AccountDialog`]).
