@@ -334,18 +334,7 @@ impl Helper {
         if v.get("ok").and_then(|o| o.as_bool()) == Some(true) {
             return Ok(v);
         }
-        let err = v.get("error").cloned().unwrap_or_default();
-        let kind =
-            ErrorKind::from_str_lossy(err.get("kind").and_then(|k| k.as_str()).unwrap_or("other"));
-        let detail = err
-            .get("detail")
-            .and_then(|d| d.as_str())
-            .unwrap_or_default();
-        let mut e = Error::new(kind).detail(detail);
-        if let Some(field) = err.get("field").and_then(|f| f.as_str()) {
-            e = e.with("field", field);
-        }
-        Err(e)
+        Err(helper_error(&v))
     }
 
     fn ids(ids: &[AccountId]) -> Vec<String> {
@@ -395,15 +384,7 @@ impl Helper {
     ) -> Result<Vec<(AccountId, Result<Usage>)>> {
         let v = self.call("usage", &Self::ids(ids), cancel)?;
         let mut out = Vec::new();
-        for item in v
-            .get("accounts")
-            .and_then(|a| a.as_array())
-            .cloned()
-            .unwrap_or_default()
-        {
-            let Some(id) = item.get("id").and_then(|i| i.as_str()) else {
-                continue;
-            };
+        for (id, item) in per_account(&v) {
             let id = AccountId::new(id)?;
             let res = if item.get("ok").and_then(|o| o.as_bool()) == Some(true) {
                 let num = |k: &str| item.get(k).and_then(|x| x.as_f64());
@@ -416,15 +397,7 @@ impl Helper {
                     _ => Err(Error::new(ErrorKind::Parse).detail("helper usage output")),
                 }
             } else {
-                let err = item.get("error").cloned().unwrap_or_default();
-                let kind = ErrorKind::from_str_lossy(
-                    err.get("kind").and_then(|k| k.as_str()).unwrap_or("other"),
-                );
-                Err(Error::new(kind).detail(
-                    err.get("detail")
-                        .and_then(|d| d.as_str())
-                        .unwrap_or_default(),
-                ))
+                Err(helper_error(item))
             };
             out.push((id, res));
         }
@@ -492,15 +465,7 @@ impl Helper {
     ) -> Result<Vec<(AccountId, Result<Vec<RemoteAssignment>>)>> {
         let v = self.call("assignments", &Self::ids(ids), cancel)?;
         let mut out = Vec::new();
-        for item in v
-            .get("accounts")
-            .and_then(|a| a.as_array())
-            .cloned()
-            .unwrap_or_default()
-        {
-            let Some(id) = item.get("id").and_then(|i| i.as_str()) else {
-                continue;
-            };
+        for (id, item) in per_account(&v) {
             let id = AccountId::new(id)?;
             let res = if item.get("ok").and_then(|o| o.as_bool()) == Some(true) {
                 let list = item
@@ -515,7 +480,7 @@ impl Helper {
                         Error::new(ErrorKind::UnsupportedCliVersion).detail("assignment fields")
                     })
             } else {
-                Err(helper_error(item.get("error")))
+                Err(helper_error(item))
             };
             out.push((id, res));
         }
@@ -566,16 +531,8 @@ impl Helper {
     ) -> Result<Vec<(AccountId, bool)>> {
         let v = self.call("list", &Self::ids(ids), cancel)?;
         let mut out = Vec::new();
-        for item in v
-            .get("accounts")
-            .and_then(|a| a.as_array())
-            .cloned()
-            .unwrap_or_default()
-        {
-            if let (Some(id), Some(stored)) = (
-                item.get("id").and_then(|i| i.as_str()),
-                item.get("stored").and_then(|s| s.as_bool()),
-            ) {
+        for (id, item) in per_account(&v) {
+            if let Some(stored) = item.get("stored").and_then(|s| s.as_bool()) {
                 out.push((AccountId::new(id)?, stored));
             }
         }
@@ -629,15 +586,24 @@ impl RemoteAssignment {
     }
 }
 
-fn helper_error(err: Option<&serde_json::Value>) -> Error {
-    let err = err.cloned().unwrap_or_default();
-    let kind =
-        ErrorKind::from_str_lossy(err.get("kind").and_then(|k| k.as_str()).unwrap_or("other"));
-    Error::new(kind).detail(
-        err.get("detail")
-            .and_then(|d| d.as_str())
-            .unwrap_or_default(),
-    )
+/// The error the helper reported in `reply`: a whole reply, or one account's item of it.
+fn helper_error(reply: &serde_json::Value) -> Error {
+    let text = |key: &str| reply.get("error")?.get(key)?.as_str();
+    let error = Error::new(ErrorKind::from_str_lossy(text("kind").unwrap_or("other")))
+        .detail(text("detail").unwrap_or_default());
+    match text("field") {
+        Some(field) => error.with("field", field),
+        None => error,
+    }
+}
+
+/// The items of a reply's `accounts` list that name their account, each with that id.
+fn per_account(reply: &serde_json::Value) -> impl Iterator<Item = (&str, &serde_json::Value)> {
+    let items = reply.get("accounts").and_then(|a| a.as_array());
+    items
+        .into_iter()
+        .flatten()
+        .filter_map(|item| Some((item.get("id")?.as_str()?, item)))
 }
 
 /// App secret names: `[a-z][a-z0-9_]*`, at most 32 chars (e.g. `hf_token`).
