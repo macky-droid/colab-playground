@@ -86,7 +86,8 @@ print("__CPG_RESULT__ " + json.dumps({{"pid": _p.pid, "run_dir": _d}}))
     )
 }
 
-/// Log bytes one poll returns.
+/// Log bytes one poll returns at most: what a poll prints comes back through one `colab exec`
+/// and is recorded in the CLI's history.
 const LOG_CHUNK: u64 = 16 * 1024;
 /// The furthest the shown log may be behind the file. A script that writes faster than the
 /// polls read is shown from this far back, so the end of the log is always within reach.
