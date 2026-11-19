@@ -34,6 +34,8 @@ use crate::{
 
 /// How often the automatic check asks GitHub.
 pub const UPDATE_INTERVAL: Duration = Duration::from_secs(24 * 3600);
+// Avoids hammering GitHub every POLL_CHECK when offline, without marking the daily check done.
+const UPDATE_RETRY_INTERVAL: Duration = Duration::from_secs(3600);
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum UpdateCheck {
@@ -215,6 +217,16 @@ impl AppState {
             return;
         }
         let last = self.settings.update_checked_at;
+        let last_attempt = self.update_attempted_at;
+        if !manual && let Ok(backend) = &self.backend {
+            let now = secs(backend.now());
+            let due_saved = last.is_none_or(|last| now >= last + UPDATE_INTERVAL.as_secs());
+            let due_retry =
+                last_attempt.is_none_or(|last| now >= last + UPDATE_RETRY_INTERVAL.as_secs());
+            if !(due_saved && due_retry) {
+                return;
+            }
+        }
         if manual {
             self.update = UpdateCheck::Checking;
         }
@@ -223,7 +235,10 @@ impl AppState {
             cx,
             move |backend, cancel| {
                 let now = secs(backend.now());
-                let due = manual || last.is_none_or(|last| now >= last + UPDATE_INTERVAL.as_secs());
+                let due = manual
+                    || (last.is_none_or(|last| now >= last + UPDATE_INTERVAL.as_secs())
+                        && last_attempt
+                            .is_none_or(|last| now >= last + UPDATE_RETRY_INTERVAL.as_secs()));
                 if !due {
                     return Ok(None);
                 }
@@ -236,9 +251,10 @@ impl AppState {
                     }
                     return;
                 };
-                state.settings.update_checked_at = Some(now);
+                state.update_attempted_at = Some(now);
                 match outcome {
                     Ok(UpdateStatus::UpToDate) => {
+                        state.settings.update_checked_at = Some(now);
                         state.update = UpdateCheck::UpToDate;
                         if state
                             .settings
@@ -248,20 +264,24 @@ impl AppState {
                         {
                             state.settings.update_latest = None;
                         }
+                        state.persist_settings(cx);
                     }
                     Ok(UpdateStatus::Available(release)) => {
+                        state.settings.update_checked_at = Some(now);
                         state.settings.update_latest = Some(release.version.clone());
                         state.update = UpdateCheck::Available(release);
                         // Where the app is may have changed since start-up.
                         state.refresh_self_update(cx);
+                        state.persist_settings(cx);
                     }
                     Err(error) => state.update_failed(error, manual, cx),
                 }
-                state.persist_settings(cx);
                 cx.notify();
             },
         );
-        cx.notify();
+        if manual {
+            cx.notify();
+        }
     }
 
     fn update_failed(&mut self, error: Error, manual: bool, cx: &mut Context<Self>) {

@@ -1416,3 +1416,77 @@ fn worker_quant_fitting_matches_the_rust_vectors() {
     assert!(out.success(), "{}\n{}", out.stdout, out.stderr);
     assert!(!out.stdout.contains("FAIL"), "{}", out.stdout);
 }
+
+#[test]
+fn probe_uses_configured_colab_path_instead_of_path_binary() {
+    let f = fixture();
+    let expected = f.cfg.toolchain.clone().unwrap();
+    let report = f.b.probe(&nc()).unwrap();
+    assert_eq!(report.colab.as_deref(), Some(expected.colab.as_str()));
+    assert_eq!(report.colab_version.as_deref(), Some("0.8.0-fake"));
+    assert_eq!(
+        report.helper_python.as_deref(),
+        Some(expected.helper_python.as_str())
+    );
+    assert!(report.keyring_ok);
+
+    // macOS rejects nested `#!` scripts, so test `Toolchain::from_colab_path` with the
+    // `#!/bin/sh` + sibling `python` launcher layout produced by `uv` and `pip`.
+    let custom = f.root.join("custom-cli");
+    std::fs::create_dir_all(&custom).unwrap();
+    // `RESOLVE_SCRIPT` resolves symlinks with `readlink -f` (e.g. `/var` -> `/private/var`).
+    let custom = std::fs::canonicalize(&custom).unwrap();
+    let fake = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fake");
+    let custom_py = custom.join("python");
+    install(&fake.join("python_shim.py"), &custom_py, true);
+    install(
+        &fake.join("fake_common.py"),
+        &custom.join("fake_common.py"),
+        false,
+    );
+    let custom_colab = custom.join("colab");
+    std::fs::write(
+        &custom_colab,
+        format!("#!/bin/sh\nexec python3 \"{}\" \"$@\"\n", expected.colab),
+    )
+    .unwrap();
+    std::fs::set_permissions(&custom_colab, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let mut cfg = f.cfg.clone();
+    cfg.local_dir = f.root.join("local-custom");
+    cfg.toolchain = Some(Toolchain::from_colab_path(
+        custom_colab.to_string_lossy().into_owned(),
+    ));
+    let b2 = RealBackend::new(cfg).unwrap();
+    let r2 = b2.probe(&nc()).unwrap();
+    assert_eq!(
+        r2.colab.as_deref(),
+        Some(custom_colab.to_string_lossy().as_ref())
+    );
+    assert_eq!(r2.colab_version.as_deref(), Some("0.8.0-fake"));
+    assert_eq!(
+        r2.helper_python.as_deref(),
+        Some(custom_py.to_string_lossy().as_ref())
+    );
+    assert!(r2.keyring_ok);
+
+    let cancelled = CancelToken::new();
+    cancelled.cancel();
+    assert!(f.b.probe(&cancelled).unwrap_err().is(ErrorKind::Cancelled));
+}
+
+#[test]
+fn probe_blames_the_configured_path_when_nothing_runs_there() {
+    let f = fixture();
+    let mut cfg = f.cfg.clone();
+    cfg.local_dir = f.root.join("local-missing");
+    let mut toolchain = cfg.toolchain.clone().unwrap();
+    toolchain.colab = f.root.join("no-such-colab").to_string_lossy().into_owned();
+    cfg.toolchain = Some(toolchain);
+    let backend = RealBackend::new(cfg).unwrap();
+    // `NotInstalled` would make the checklist offer an install that cannot help.
+    let error = backend.probe(&nc()).unwrap_err();
+    assert!(error.is(ErrorKind::InvalidInput), "{error}");
+}
