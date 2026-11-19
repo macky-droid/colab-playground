@@ -508,9 +508,14 @@ mod tests {
         let error = result.unwrap_err();
         assert_eq!(error.kind, kind, "{error}");
         assert_eq!(fixture.program(), b"old", "the old version stays");
+        let attempt: Vec<_> = fs::read_dir(fixture.dir.path().join("apps"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with(replace::STAGING_PREFIX))
+            .collect();
         assert!(
-            fixture.staging().is_empty(),
-            "nothing of the attempt is left"
+            attempt.is_empty(),
+            "nothing of the attempt is left: {attempt:?}"
         );
     }
 

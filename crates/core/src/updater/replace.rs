@@ -22,8 +22,9 @@ pub const LINUX_PROGRAM: &str = "colab-playground";
 /// Files beside the Linux program that an update refreshes where they already exist.
 const LINUX_DOCS: [&str; 2] = ["LICENSE", "README.md"];
 
-/// The file in a staging folder that its update keeps locked while it uses the folder.
-const LOCK_FILE: &str = "lock";
+/// Ends the name of the file beside a staging folder that its update keeps locked while it
+/// uses the folder. Beside it, not in it: Windows cannot rename a folder with a file in it open.
+const LOCK_SUFFIX: &str = ".lock";
 
 /// Marks a staging folder that holds an old version a failed undo could not put back.
 const KEPT_FILE: &str = "kept";
@@ -40,9 +41,10 @@ fn bad_archive(detail: impl Into<String>) -> Error {
     Error::new(ErrorKind::Parse).detail(detail)
 }
 
-/// A staging folder an update is using. Its lock file stays locked until this is dropped, or
-/// the process ends, so [`remove_leftovers`] in any copy of the app leaves the folder alone:
-/// two copies can run from the same folder.
+/// A staging folder an update is using. The lock file beside it is locked before the folder
+/// exists and stays locked until this is dropped, or the process ends, so [`remove_leftovers`]
+/// in any copy of the app (two can run from the same folder) never finds the folder unlocked
+/// while its update needs it.
 pub struct Staging {
     path: PathBuf,
     _lock: File,
@@ -58,20 +60,29 @@ impl Staging {
         self.path
     }
 
-    /// Deletes the folder. Released first: on some file systems a folder cannot be deleted
-    /// while a file in it is open.
+    /// Deletes the folder and its lock file, the lock still held.
     pub fn remove(self) {
-        let _ = fs::remove_dir_all(self.release());
+        let _ = fs::remove_dir_all(&self.path);
+        let _ = fs::remove_file(lock_path(&self.path));
     }
 }
 
-/// A new staging folder in `folder`, empty but for its lock file, held for this update.
+fn lock_path(stage: &Path) -> PathBuf {
+    let mut name = stage.as_os_str().to_owned();
+    name.push(LOCK_SUFFIX);
+    PathBuf::from(name)
+}
+
+/// A new, empty staging folder in `folder`, held for this update.
 pub fn create_staging(folder: &Path) -> Result<Staging> {
     let path = folder.join(format!("{STAGING_PREFIX}{}", crate::accounts::nonce()));
-    fs::create_dir(&path).map_err(|e| io_error(e, &path))?;
-    let lock = path.join(LOCK_FILE);
+    let lock = lock_path(&path);
     let file = File::create(&lock).map_err(|e| io_error(e, &lock))?;
     file.lock().map_err(|e| io_error(e, &lock))?;
+    if let Err(error) = fs::create_dir(&path) {
+        let _ = fs::remove_file(&lock);
+        return Err(io_error(error, &path));
+    }
     Ok(Staging { path, _lock: file })
 }
 
@@ -80,11 +91,14 @@ pub fn is_staging_name(name: &str) -> bool {
         .is_some_and(|rest| rest.len() == 16 && rest.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
-/// Removes the staging folders earlier updates left in `folder`, the replaced version among
-/// them, and nothing else: a folder still holding an old version that a failed undo could not
-/// put back stays until that version has been moved out. Returns how many could not be removed
-/// yet: one an update still uses (in this copy of the app or another), or one holding a program
-/// that is still exiting (Windows cannot delete it yet).
+/// Removes the staging folders earlier updates left in `folder` with their lock files, the
+/// replaced version among them, and nothing else: a folder still holding an old version that a
+/// failed undo could not put back stays until that version has been moved out. Returns how many
+/// could not be removed yet: one an update still uses (in this copy of the app or another), or
+/// one holding a program that is still exiting (Windows cannot delete it yet).
+///
+/// A lock file without its folder is left: it may belong to an update that has locked it and is
+/// about to make the folder. Only a crash in that moment leaves one for good.
 pub fn remove_leftovers(folder: &Path) -> usize {
     let Ok(entries) = fs::read_dir(folder) else {
         return 0;
@@ -103,7 +117,9 @@ pub fn remove_leftovers(folder: &Path) -> usize {
         }
         if in_use(&stage) || fs::remove_dir_all(&stage).is_err() {
             left += 1;
+            continue;
         }
+        let _ = fs::remove_file(lock_path(&stage));
     }
     left
 }
@@ -118,7 +134,7 @@ fn holds_kept_version(stage: &Path) -> bool {
 
 /// Whether an update still holds `stage` (see [`Staging`]).
 fn in_use(stage: &Path) -> bool {
-    File::open(stage.join(LOCK_FILE))
+    File::open(lock_path(stage))
         .is_ok_and(|file| matches!(file.try_lock(), Err(fs::TryLockError::WouldBlock)))
 }
 
@@ -305,13 +321,8 @@ pub(crate) mod tests {
         )
         .unwrap();
         assert_eq!(remove_leftovers(dir.path()), 0);
-        let mut names: Vec<String> = fs::read_dir(dir.path())
-            .unwrap()
-            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-            .collect();
-        names.sort();
         assert_eq!(
-            names,
+            names(dir.path()),
             [
                 ".colab-playground-update-0123456789abcdef",
                 ".colab-playground-update-notmine",
@@ -319,6 +330,15 @@ pub(crate) mod tests {
             ]
         );
         assert_eq!(remove_leftovers(&dir.path().join("missing")), 0);
+    }
+
+    fn names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
     }
 
     #[test]
@@ -329,14 +349,39 @@ pub(crate) mod tests {
         // Another copy of the app starting now: the lock is tried through a different handle.
         assert_eq!(remove_leftovers(dir.path()), 1);
         assert!(stage.path().join("download.exe").exists());
-        let path = stage.release();
+        stage.release();
         assert_eq!(remove_leftovers(dir.path()), 0);
-        assert!(!path.exists(), "once released it is a leftover");
+        assert!(
+            names(dir.path()).is_empty(),
+            "once released, it and its lock file go"
+        );
 
-        let stage = create_staging(dir.path()).unwrap();
-        let path = stage.path().to_owned();
-        stage.remove();
-        assert!(!path.exists());
+        create_staging(dir.path()).unwrap().remove();
+        assert!(names(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn a_staging_folder_is_never_there_unlocked_while_it_is_made() {
+        // The steps of `create_staging`, with a cleanup by another copy after each.
+        let dir = tempfile::tempdir().unwrap();
+        let stage = dir.path().join(format!("{STAGING_PREFIX}0123456789abcdef"));
+        let lock = File::create(lock_path(&stage)).unwrap();
+        assert_eq!(remove_leftovers(dir.path()), 0);
+        assert!(
+            lock_path(&stage).exists(),
+            "a lock file without its folder stays"
+        );
+        lock.lock().unwrap();
+        fs::create_dir(&stage).unwrap();
+        assert_eq!(
+            remove_leftovers(dir.path()),
+            1,
+            "made under a held lock: in use"
+        );
+        assert!(stage.exists());
+        drop(lock);
+        assert_eq!(remove_leftovers(dir.path()), 0);
+        assert!(names(dir.path()).is_empty());
     }
 
     #[test]
