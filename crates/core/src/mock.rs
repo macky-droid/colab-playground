@@ -1886,11 +1886,16 @@ impl Backend for MockBackend {
                 (name.clone(), false)
             }
             RunTarget::Provision(p) => {
+                // Forwarded as they happen, like the real backend, so the progress shows.
                 let (tx, rx) = std::sync::mpsc::channel();
+                let ev = events.clone();
+                let fwd = std::thread::spawn(move || {
+                    for e in rx {
+                        let _ = ev.send(PluginRunEvent::Provision(e));
+                    }
+                });
                 let r = self.provision(p.clone(), tx, cancel);
-                for e in rx.try_iter() {
-                    let _ = events.send(PluginRunEvent::Provision(e));
-                }
+                let _ = fwd.join();
                 (r?.name, true)
             }
         };
