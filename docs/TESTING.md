@@ -9,6 +9,8 @@ Nothing is checked twice, and nothing waits for a person to check it by hand.
 
 - CI runs the whole suite on every pull request, and `main` requires it. Do not run the whole
   suite locally as well: while working, run only the checks of what you changed.
+- A pull request that changes only docs (Markdown files and `docs/`) builds and tests nothing.
+  The CI jobs still report, because `main` waits for them, in under a minute.
 - What the mock backend or the fake CLI covers is not checked again on the real backend.
 - A check that a test, a script or an agent can make is automated, never left to a person. On the
   real backend an agent acts only when asked to
