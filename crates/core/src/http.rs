@@ -188,14 +188,11 @@ fn addr_bound(addr: SocketAddr) -> bool {
     }
 }
 
-/// On Windows `localhost` resolves to `[::1]` first while `127.0.0.1:<port>` can
-/// still bind alongside an existing `[::1]:<port>` listener. `bind` checks the
-/// OS socket table without going through TUN/WFP proxies; the connect fallback
-/// catches wildcard and WSL2 `localhost` relay listeners.
+/// A forward is opened as `http://localhost:<port>`, and `localhost` can resolve to `[::1]`,
+/// where another program may be listening while `127.0.0.1:<port>` is still free to bind.
+/// A bind also finds a socket that is bound but not accepting. On Windows it does not collide
+/// with a listener on the wildcard address, so the connects stay.
 pub fn local_port_in_use(port: u16, timeout: Duration) -> bool {
-    if port == 0 {
-        return false;
-    }
     let v4 = SocketAddr::from(([127, 0, 0, 1], port));
     let v6 = SocketAddr::from((Ipv6Addr::LOCALHOST, port));
     addr_bound(v4)
