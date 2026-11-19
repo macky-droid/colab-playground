@@ -30,6 +30,9 @@ const ENDED_KEPT: usize = 20;
 #[derive(Default)]
 pub struct SessionsState {
     pub(crate) runtimes: Load<RuntimesView>,
+    /// A listing was asked for while one ran: what that one finds may be older than the change
+    /// behind the request, so one more follows it.
+    pub(crate) relist: bool,
     pub(crate) now: Option<SystemTime>,
     pub(crate) ended: Vec<Ended>,
     pub(crate) warnings: HashMap<RuntimeRef, Vec<Concern>>,
@@ -130,12 +133,31 @@ impl AppState {
         }
     }
 
+    /// Lists the runtimes because they may have changed, or because the user asked. A listing
+    /// already under way may have read an account before that change, and its result replaces
+    /// the list, so one more listing follows it: one, however many requests arrive meanwhile.
     pub fn load_runtimes(&mut self, cx: &mut Context<Self>) {
+        self.list_runtimes(true, cx);
+    }
+
+    /// The listing that only keeps the list fresh. Nothing is known to have changed, so a
+    /// listing under way serves it: were it to ask for one more, a listing slower than the
+    /// polling interval would be followed by another without end.
+    pub fn poll_runtimes(&mut self, cx: &mut Context<Self>) {
+        self.list_runtimes(false, cx);
+    }
+
+    fn list_runtimes(&mut self, changed: bool, cx: &mut Context<Self>) {
         if !self.cli_installed() || !self.has_saved_accounts() {
             return;
         }
         self.sessions.runtimes.begin();
         self.quit_waits_for_listing();
+        if self.ops.is_running(Op::Runtimes) {
+            self.sessions.relist |= changed;
+            return;
+        }
+        self.sessions.relist = false;
         self.run_backend(
             Op::Runtimes,
             cx,
@@ -161,6 +183,9 @@ impl AppState {
                         log::warn!("sessions: listing failed: {error}");
                         state.sessions.runtimes = Load::Failed(error);
                     }
+                }
+                if std::mem::take(&mut state.sessions.relist) {
+                    state.load_runtimes(cx);
                 }
                 state.listed_for_feedback(cx);
                 cx.notify();
@@ -223,9 +248,8 @@ impl AppState {
                             Some(now),
                         );
                         state.toast_done(tr_args(cx, keys::STOP_DONE, &[("name", &label)]), cx);
-                        let listed_before = state.ops.is_running(Op::Runtimes);
                         state.after_runtime_change(cx);
-                        state.ask_for_feedback_after_stop(listed_before, cx);
+                        state.ask_for_feedback_after_stop(cx);
                     }
                     Err(error) => {
                         log::warn!("sessions: stopping {label} failed: {error}");

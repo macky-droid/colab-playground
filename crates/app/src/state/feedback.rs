@@ -35,15 +35,6 @@ pub fn feedback_page() -> String {
     format!("{PROJECT_PAGE}/issues/new?body={body}")
 }
 
-/// The runtime listing a user's stop waits for before it asks.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ListingAwaited {
-    /// The one under way, which began after the stop.
-    UnderWay,
-    /// One more after the one under way, which began before the stop ended.
-    Next,
-}
-
 /// Whether the app may ask at `now` (seconds since the Unix epoch).
 fn due(settings: &Settings, now: u64) -> bool {
     !settings.feedback_answered
@@ -61,15 +52,10 @@ impl AppState {
         self.persist_settings(cx);
     }
 
-    /// The user's stop ended a runtime; `listed_before` says whether a runtime listing was
-    /// already under way then. The list shown can still lack a runtime that came up meanwhile
-    /// (a start that finished during the stop, one opened in the browser), and that one
-    /// bills, so an ask that is due waits for a listing that began after the stop.
-    pub(crate) fn ask_for_feedback_after_stop(
-        &mut self,
-        listed_before: bool,
-        cx: &mut Context<Self>,
-    ) {
+    /// The user's stop ended a runtime and a listing was asked for. The list shown can still
+    /// lack a runtime that came up meanwhile (a start that finished during the stop, one opened
+    /// in the browser), and that one bills, so an ask that is due waits for that listing.
+    pub(crate) fn ask_for_feedback_after_stop(&mut self, cx: &mut Context<Self>) {
         if !self
             .backend_now()
             .map(secs)
@@ -77,30 +63,20 @@ impl AppState {
         {
             return;
         }
-        if !self.ops.is_running(Op::Runtimes) {
+        self.feedback_waits_for_listing = self.ops.is_running(Op::Runtimes);
+        if !self.feedback_waits_for_listing {
             self.ask_for_feedback_if_due(cx);
-            return;
         }
-        // The listing the stop asked for does not start while an earlier one runs.
-        self.feedback_waits_for = Some(if listed_before {
-            ListingAwaited::Next
-        } else {
-            ListingAwaited::UnderWay
-        });
     }
 
-    /// A runtime listing is back: a stop waiting for it asks now, if it may, or first lists
-    /// once more when that listing began before the stop ended.
+    /// A runtime listing is back: a stop waiting for it asks now, if it may. A listing that
+    /// another follows began before the stop ended, so the stop waits for that one.
     pub(crate) fn listed_for_feedback(&mut self, cx: &mut Context<Self>) {
-        match self.feedback_waits_for.take() {
-            Some(ListingAwaited::UnderWay) => self.ask_for_feedback_if_due(cx),
-            Some(ListingAwaited::Next) => {
-                self.load_runtimes(cx);
-                if self.ops.is_running(Op::Runtimes) {
-                    self.feedback_waits_for = Some(ListingAwaited::UnderWay);
-                }
-            }
-            None => {}
+        if self.ops.is_running(Op::Runtimes) {
+            return;
+        }
+        if std::mem::take(&mut self.feedback_waits_for_listing) {
+            self.ask_for_feedback_if_due(cx);
         }
     }
 

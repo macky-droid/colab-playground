@@ -207,7 +207,11 @@ impl AppState {
                         }
                         None => {}
                     }
-                    state.load_runtimes(cx);
+                    if manual {
+                        state.load_runtimes(cx);
+                    } else {
+                        state.poll_runtimes(cx);
+                    }
                     cx.notify();
                 }
                 Ok((None, _, now)) => state.usage.now = Some(now),

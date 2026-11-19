@@ -1148,3 +1148,40 @@ fn turning_on_a_limit_at_the_bottom_of_the_form_scrolls_its_value_into_view(
         "the value {control:?} is inside the form {form:?}"
     );
 }
+
+#[gpui::test]
+fn a_refresh_asked_for_during_a_listing_lists_once_more(cx: &mut TestAppContext) {
+    let mut app = TestApp::with(cx, Options::scenario(MockScenario::single()));
+    let before = app.mock.runtime_listings();
+    app.update(|state, cx| {
+        // The first begins; it may read an account before the change behind the others.
+        state.load_runtimes(cx);
+        state.load_runtimes(cx);
+        state.load_runtimes(cx);
+    });
+    assert_eq!(
+        app.mock.runtime_listings(),
+        before + 2,
+        "the one under way, then one more for every request it could not answer"
+    );
+    assert!(app.read(|state, _| state.runtimes().ready().is_some()));
+}
+
+#[gpui::test]
+fn the_periodic_listing_asks_for_no_other(cx: &mut TestAppContext) {
+    let mut app = TestApp::with(cx, Options::scenario(MockScenario::single()));
+    let before = app.mock.runtime_listings();
+    app.update(|state, cx| {
+        state.load_runtimes(cx);
+        // Polls that come due while a slow listing runs: it serves them.
+        state.poll_runtimes(cx);
+        state.poll_runtimes(cx);
+    });
+    assert_eq!(app.mock.runtime_listings(), before + 1);
+    app.update(|state, cx| state.poll_runtimes(cx));
+    assert_eq!(
+        app.mock.runtime_listings(),
+        before + 2,
+        "with none under way it lists"
+    );
+}

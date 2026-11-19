@@ -361,6 +361,7 @@ struct World {
     pending_add: Option<Option<AccountId>>,
     login_live: bool,
     update_checks: u32,
+    runtime_listings: u32,
     update_installs: u32,
     update_relaunches: u32,
 }
@@ -729,6 +730,7 @@ impl MockBackend {
             pending_add: None,
             login_live: false,
             update_checks: 0,
+            runtime_listings: 0,
             update_installs: 0,
             update_relaunches: 0,
         };
@@ -787,6 +789,11 @@ impl MockBackend {
     /// How many update checks were made (the simulation never contacts GitHub).
     pub fn update_checks(&self) -> u32 {
         self.w().update_checks
+    }
+
+    /// How many times the runtimes were listed for the app (`Backend::runtimes`).
+    pub fn runtime_listings(&self) -> u32 {
+        self.w().runtime_listings
     }
 
     /// How many simulated updates completed (nothing is ever downloaded or replaced).
@@ -1435,6 +1442,7 @@ impl Backend for MockBackend {
         self.step(cancel)?;
         let now = self.now_();
         let mut w = self.w();
+        w.runtime_listings += 1;
         if w.failures.runtimes_listing_fails {
             return Err(Error::new(ErrorKind::Http).detail("simulated runtime listing failure"));
         }
