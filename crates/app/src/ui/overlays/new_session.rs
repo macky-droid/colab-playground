@@ -20,7 +20,7 @@ use crate::{
     format,
     i18n::{keys, tr, tr_args},
     route::Route,
-    state::{AppState, ProvisionPhase},
+    state::{AppState, LimitReached, ProvisionPhase},
     ui::{
         Inputs, error_view,
         parts::{Layer, cancel_work_button, field},
@@ -46,9 +46,10 @@ pub(super) fn render(
         Layer::Overlay.close(handle),
     );
     let theme = cx.theme();
+    let limit = state.session_limit_reached();
     Some(match &session.phase {
-        ProvisionPhase::Editing if state.session_limit_reached().is_some() => {
-            limit_dialog(dialog, state, handle, cx)
+        ProvisionPhase::Editing if limit.is_some() => {
+            limit_dialog(dialog, limit, state, handle, cx)
         }
         ProvisionPhase::Editing => {
             let edit: provision_form::SpecEdit = {
@@ -180,7 +181,7 @@ pub(super) fn render(
             };
             if failed.is_some_and(|e| e.is(ErrorKind::SessionLimitReached)) {
                 // The cap is this app's own setting: offer to change it or see what counts.
-                return Some(limit_dialog(dialog, state, handle, cx));
+                return Some(limit_dialog(dialog, limit, state, handle, cx));
             }
             let mut dialog = dialog;
             if progress::has_lines(&session.progress, cx) {
@@ -224,22 +225,23 @@ pub(super) fn render(
 
 pub const NEW_SESSION_LIMIT: &str = "new-session-limit";
 
-/// The session cap is reached: what counts, that it is this app's own setting, and the way to
+/// The session cap is reached (`limit` is what the app counted, `None` when only core
+/// counted it): what counts, that it is this app's own setting, and the way to
 /// change it or to see the runtimes that count.
 fn limit_dialog(
     dialog: Dialog,
+    limit: Option<LimitReached>,
     state: &AppState,
     handle: &Entity<AppState>,
     cx: &App,
 ) -> AnyElement {
-    let limit = state.session_limit_reached();
     let max = limit
         .as_ref()
         .map_or(state.defaults().max_concurrent_sessions, |l| l.limit);
     let email = format::email(cx, state.active_email().as_deref());
     let counted = limit
         .as_ref()
-        .map(|l| crate::format::list(cx, &l.counted))
+        .map(|l| format::list(cx, &l.counted))
         .unwrap_or_default();
     let mut body = div().flex().flex_col().gap_2().child(InlineMessage::new(
         Severity::Warning,

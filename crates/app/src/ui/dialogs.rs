@@ -43,7 +43,7 @@ pub fn render(
 ) -> Option<AnyElement> {
     let dialog = state.dialog()?;
     Some(match dialog {
-        AccountDialog::Add(phase) => add(phase, state, handle, inputs, cx),
+        AccountDialog::Add(phase) => add(phase, handle, inputs, cx),
         AccountDialog::Switch {
             email,
             impact,
@@ -58,7 +58,6 @@ pub fn render(
 
 fn add(
     phase: &AddPhase,
-    state: &AppState,
     handle: &Entity<AppState>,
     inputs: &Inputs,
     cx: &App,
@@ -189,7 +188,6 @@ fn add(
                 })
         }
     };
-    let _ = state;
     dialog.into_any_element()
 }
 
