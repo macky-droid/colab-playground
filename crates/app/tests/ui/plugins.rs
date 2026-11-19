@@ -454,6 +454,64 @@ fn secrets_never_show_up_anywhere(cx: &mut TestAppContext) {
     assert!(field.is_empty());
 }
 
+#[gpui::test]
+fn a_rejected_deploy_keeps_the_secret_typed(cx: &mut TestAppContext) {
+    const SECRET: &str = "sk-very-secret-4711";
+    let mut app = TestApp::with(cx, Options::scenario(MockScenario::single()));
+    app.click(Route::Plugins.nav_selector());
+    open_deploy_form_from_plugins(&mut app);
+    let key = |app: &mut TestApp<'_>| {
+        app.read_root(|root, cx| {
+            root.inputs()
+                .field("api_key")
+                .map(|f| f.read(cx).text().to_owned())
+                .unwrap_or_default()
+        })
+    };
+    let rejected = |app: &mut TestApp<'_>| {
+        app.read(|state, _| {
+            state.plugin_view() == PluginView::Form
+                && state.plugin_run().is_none()
+                && state
+                    .run_form()
+                    .and_then(|form| form.error.as_ref())
+                    .map(|e| e.kind)
+                    == Some(ErrorKind::InvalidInput)
+        })
+    };
+
+    // The required model is missing.
+    app.fill(|inputs| inputs.field("repo").expect("the model field"), "");
+    app.fill(
+        |inputs| inputs.field("api_key").expect("the key field"),
+        SECRET,
+    );
+    app.click(RUN_START);
+    assert!(rejected(&mut app), "the form stays open with the error");
+    assert_eq!(key(&mut app), SECRET, "the secret is still in its field");
+
+    // A number that does not parse.
+    app.fill(
+        |inputs| inputs.field("repo").expect("the model field"),
+        REPO,
+    );
+    app.fill(
+        |inputs| inputs.field("ctx").expect("the context field"),
+        "1.2.3",
+    );
+    app.click(RUN_START);
+    assert!(rejected(&mut app), "the form stays open with the error");
+    assert_eq!(key(&mut app), SECRET, "the secret is still in its field");
+
+    app.fill(|inputs| inputs.field("ctx").expect("the context field"), "");
+    app.click(RUN_START);
+    assert!(matches!(run_phase(&mut app), Some(RunPhase::Ready(_))));
+    assert!(
+        key(&mut app).is_empty(),
+        "the secret field is cleared once the run started"
+    );
+}
+
 fn open_deploy_form_from_plugins(app: &mut TestApp<'_>) {
     app.click("plugin-run llama-cpp");
     assert_eq!(app.read(|state, _| state.plugin_view()), PluginView::Form);

@@ -343,21 +343,22 @@ impl AppState {
     }
 
     /// Starts the run with the text fields' contents (`texts`: input id → text, secrets
-    /// included; the caller clears the secret fields).
+    /// included). Returns whether it started: the caller clears the secret fields only then,
+    /// so a form that stays open with an error keeps what was typed.
     pub fn start_run(
         &mut self,
         texts: Vec<(String, String)>,
         session_name: String,
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
         if self.ops.is_running(Op::PluginRun) {
-            return;
+            return false;
         }
         let Some(form) = &self.run_form else {
-            return;
+            return false;
         };
         let Some(info) = self.plugin(&form.plugin).cloned() else {
-            return;
+            return false;
         };
         let mut inputs = form.values.clone();
         for (id, text) in texts {
@@ -380,7 +381,7 @@ impl AppState {
                             form.error = Some(error);
                         }
                         cx.notify();
-                        return;
+                        return false;
                     }
                 }
             } else {
@@ -394,7 +395,7 @@ impl AppState {
                 form.error = Some(error);
             }
             cx.notify();
-            return;
+            return false;
         }
         let target = match &form.existing {
             Some(name) => RunTarget::Existing { name: name.clone() },
@@ -439,6 +440,7 @@ impl AppState {
             },
         );
         cx.notify();
+        true
     }
 
     fn apply_run_event(&mut self, event: PluginRunEvent, cx: &App) {
