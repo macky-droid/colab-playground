@@ -715,6 +715,73 @@ fn free_port() -> u16 {
         .port()
 }
 
+/// A switch that cannot start, because the active account is still at work, changes
+/// nothing: the port forwards stay open.
+#[test]
+fn a_switch_that_cannot_start_leaves_the_tunnels_open() {
+    let f = fixture();
+    let alice = f.adopt_alice();
+    let bob = f.add_bob();
+    f.provision("tun", Accelerator::T4);
+    let (tx, rx) = channel();
+    f.b.open_tunnel(
+        TunnelSpec {
+            account: bob.id.clone(),
+            session: "tun".into(),
+            local_port: free_port(),
+            remote_port: 8000,
+            health_path: None,
+        },
+        tx,
+    )
+    .unwrap();
+    let up = |e: &TunnelEvent| {
+        matches!(
+            e,
+            TunnelEvent::State {
+                state: TunnelState::Up,
+                ..
+            }
+        )
+    };
+    assert!(wait_for(&rx, 60, up).is_some(), "tunnel never came up");
+
+    // A request Colab does not answer keeps the account busy until it is cancelled.
+    f.knob("no_answer", json!(["A100"]));
+    f.knob("no_answer_hangs", json!(true));
+    let cancel = CancelToken::new();
+    std::thread::scope(|scope| {
+        let waiting = scope.spawn(|| {
+            let (tx, _rx) = channel();
+            let spec = ProvisionSpec::new("busy", Accelerator::A100, &Defaults::default());
+            f.b.provision(spec, tx, &cancel)
+        });
+        let end = Instant::now() + Duration::from_secs(30);
+        while f.assignments("bob").len() < 2 && Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let err = f.b.switch_account(&alice.id, &nc()).unwrap_err();
+        cancel.cancel();
+        assert!(
+            waiting
+                .join()
+                .unwrap()
+                .unwrap_err()
+                .is(ErrorKind::Cancelled)
+        );
+        assert!(err.is(ErrorKind::Busy), "{err}");
+    });
+    assert_eq!(
+        f.b.tunnels().len(),
+        1,
+        "the refused switch closed the tunnel"
+    );
+    assert_eq!(f.b.accounts(&nc()).unwrap().active, Some(bob.id.clone()));
+
+    f.b.switch_account(&alice.id, &nc()).unwrap();
+    assert!(f.b.tunnels().is_empty());
+}
+
 #[test]
 fn tunnel_uses_per_account_proxy_command_and_never_auto_creates() {
     let f = fixture();

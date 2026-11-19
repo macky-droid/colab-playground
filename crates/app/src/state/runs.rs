@@ -196,6 +196,31 @@ impl AppState {
         }
     }
 
+    /// After a listing: a session picked as the form's target that is gone (stopped, or its
+    /// account is no longer the active one) is unpicked, so the form shows the new session
+    /// it would create instead of deploying to a name that fails.
+    pub(crate) fn drop_gone_run_target(&mut self) {
+        let Some(name) = self
+            .run_form
+            .as_ref()
+            .and_then(|form| form.existing.as_ref())
+        else {
+            return;
+        };
+        let gone = self.runtimes().ready().is_some_and(|view| {
+            // An account that could not be listed says nothing about its sessions.
+            view.errors.is_empty()
+                && !view.runtimes.iter().any(|runtime| {
+                    runtime.on_active_account
+                        && runtime.managed
+                        && runtime.id.name.as_ref() == Some(name)
+                })
+        });
+        if gone && let Some(form) = &mut self.run_form {
+            form.existing = None;
+        }
+    }
+
     pub fn close_run_form(&mut self, cx: &mut Context<Self>) {
         self.run_form = None;
         self.plugin_view = PluginView::List;

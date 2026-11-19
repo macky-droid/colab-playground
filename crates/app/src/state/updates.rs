@@ -216,17 +216,25 @@ impl AppState {
         if self.ops.is_running(Op::UpdateCheck) {
             return;
         }
-        if !manual && let Ok(backend) = &self.backend {
-            let now = secs(backend.now());
-            let due_saved = self
-                .settings
-                .update_checked_at
-                .is_none_or(|last| now >= last + UPDATE_INTERVAL.as_secs());
-            let due_retry = self
-                .update_attempted_at
-                .is_none_or(|last| now >= last + UPDATE_RETRY_INTERVAL.as_secs());
-            if !(due_saved && due_retry) {
-                return;
+        if !manual {
+            match &self.backend {
+                Ok(backend) => {
+                    let now = secs(backend.now());
+                    let due_saved = self
+                        .settings
+                        .update_checked_at
+                        .is_none_or(|last| now >= last + UPDATE_INTERVAL.as_secs());
+                    let due_retry = self
+                        .update_attempted_at
+                        .is_none_or(|last| now >= last + UPDATE_RETRY_INTERVAL.as_secs());
+                    if !(due_saved && due_retry) {
+                        return;
+                    }
+                }
+                // No backend to check with and no clock to space the tries: its failure is
+                // reported once, not at every poller wake.
+                Err(_) if matches!(self.update, UpdateCheck::Failed(_)) => return,
+                Err(_) => {}
             }
         }
         if manual {

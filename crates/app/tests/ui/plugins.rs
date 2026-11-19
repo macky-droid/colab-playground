@@ -4,7 +4,8 @@
 use colab_playground::{
     i18n::keys,
     route::Route,
-    state::{InstallPrompt, Load, Overlay, PluginView, RunPhase},
+    settings::LanguagePref,
+    state::{InstallPrompt, Load, Op, Overlay, PluginView, RunPhase},
     ui::{
         overlays::INSTALL_CONFIRM,
         pages::{
@@ -254,6 +255,44 @@ fn a_plugin_from_a_folder_is_installed_after_confirming(cx: &mut TestAppContext)
 }
 
 #[gpui::test]
+fn closing_the_install_dialog_stops_its_check(cx: &mut TestAppContext) {
+    let fixture = tempfile::tempdir().expect("a fixture folder");
+    std::fs::write(fixture.path().join("plugin.toml"), FIXTURE_MANIFEST).expect("manifest");
+    std::fs::write(fixture.path().join("run.sh"), "#!/bin/bash\necho hello\n").expect("script");
+    let folder = fixture.path().display().to_string();
+    let mut app = TestApp::new(cx);
+    app.click(Route::Plugins.nav_selector());
+
+    // Headless calls finish as soon as the app settles, so the dialog is closed in the same
+    // step that opened it, while its check has not answered.
+    let source = folder.clone();
+    app.update(|state, cx| {
+        state.inspect_plugin(source.clone(), cx);
+        assert!(matches!(
+            state.overlay(),
+            Some(Overlay::InstallPlugin(InstallPrompt::Checking))
+        ));
+        state.close_overlay(cx);
+        assert!(state.is_cancelling(Op::InspectPlugin), "the check goes on");
+        // Until it has stopped, no other check starts: its answer would fill that dialog.
+        state.inspect_plugin(source, cx);
+        assert!(state.overlay().is_none());
+    });
+    assert!(app.read(|state, _| !state.is_busy(Op::InspectPlugin)));
+    assert!(
+        app.read(|state, _| state.overlay().is_none()),
+        "the stopped check opened the dialog again"
+    );
+
+    app.fill(|inputs| inputs.plugin_source.clone(), &folder);
+    app.click(INSTALL_CHECK);
+    assert!(matches!(
+        app.read(|state, _| state.overlay().cloned()),
+        Some(Overlay::InstallPlugin(InstallPrompt::Preview(_)))
+    ));
+}
+
+#[gpui::test]
 fn secrets_never_show_up_anywhere(cx: &mut TestAppContext) {
     const SECRET: &str = "sk-very-secret-4711";
     const TOKEN: &str = "hf_token-secret-0815";
@@ -420,6 +459,60 @@ fn accounts_cannot_change_while_a_deployment_runs(cx: &mut TestAppContext) {
     });
     let blocked = app.text(keys::ACCOUNT_CHANGE_BLOCKED);
     assert!(app.toasts().contains(&blocked), "{:?}", app.toasts());
+}
+
+#[gpui::test]
+fn the_forms_fields_follow_the_language(cx: &mut TestAppContext) {
+    let mut app = TestApp::new(cx);
+    app.click(Route::Plugins.nav_selector());
+    app.click("plugin-run llama-cpp");
+    app.fill(|inputs| inputs.fields["repo"].clone(), REPO);
+    let field =
+        |app: &mut TestApp<'_>| app.read_root(|root, _| root.inputs().fields["repo"].clone());
+    let before = field(&mut app);
+
+    app.update(|state, cx| state.set_language(LanguagePref::ZhCn, cx));
+    let after = field(&mut app);
+    assert_ne!(
+        before.entity_id(),
+        after.entity_id(),
+        "the field still carries the label of the language it was made in"
+    );
+    let typed = app.cx.update(|_, cx| after.read(cx).text().to_owned());
+    assert_eq!(typed, REPO, "what was typed stays");
+}
+
+#[gpui::test]
+fn a_stopped_session_is_no_longer_the_forms_target(cx: &mut TestAppContext) {
+    let mut app = TestApp::new(cx);
+    app.click(Route::Plugins.nav_selector());
+    app.click("plugin-run llama-cpp");
+    let picked = app.read(|state, _| {
+        let view = state.runtimes().ready().expect("listed");
+        let picked = view
+            .runtimes
+            .iter()
+            .find(|runtime| runtime.id.name.as_deref() == Some("a100-7f3a"));
+        picked.expect("the demo's managed session").id.clone()
+    });
+    app.update(|state, cx| {
+        state.edit_run_form(|form| form.existing = Some("a100-7f3a".into()), cx);
+        state.load_runtimes(cx);
+    });
+    let target = |app: &mut TestApp<'_>| {
+        app.read(|state, _| state.run_form().and_then(|form| form.existing.clone()))
+    };
+    assert_eq!(
+        target(&mut app).as_deref(),
+        Some("a100-7f3a"),
+        "kept while it is listed"
+    );
+
+    app.update(|state, cx| {
+        state.request_stop(picked, cx);
+        state.confirm_stop(cx);
+    });
+    assert_eq!(target(&mut app), None, "the form is back on a new session");
 }
 
 // Several iterations shuffle task scheduling, so the older search can finish last.

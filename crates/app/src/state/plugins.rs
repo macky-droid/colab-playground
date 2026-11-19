@@ -160,6 +160,11 @@ impl AppState {
         if source.is_empty() {
             return;
         }
+        if self.ops.is_running(Op::InspectPlugin) {
+            // The check of a dialog closed since is still stopping; its answer is not this
+            // source's.
+            return;
+        }
         self.overlay = Some(Overlay::InstallPlugin(InstallPrompt::Checking));
         self.run_backend(
             Op::InspectPlugin,
@@ -181,6 +186,18 @@ impl AppState {
                 }
             },
         );
+        cx.notify();
+    }
+
+    /// Closes the install dialog and stops the check still running for it.
+    pub(crate) fn close_install_plugin(&mut self, cx: &mut Context<Self>) {
+        if matches!(
+            self.overlay,
+            Some(Overlay::InstallPlugin(InstallPrompt::Checking))
+        ) {
+            self.ops.cancel(Op::InspectPlugin);
+        }
+        self.overlay = None;
         cx.notify();
     }
 

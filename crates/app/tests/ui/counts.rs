@@ -95,8 +95,15 @@ fn a_partial_listing_says_only_the_listed_accounts_are_empty(cx: &mut TestAppCon
     };
     let mut app = TestApp::with(cx, options);
     on_sessions(&mut app);
+    let lin = app.read(|state, _| {
+        let accounts = &state.accounts().ready().expect("accounts").accounts;
+        let lin = accounts
+            .iter()
+            .find(|account| account.email.as_deref() == Some("lin@example.com"));
+        lin.expect("the second account").id.clone()
+    });
     assert!(
-        app.shown("error-sessions-account-lin@example.com"),
+        app.shown(&format!("error-sessions-account-{lin}")),
         "the account that could not be listed is named"
     );
     assert!(app.shown(EMPTY_PARTIAL_SELECTOR));

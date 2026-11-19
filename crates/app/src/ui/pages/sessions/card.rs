@@ -77,6 +77,9 @@ pub(super) fn render(
 ) -> AnyElement {
     let theme = cx.theme();
     let label = runtime_label(runtime);
+    // Element ids come from this, not the label: two runtimes can share a label (the same
+    // name on two accounts, or no name and the same hardware).
+    let key = key_of(&runtime.id);
     let now = state.sessions_now();
     let unknown = || tr(cx, keys::SUMMARY_UNKNOWN);
     let tracked = runtime.tracked.as_ref();
@@ -162,14 +165,14 @@ pub(super) fn render(
         card = card.child(tagged(
             format!("guard-stop-failed {label}"),
             Alert::new(
-                SharedString::from(format!("guard-stop-failed-{label}")),
+                SharedString::from(format!("guard-stop-failed-{key}")),
                 Severity::Danger,
                 tr(cx, keys::GUARD_STILL_BILLING),
             )
             .body(errors::explain(error, false, cx).message)
             .action(
                 Button::new(
-                    SharedString::from(format!("guard-retry-{label}")),
+                    SharedString::from(format!("guard-retry-{key}")),
                     tr(cx, keys::STOP_ACTION),
                 )
                 .size(ControlSize::Sm)
@@ -214,7 +217,7 @@ pub(super) fn render(
             message = message.child(
                 div().child(
                     Button::new(
-                        SharedString::from(format!("guard-extend-{label}")),
+                        SharedString::from(format!("guard-extend-{key}")),
                         tr_args(
                             cx,
                             keys::RUNTIME_EXTEND_BY,
@@ -260,12 +263,13 @@ fn actions(
     cx: &App,
 ) -> AnyElement {
     let target = runtime.id.clone();
+    let key = key_of(&target);
     let stop = {
         let (handle, target) = (handle.clone(), target.clone());
         tagged(
             stop_selector(label),
             Button::new(
-                SharedString::from(format!("stop-{label}")),
+                SharedString::from(format!("stop-{key}")),
                 tr(cx, keys::STOP_ACTION),
             )
             .variant(ButtonVariant::Danger)
@@ -285,7 +289,7 @@ fn actions(
             .child(tagged(
                 switch_selector(label),
                 Button::new(
-                    SharedString::from(format!("switch-{label}")),
+                    SharedString::from(format!("switch-{key}")),
                     tr(cx, keys::RUNTIME_SWITCH),
                 )
                 .size(ControlSize::Sm)
@@ -307,7 +311,7 @@ fn actions(
             row = row.child(tagged(
                 extend_selector(label),
                 Button::new(
-                    SharedString::from(format!("extend-{label}")),
+                    SharedString::from(format!("extend-{key}")),
                     tr_args(
                         cx,
                         keys::RUNTIME_EXTEND_BY,
@@ -325,7 +329,7 @@ fn actions(
         row = row.child(tagged(
             cancel_auto_stop_selector(label),
             Button::new(
-                SharedString::from(format!("cancel-auto-stop-{label}")),
+                SharedString::from(format!("cancel-auto-stop-{key}")),
                 tr(cx, keys::RUNTIME_CANCEL_AUTO_STOP),
             )
             .variant(ButtonVariant::Ghost)
@@ -345,7 +349,7 @@ fn actions(
         row = row.child(tagged(
             set_auto_stop_selector(label),
             Button::new(
-                SharedString::from(format!("set-auto-stop-{label}")),
+                SharedString::from(format!("set-auto-stop-{key}")),
                 tr_args(
                     cx,
                     keys::RUNTIME_SET_AUTO_STOP,
@@ -361,7 +365,7 @@ fn actions(
     }
     let (forward_handle, forward_target) = (handle.clone(), target.clone());
     let forward = Button::new(
-        SharedString::from(format!("forward-{label}")),
+        SharedString::from(format!("forward-{key}")),
         tr(cx, keys::FORWARD_TITLE),
     )
     .variant(ButtonVariant::Ghost)
@@ -376,7 +380,7 @@ fn actions(
         forward.into_any_element()
     } else {
         div()
-            .id(SharedString::from(format!("forward-wrap-{label}")))
+            .id(SharedString::from(format!("forward-wrap-{key}")))
             .tooltip(Tooltip::text(tr(cx, keys::RUNTIME_UNNAMED_REASON)))
             .child(forward.disabled(true))
             .into_any_element()

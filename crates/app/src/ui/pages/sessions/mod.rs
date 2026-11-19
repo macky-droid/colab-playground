@@ -126,7 +126,7 @@ pub fn render(state: &AppState, handle: &Entity<AppState>, cx: &App) -> Page {
                     .email_of(&failure.account)
                     .unwrap_or_else(|| tr(cx, keys::ACCOUNTS_NO_EMAIL).to_string());
                 page = page.child(error_view::alert(
-                    &format!("sessions-account-{email}"),
+                    &format!("sessions-account-{}", failure.account),
                     Some(tr_args(
                         cx,
                         keys::SESSIONS_ACCOUNT_FAILED,
@@ -176,25 +176,26 @@ fn groups(
     cx: &App,
 ) -> Vec<AnyElement> {
     let theme = cx.theme();
-    let mut accounts: Vec<(Option<String>, bool, Vec<&Runtime>)> = Vec::new();
+    // By account, not by email: two accounts can both have none.
+    let mut accounts: Vec<Vec<&Runtime>> = Vec::new();
     for runtime in runtimes {
         match accounts
             .iter_mut()
-            .find(|(email, _, _)| *email == runtime.account_email)
+            .find(|list| list[0].id.account == runtime.id.account)
         {
-            Some((_, _, list)) => list.push(runtime),
-            None => accounts.push((
-                runtime.account_email.clone(),
-                runtime.on_active_account,
-                vec![runtime],
-            )),
+            Some(list) => list.push(runtime),
+            None => accounts.push(vec![runtime]),
         }
     }
-    accounts.sort_by_key(|(_, active, _)| !*active);
+    accounts.sort_by_key(|list| !list[0].on_active_account);
     accounts
         .into_iter()
-        .map(|(email, active, list)| {
-            let email = email.unwrap_or_else(|| tr(cx, keys::ACCOUNTS_NO_EMAIL).to_string());
+        .map(|list| {
+            let active = list[0].on_active_account;
+            let email = list[0]
+                .account_email
+                .clone()
+                .unwrap_or_else(|| tr(cx, keys::ACCOUNTS_NO_EMAIL).to_string());
             let heading = if active {
                 tr_args(cx, keys::SESSIONS_GROUP_ACTIVE, &[("email", &email)])
             } else {

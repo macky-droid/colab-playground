@@ -179,6 +179,7 @@ impl AppState {
                             .map(|tunnel| (tunnel.id, tunnel))
                             .collect();
                         state.sessions.runtimes = Load::Ready(view);
+                        state.drop_gone_run_target();
                     }
                     Err(error) => {
                         log::warn!("sessions: listing failed: {error}");
