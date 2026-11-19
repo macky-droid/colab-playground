@@ -2380,6 +2380,10 @@ impl RealBackend {
                     }
                     exiting = false;
                 }
+                if cancel.is_cancelled() {
+                    kill(&cli);
+                    return Err(Error::cancelled());
+                }
                 let Ok(next) = poll_at(poll.offset) else {
                     break;
                 };

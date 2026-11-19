@@ -752,6 +752,39 @@ fn plugin_run_shows_the_whole_log_without_waiting_for_what_is_already_written() 
     assert_eq!(lines[1..], rest, "a failed run shows its last lines");
 }
 
+#[test]
+fn plugin_run_cancelled_while_its_last_log_lines_are_read_ends_as_cancelled() {
+    let f = fixture();
+    f.adopt_alice();
+    f.knob("plugin_log_backlog", json!(6));
+    let mut spec = f.b.plugin_run_template("llama-cpp").unwrap();
+    spec.inputs.insert(
+        "repo".into(),
+        InputValue::Text("unsloth/Qwen3-0.6B-GGUF".into()),
+    );
+    let (tx, rx) = channel();
+    let cancel = CancelToken::new();
+    let watcher = {
+        let cancel = cancel.clone();
+        std::thread::spawn(move || {
+            for event in rx {
+                // The first line read after the script reported that it is ready.
+                if matches!(&event, PluginRunEvent::Log { lines } if lines.iter().any(|l| l == "poll 5 line 0"))
+                {
+                    cancel.cancel();
+                }
+            }
+        })
+    };
+    let err = f.b.run_plugin(spec, tx, &cancel).unwrap_err();
+    watcher.join().unwrap();
+    assert!(err.is(ErrorKind::Cancelled), "{err:?}");
+    assert!(
+        f.assignments("alice").is_empty(),
+        "the runtime started for the run is stopped"
+    );
+}
+
 fn walk(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     if let Ok(rd) = std::fs::read_dir(dir) {
