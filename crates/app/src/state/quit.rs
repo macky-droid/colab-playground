@@ -129,14 +129,12 @@ impl AppState {
             // Already quitting.
             return;
         }
-        if self.update_committed() {
-            // The new version is being put in place, or the app is about to restart into it:
-            // stopping halfway could leave no program where the app was.
+        // A download in progress is simply abandoned: nothing was changed yet. Once the new
+        // version is being put in place, or the app is about to restart into it, the quit
+        // waits: stopping halfway could leave no program where the app was. The install call
+        // can pass that point before the dialog shows it, which the cancel reports.
+        if self.update_committed() || !self.ops.cancel(Op::UpdateInstall) {
             return;
-        }
-        if self.is_busy(Op::UpdateInstall) {
-            // A download in progress is simply abandoned; nothing was changed yet.
-            self.ops.cancel(Op::UpdateInstall);
         }
         if matches!(self.overlay, Some(Overlay::Quit(_))) {
             // Already asking (maybe mid "Stop all"): keep that prompt as it is.

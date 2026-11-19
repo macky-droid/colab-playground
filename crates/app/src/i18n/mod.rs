@@ -676,6 +676,7 @@ catalog_keys! {
     UPDATE_UNVERIFIED => "app.b12.update_unverified",
     UPDATE_UNAVAILABLE => "app.b12.update_unavailable",
     UPDATE_INSTALL_FAILED => "app.b12.update_install_failed",
+    UPDATE_INSTALL_FAILED_KEPT => "app.b12.update_install_failed_kept",
     UPDATE_RESTART_FAILED_TITLE => "app.b12.update_restart_failed_title",
     UPDATE_RESTART_FAILED => "app.b12.update_restart_failed",
     UPDATE_QUIT => "app.b12.update_quit",

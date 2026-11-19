@@ -52,6 +52,10 @@ pub struct Installed {
 pub struct Relaunch {
     pub program: PathBuf,
     pub args: Vec<String>,
+    /// `program` only asks the system to start the app and exits (macOS `open`): it is waited
+    /// for, since its exit status is the only sign of a refused start.
+    #[serde(default)]
+    pub launcher: bool,
 }
 
 /// What macOS needs to unpack a bundle and check it, kept apart so the rest runs anywhere.
@@ -191,25 +195,23 @@ impl Update<'_> {
             .folder()
             .ok_or_else(|| Error::new(ErrorKind::Io).detail("the app is not in a folder"))?;
         let stage = replace::create_staging(folder)?;
-        match self.install_from(&base, &name, &expected, &stage, &send, cancel) {
-            Ok(()) => {
-                // On Linux the old program was replaced by the rename; on Windows and macOS
-                // it now sits in the staging folder, deleted on the next start.
-                if matches!(self.install, Install::Binary { .. }) {
-                    let _ = std::fs::remove_dir_all(&stage);
-                }
-                Ok(Installed {
-                    version: self.release.version.clone(),
-                    relaunch: Some(self.relaunch()),
-                })
-            }
-            Err(error) => {
-                if error.param("previous").is_none() {
-                    let _ = std::fs::remove_dir_all(&stage);
-                }
-                Err(error)
-            }
+        let result = self.install_from(&base, &name, &expected, stage.path(), &send, cancel);
+        let keep = match &result {
+            // On Linux the old program was replaced by the rename; on Windows and macOS it
+            // now sits in the staging folder, deleted on the next start.
+            Ok(()) => !matches!(self.install, Install::Binary { .. }),
+            // After a failed undo the old version is there, and nowhere else.
+            Err(error) => error.param("previous").is_some(),
+        };
+        if keep {
+            stage.release();
+        } else {
+            stage.remove();
         }
+        result.map(|()| Installed {
+            version: self.release.version.clone(),
+            relaunch: Some(self.relaunch()),
+        })
     }
 
     fn install_from(
@@ -248,8 +250,9 @@ impl Update<'_> {
                 app
             }
         };
-        // The last moment a cancel applies: from here on the swap finishes or is undone.
-        cancel.check()?;
+        // The point of no return: from here on the swap finishes or is undone, and a cancel
+        // (a quit among them) no longer applies; whoever cancels learns so.
+        cancel.commit()?;
         send(UpdateProgress::Installing);
         match &self.install {
             Install::Exe { path } => replace::swap_exe(path, &new, stage),
@@ -263,6 +266,7 @@ impl Update<'_> {
             Install::Exe { path } | Install::Binary { path } => Relaunch {
                 program: path.clone(),
                 args: self.args.clone(),
+                launcher: false,
             },
             // Through Launch Services, as a new instance: `open` would otherwise bring the
             // running (old) one to the front.
@@ -275,6 +279,7 @@ impl Update<'_> {
                 Relaunch {
                     program: PathBuf::from("/usr/bin/open"),
                     args,
+                    launcher: true,
                 }
             }
         }

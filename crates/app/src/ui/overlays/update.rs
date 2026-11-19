@@ -303,22 +303,25 @@ fn failed(
     cx: &App,
 ) -> AnyElement {
     let explained = errors::explain(error, false, cx);
-    let (name, message) = match error.kind {
-        ErrorKind::UpdateUnverified => ("unverified", tr(cx, keys::UPDATE_UNVERIFIED)),
-        ErrorKind::UpdateUnavailable => ("unavailable", tr(cx, keys::UPDATE_UNAVAILABLE)),
-        _ => (
-            "error",
-            tr_args(
-                cx,
-                keys::UPDATE_INSTALL_FAILED,
-                &[("why", &explained.message)],
-            ),
+    let (name, key) = failure(error);
+    let message = match name {
+        FAILED_KEPT => tr_args(
+            cx,
+            key,
+            &[
+                ("why", &explained.message),
+                ("previous", error.param("previous").unwrap_or_default()),
+                ("path", error.param("path").unwrap_or_default()),
+            ],
         ),
+        FAILED_OTHER => tr_args(cx, key, &[("why", &explained.message)]),
+        _ => tr(cx, key),
     };
     // A download that failed its check is never offered again by hand: that would skip the
-    // check. Trying again fetches the same files only when the failure was elsewhere.
+    // check. Trying again fetches the same files only when the failure was elsewhere, and not
+    // while this version is out of its place.
     let unverified = error.is(ErrorKind::UpdateUnverified);
-    let can_retry = !unverified && !error.is(ErrorKind::UpdateUnavailable);
+    let can_retry = name == FAILED_OTHER;
     let mut dialog = Dialog::new(
         "update",
         tr(cx, keys::UPDATE_FAILED_INSTALL_TITLE),
@@ -369,6 +372,22 @@ fn failed(
     dialog.into_any_element()
 }
 
+const FAILED_KEPT: &str = "kept";
+const FAILED_OTHER: &str = "error";
+
+/// The failure the dialog names (its selector suffix) and the message key for it.
+fn failure(error: &colab_playground_core::Error) -> (&'static str, &'static str) {
+    if error.param("previous").is_some() {
+        // The new version could not be put in place and the undo failed too.
+        return (FAILED_KEPT, keys::UPDATE_INSTALL_FAILED_KEPT);
+    }
+    match error.kind {
+        ErrorKind::UpdateUnverified => ("unverified", keys::UPDATE_UNVERIFIED),
+        ErrorKind::UpdateUnavailable => ("unavailable", keys::UPDATE_UNAVAILABLE),
+        _ => (FAILED_OTHER, keys::UPDATE_INSTALL_FAILED),
+    }
+}
+
 fn restart_failed(
     prompt: &UpdatePrompt,
     error: &colab_playground_core::Error,
@@ -410,4 +429,31 @@ fn restart_failed(
         )
     })
     .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use colab_playground_core::{Error, ErrorKind};
+
+    use super::{FAILED_KEPT, FAILED_OTHER, failure};
+    use crate::i18n::keys;
+
+    #[test]
+    fn a_failed_undo_is_told_apart_from_every_other_failure() {
+        let swap = Error::new(ErrorKind::Io).with("path", "/Applications/Colab Playground.app");
+        assert_eq!(failure(&swap), (FAILED_OTHER, keys::UPDATE_INSTALL_FAILED));
+        let kept = swap.with(
+            "previous",
+            "/Applications/.colab-playground-update-0/previous.app",
+        );
+        assert_eq!(
+            failure(&kept),
+            (FAILED_KEPT, keys::UPDATE_INSTALL_FAILED_KEPT)
+        );
+        let unverified = Error::new(ErrorKind::UpdateUnverified);
+        assert_eq!(
+            failure(&unverified),
+            ("unverified", keys::UPDATE_UNVERIFIED)
+        );
+    }
 }

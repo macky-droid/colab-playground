@@ -2133,9 +2133,10 @@ impl Backend for MockBackend {
             return Err(Error::new(ErrorKind::UpdateUnverified)
                 .detail("simulated: the download's SHA-256 differs from SHA256SUMS"));
         }
+        // The point of no return, as in the real backend: a cancel from here on does not apply.
+        cancel.commit()?;
         let _ = events.send(UpdateProgress::Installing);
-        // Installing is not cancellable, as in the real backend.
-        self.step(&CancelToken::new())?;
+        self.step(cancel)?;
         if failures.update_install_fails {
             return Err(Error::new(ErrorKind::Io)
                 .with("path", mock_app_folder())
@@ -2147,6 +2148,7 @@ impl Backend for MockBackend {
             relaunch: failures.update_relaunch.then(|| crate::updater::Relaunch {
                 program: std::path::PathBuf::from("colab-playground (simulated)"),
                 args: Vec::new(),
+                launcher: false,
             }),
         })
     }

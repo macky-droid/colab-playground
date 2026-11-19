@@ -1233,6 +1233,10 @@ pub(super) const MESSAGES: Messages = &[
         "업데이트하지 못했습니다: {why} 현재 버전은 그대로입니다.",
     ),
     (
+        UPDATE_INSTALL_FAILED_KEPT,
+        "업데이트하지 못했습니다: {why} 현재 버전도 원래 위치로 되돌리지 못해 지금은 {previous}에 있습니다. {path} 위치로 다시 옮기면 예전처럼 앱을 열 수 있습니다.",
+    ),
+    (
         UPDATE_RESTART_FAILED_TITLE,
         "업데이트를 마치려면 앱을 다시 시작하세요",
     ),

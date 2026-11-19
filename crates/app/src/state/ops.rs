@@ -159,10 +159,15 @@ impl Ops {
         self.running.keys().any(|op| op.delays_restart())
     }
 
-    pub(crate) fn cancel(&self, op: Op) {
-        if let Some(token) = self.running.get(&op) {
-            log::info!("ops: cancelling {op:?}");
-            token.cancel();
+    /// Cancels the call of `op`, if one runs. False when that call has passed its point of no
+    /// return ([`CancelToken::commit`]) and runs to its end.
+    pub(crate) fn cancel(&self, op: Op) -> bool {
+        match self.running.get(&op) {
+            Some(token) => {
+                log::info!("ops: cancelling {op:?}");
+                token.cancel()
+            }
+            None => true,
         }
     }
 

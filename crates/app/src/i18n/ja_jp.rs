@@ -1332,6 +1332,10 @@ pub(super) const MESSAGES: Messages = &[
         "更新に失敗しました：{why}このバージョンはそのままです。",
     ),
     (
+        UPDATE_INSTALL_FAILED_KEPT,
+        "更新に失敗しました：{why}このバージョンも元の場所に戻せなかったため、いまは {previous} にあります。{path} に戻すと、これまでどおりアプリを開けます。",
+    ),
+    (
         UPDATE_RESTART_FAILED_TITLE,
         "更新を完了するにはアプリを再起動してください",
     ),

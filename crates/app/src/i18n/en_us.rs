@@ -1217,6 +1217,10 @@ pub(super) const MESSAGES: Messages = &[
         UPDATE_INSTALL_FAILED,
         "The update failed: {why} This version is unchanged.",
     ),
+    (
+        UPDATE_INSTALL_FAILED_KEPT,
+        "The update failed: {why} This version couldn't be moved back either, so it is now at {previous}. Move it back to {path} to open the app as before.",
+    ),
     (UPDATE_RESTART_FAILED_TITLE, "Restart the app to finish"),
     (
         UPDATE_RESTART_FAILED,

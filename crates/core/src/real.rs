@@ -2101,9 +2101,27 @@ impl Backend for RealBackend {
     }
 
     fn relaunch(&self, installed: &Installed) -> Result<()> {
-        match &installed.relaunch {
-            Some(relaunch) => Host::Local.launch_detached(&relaunch.program, &relaunch.args),
-            None => Ok(()),
+        let Some(relaunch) = &installed.relaunch else {
+            return Ok(());
+        };
+        if !relaunch.launcher {
+            return Host::Local.launch_detached(&relaunch.program, &relaunch.args);
+        }
+        let program = relaunch.program.to_string_lossy();
+        let out = Host::Local.run_program(
+            &program,
+            &relaunch.args,
+            &[],
+            &CancelToken::new(),
+            Some(LAUNCHER_TIMEOUT),
+        )?;
+        if out.success() {
+            Ok(())
+        } else {
+            Err(Error::new(ErrorKind::Io).detail(format!(
+                "{program}: {}",
+                crate::host::tail(&out.stderr, 300)
+            )))
         }
     }
 
@@ -2115,7 +2133,8 @@ impl Backend for RealBackend {
             return;
         };
         // On Windows the replaced program can be deleted only once it has exited, which the
-        // version that started this one does moments after starting it.
+        // version that started this one does moments after starting it. (A folder an update in
+        // another copy still uses is left too, and tried again.)
         for _ in 0..LEFTOVER_TRIES {
             if updater::replace::remove_leftovers(folder) == 0 {
                 return;
@@ -2127,6 +2146,8 @@ impl Backend for RealBackend {
 
 const LEFTOVER_TRIES: u32 = 20;
 const LEFTOVER_RETRY: Duration = Duration::from_millis(500);
+/// How long `open` may take to hand the new version to Launch Services.
+const LAUNCHER_TIMEOUT: Duration = Duration::from_secs(60);
 
 impl RealBackend {
     /// Best effort: removes `secrets` from the CLI's history file for

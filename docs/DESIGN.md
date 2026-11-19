@@ -102,8 +102,9 @@ Properties the code must keep. A change that breaks one is wrong even if every t
   billed VMs.
 - **The app replaces itself only when the user asks, and only with a download whose signature
   and checksum check out**, against the keys compiled into it. A failure at any step leaves the
-  running version in place and runnable, and a download that failed the check is never offered
-  for installing by hand.
+  running version in place and runnable (should undoing the final rename fail too, the app says
+  where that version is), and a download that failed the check is never offered for installing
+  by hand.
 - **The default of every setting lives in one place**, is editable in Settings and can be
   overridden for one action. Nothing hard-codes it where it is used.
 - **No user-visible literal outside the i18n catalog**, and every locale has the same keys.

@@ -4,7 +4,7 @@
 //! [`Clock`], so tests and the mock backend can run them instantly with a
 //! [`ManualClock`] while the real app uses [`SystemClock`].
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -97,23 +97,49 @@ impl Clock for ManualClock {
     }
 }
 
-/// Cloning shares the flag.
+/// Cloning shares the state. Work with a point of no return [commits](CancelToken::commit)
+/// there, and a cancel after that no longer applies.
 #[derive(Debug, Clone, Default)]
-pub struct CancelToken(Arc<AtomicBool>);
+pub struct CancelToken(Arc<AtomicU8>);
+
+const LIVE: u8 = 0;
+const CANCELLED: u8 = 1;
+const COMMITTED: u8 = 2;
 
 impl CancelToken {
     pub fn new() -> Self {
         CancelToken::default()
     }
 
-    /// Idempotent.
-    pub fn cancel(&self) {
-        self.0.store(true, Ordering::SeqCst);
+    /// Idempotent. False when the work has already committed: it runs to its end.
+    pub fn cancel(&self) -> bool {
+        match self
+            .0
+            .compare_exchange(LIVE, CANCELLED, Ordering::SeqCst, Ordering::SeqCst)
+        {
+            Ok(_) => true,
+            Err(state) => state == CANCELLED,
+        }
     }
 
-    /// True once [`CancelToken::cancel`] has been called on any clone.
+    /// True once [`CancelToken::cancel`] has taken effect on any clone.
     pub fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::SeqCst)
+        self.0.load(Ordering::SeqCst) == CANCELLED
+    }
+
+    /// The work's point of no return: from here on it finishes whatever a cancel says, and the
+    /// caller of [`CancelToken::cancel`] learns that it did not apply. Fails as cancelled when a
+    /// cancel came first. Deciding both in one step leaves no moment in which a cancel is
+    /// accepted while the work carries on.
+    pub fn commit(&self) -> Result<()> {
+        match self
+            .0
+            .compare_exchange(LIVE, COMMITTED, Ordering::SeqCst, Ordering::SeqCst)
+        {
+            Ok(_) => Ok(()),
+            Err(COMMITTED) => Ok(()),
+            Err(_) => Err(Error::cancelled()),
+        }
     }
 
     pub fn check(&self) -> Result<()> {
@@ -229,5 +255,22 @@ mod tests {
             .sleep(Duration::from_secs(5), &token)
             .unwrap_err();
         assert!(err.is(crate::ErrorKind::Cancelled));
+    }
+
+    #[test]
+    fn a_cancel_and_the_point_of_no_return_exclude_each_other() {
+        let token = CancelToken::new();
+        assert!(token.cancel(), "a cancel before it applies");
+        assert!(token.cancel(), "and keeps applying");
+        assert!(token.commit().unwrap_err().is(crate::ErrorKind::Cancelled));
+        assert!(token.is_cancelled());
+
+        let token = CancelToken::new();
+        let worker = token.clone();
+        worker.commit().unwrap();
+        assert!(!token.cancel(), "the caller learns it came too late");
+        assert!(!worker.is_cancelled(), "and the work carries on");
+        worker.check().unwrap();
+        worker.commit().unwrap();
     }
 }

@@ -1019,6 +1019,10 @@ pub(super) const MESSAGES: Messages = &[
         "此版本没有适用于这台电脑的下载。当前版本保持不变。",
     ),
     (UPDATE_INSTALL_FAILED, "更新失败：{why}当前版本保持不变。"),
+    (
+        UPDATE_INSTALL_FAILED_KEPT,
+        "更新失败：{why}当前版本也未能移回原处，现在位于 {previous}。把它移回 {path} 后，即可像以前一样打开应用。",
+    ),
     (UPDATE_RESTART_FAILED_TITLE, "重启应用以完成更新"),
     (
         UPDATE_RESTART_FAILED,

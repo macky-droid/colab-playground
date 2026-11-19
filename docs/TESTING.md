@@ -130,8 +130,9 @@ to update to. The app runs on the real backend, so close it with nothing running
    `.colab-playground-update-…` folder is left beside it after the restart. Linux:
    `colab-playground` in its folder is still executable. macOS: the app opens without the "Open
    Anyway" step.
-3. Start the older version again, choose "Download and restart" and click Cancel during the
-   download. The dialog closes, the older version keeps running and its folder holds nothing new.
+3. Put the older release back as in step 1 and start it, choose "Download and restart" and click
+   Cancel during the download. The dialog closes, the older version keeps running and its folder
+   holds nothing new.
 4. Where it cannot update itself it says why and offers the download page: on Windows, the exe in
    a folder you cannot write to (for example under `C:\Program Files`); on macOS, the app opened
    from Downloads without moving it to Applications.

@@ -363,6 +363,58 @@ fn a_cancelled_download_changes_nothing(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn a_cancel_once_the_new_version_is_being_put_in_place_does_not_stop_it(cx: &mut TestAppContext) {
+    // The simulation waits once to prepare, sixteen times to download, once to check and once
+    // to put the new version in place.
+    let mut app = confirming(cx, MockFailures::default());
+    app.cancel_switch.arm(18);
+    app.click(UPDATE_CONFIRM);
+    assert_eq!(phase(&mut app), None, "during the check a cancel applies");
+    assert_eq!(app.mock.update_installs(), 0);
+    app.click(UPDATE_NOTICE_INSTALL);
+    app.cancel_switch.arm(19);
+    app.click(UPDATE_CONFIRM);
+    assert_eq!(
+        app.mock.update_installs(),
+        1,
+        "past the point of no return the update finishes"
+    );
+}
+
+#[gpui::test]
+fn only_the_release_the_dialog_names_is_installed(cx: &mut TestAppContext) {
+    let current = Version::parse(update::CURRENT_VERSION).expect("a semantic version");
+    let saved = format!("{}.{}.{}", current.major, current.minor, current.patch + 2);
+    let options = Options {
+        failures: available(),
+        config: ConfigDir::TempWith(format!(
+            r#"{{ "check_updates": false, "update_latest": "{saved}" }}"#
+        )),
+        ..Options::default()
+    };
+    let mut app = TestApp::with(cx, options);
+    app.click(Route::Settings.nav_selector());
+    app.click(UPDATE_INSTALL_SELECTOR);
+    let named = |app: &mut TestApp<'_>| {
+        app.read(|state, _| state.update_prompt().map(|prompt| prompt.version.clone()))
+    };
+    assert_eq!(named(&mut app), Some(saved));
+    // A check finds another release while the dialog is open.
+    app.update(|state, cx| state.check_updates_now(cx));
+    app.settle();
+    app.click(UPDATE_CONFIRM);
+    assert_eq!(
+        app.mock.update_installs(),
+        0,
+        "not before that one is confirmed"
+    );
+    assert!(app.shown("update-phase confirm"));
+    assert_eq!(named(&mut app), Some(next_version()));
+    app.click(UPDATE_CONFIRM);
+    assert_eq!(app.mock.update_installs(), 1);
+}
+
+#[gpui::test]
 fn an_unverified_download_is_not_installed_and_never_offered_by_hand(cx: &mut TestAppContext) {
     let mut app = confirming(
         cx,

@@ -337,15 +337,23 @@ impl AppState {
         let Some(Overlay::Update(prompt)) = &mut self.overlay else {
             return;
         };
-        prompt.version = release.version.clone();
+        if prompt.version != release.version {
+            // A check found another release while the dialog was open: it is installed only
+            // once confirmed by name.
+            prompt.version = release.version;
+            prompt.phase = UpdatePhase::Confirm;
+            cx.notify();
+            return;
+        }
         prompt.phase = UpdatePhase::Working(UpdateProgress::Preparing);
         log::info!("updates: installing {}", release.version);
+        let version = release.version.clone();
         self.run_backend_streaming(
             Op::UpdateInstall,
             cx,
             move |backend, events, cancel| backend.install_update(&release, events, cancel),
             |state, progress, cx| state.apply_update_progress(progress, cx),
-            |state, result, cx| state.update_installed(result, cx),
+            move |state, result, cx| state.update_installed(version, result, cx),
         );
         cx.notify();
     }
@@ -360,8 +368,20 @@ impl AppState {
         }
     }
 
-    fn update_installed(&mut self, result: Result<Installed>, cx: &mut Context<Self>) {
-        let Some(version) = self.update_prompt().map(|prompt| prompt.version.clone()) else {
+    fn update_installed(
+        &mut self,
+        version: String,
+        result: Result<Installed>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Err(error) = &result
+            && error.is(ErrorKind::UpdateUnverified)
+        {
+            // Remembered even when a quit prompt has taken the dialog's place meanwhile.
+            self.settings.update_unverified = Some(version.clone());
+            self.persist_settings(cx);
+        }
+        if self.update_prompt().is_none() {
             // The dialog gave way to quitting while the download was cancelled.
             if let Ok(installed) = &result {
                 log::info!(
@@ -394,10 +414,6 @@ impl AppState {
             }
             Err(error) => {
                 log::warn!("updates: installing {version} failed: {error}");
-                if error.is(ErrorKind::UpdateUnverified) {
-                    self.settings.update_unverified = Some(version);
-                    self.persist_settings(cx);
-                }
                 if let Some(phase) = self.update_phase_mut() {
                     *phase = UpdatePhase::Failed(error);
                 }

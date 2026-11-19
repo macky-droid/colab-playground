@@ -51,8 +51,9 @@ The app checks GitHub for a newer release, and installs it when you ask.
 - **The check before installing:** the download must match `SHA256SUMS` in the release, and
   `SHA256SUMS` must carry the project's signature for that release (see
   [The update signature](RELEASING.md#the-update-signature)). If anything fails, this version stays
-  as it is and keeps working. A download that fails the check is not installed, and the app does
-  not offer that version's download page either.
+  as it is and keeps working (in the rare case that it cannot be put back where it was, the app
+  says where it is now). A download that fails the check is not installed, and the app does not
+  offer that version's download page either.
 - **When the app cannot update itself** it says why and offers "Open download page" instead, where
   you download the new version as in [Install a release](#install-a-release) and replace the old
   file or app. That happens when the app cannot write to its folder (for example

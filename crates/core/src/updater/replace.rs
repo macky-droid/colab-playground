@@ -3,8 +3,9 @@
 //! The download is unpacked into a staging folder next to what it replaces, on the same file
 //! system, so the step that changes the installed files is a rename. Everything that can fail
 //! for other reasons happens before it, and a failed swap is undone, so a failure leaves the old
-//! version in place and runnable. The functions take paths only: each platform's strategy is
-//! compiled and tested on every operating system.
+//! version in place and runnable (if even the undo fails, the error says where the old version
+//! is). The functions take paths only: each platform's strategy is compiled and tested on every
+//! operating system.
 
 use std::fs::{self, File};
 use std::io;
@@ -21,6 +22,9 @@ pub const LINUX_PROGRAM: &str = "colab-playground";
 /// Files beside the Linux program that an update refreshes where they already exist.
 const LINUX_DOCS: [&str; 2] = ["LICENSE", "README.md"];
 
+/// The file in a staging folder that its update keeps locked while it uses the folder.
+const LOCK_FILE: &str = "lock";
+
 fn io_error(error: io::Error, path: &Path) -> Error {
     Error::from(error).with("path", path.display())
 }
@@ -29,11 +33,39 @@ fn bad_archive(detail: impl Into<String>) -> Error {
     Error::new(ErrorKind::Parse).detail(detail)
 }
 
-/// A new, empty staging folder in `folder`.
-pub fn create_staging(folder: &Path) -> Result<PathBuf> {
-    let stage = folder.join(format!("{STAGING_PREFIX}{}", crate::accounts::nonce()));
-    fs::create_dir(&stage).map_err(|e| io_error(e, &stage))?;
-    Ok(stage)
+/// A staging folder an update is using. Its lock file stays locked until this is dropped, or
+/// the process ends, so [`remove_leftovers`] in any copy of the app leaves the folder alone:
+/// two copies can run from the same folder.
+pub struct Staging {
+    path: PathBuf,
+    _lock: File,
+}
+
+impl Staging {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Done with the folder, which stays: it is a leftover from now on.
+    pub fn release(self) -> PathBuf {
+        self.path
+    }
+
+    /// Deletes the folder. Released first: on some file systems a folder cannot be deleted
+    /// while a file in it is open.
+    pub fn remove(self) {
+        let _ = fs::remove_dir_all(self.release());
+    }
+}
+
+/// A new staging folder in `folder`, empty but for its lock file, held for this update.
+pub fn create_staging(folder: &Path) -> Result<Staging> {
+    let path = folder.join(format!("{STAGING_PREFIX}{}", crate::accounts::nonce()));
+    fs::create_dir(&path).map_err(|e| io_error(e, &path))?;
+    let lock = path.join(LOCK_FILE);
+    let file = File::create(&lock).map_err(|e| io_error(e, &lock))?;
+    file.lock().map_err(|e| io_error(e, &lock))?;
+    Ok(Staging { path, _lock: file })
 }
 
 pub fn is_staging_name(name: &str) -> bool {
@@ -42,8 +74,9 @@ pub fn is_staging_name(name: &str) -> bool {
 }
 
 /// Removes the staging folders earlier updates left in `folder`, the replaced version among
-/// them, and nothing else. Returns how many are still there: on Windows a program that is still
-/// exiting cannot be deleted yet.
+/// them, and nothing else. Returns how many are still there: one an update still uses (in this
+/// copy of the app or another), or one holding a program that is still exiting (Windows cannot
+/// delete it yet).
 pub fn remove_leftovers(folder: &Path) -> usize {
     let Ok(entries) = fs::read_dir(folder) else {
         return 0;
@@ -53,11 +86,21 @@ pub fn remove_leftovers(folder: &Path) -> usize {
         let ours = entry.file_name().to_str().is_some_and(is_staging_name);
         // `file_type` does not follow links: a link with that name is not ours to empty.
         let folder = entry.file_type().is_ok_and(|kind| kind.is_dir());
-        if ours && folder && fs::remove_dir_all(entry.path()).is_err() {
+        if !(ours && folder) {
+            continue;
+        }
+        let stage = entry.path();
+        if in_use(&stage) || fs::remove_dir_all(&stage).is_err() {
             left += 1;
         }
     }
     left
+}
+
+/// Whether an update still holds `stage` (see [`Staging`]).
+fn in_use(stage: &Path) -> bool {
+    File::open(stage.join(LOCK_FILE))
+        .is_ok_and(|file| matches!(file.try_lock(), Err(fs::TryLockError::WouldBlock)))
 }
 
 /// Moves `target` to `aside`, then `new` to where `target` was. When the second move fails the
@@ -209,7 +252,7 @@ pub(crate) mod tests {
     fn staging_folders_are_recognised_by_their_exact_name() {
         let dir = tempfile::tempdir().unwrap();
         let stage = create_staging(dir.path()).unwrap();
-        let name = stage.file_name().unwrap().to_str().unwrap();
+        let name = stage.path().file_name().unwrap().to_str().unwrap();
         assert!(is_staging_name(name), "{name}");
         for other in [
             ".colab-playground-update-",
@@ -224,7 +267,7 @@ pub(crate) mod tests {
     #[test]
     fn leftovers_are_removed_and_nothing_else() {
         let dir = tempfile::tempdir().unwrap();
-        let stage = create_staging(dir.path()).unwrap();
+        let stage = create_staging(dir.path()).unwrap().release();
         fs::write(stage.join("previous.exe"), b"old").unwrap();
         fs::create_dir(dir.path().join(".colab-playground-update-notmine")).unwrap();
         fs::write(dir.path().join("colab-playground.exe"), b"program").unwrap();
@@ -251,11 +294,29 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn cleanup_leaves_a_folder_an_update_still_uses() {
+        let dir = tempfile::tempdir().unwrap();
+        let stage = create_staging(dir.path()).unwrap();
+        fs::write(stage.path().join("download.exe"), b"half").unwrap();
+        // Another copy of the app starting now: the lock is tried through a different handle.
+        assert_eq!(remove_leftovers(dir.path()), 1);
+        assert!(stage.path().join("download.exe").exists());
+        let path = stage.release();
+        assert_eq!(remove_leftovers(dir.path()), 0);
+        assert!(!path.exists(), "once released it is a leftover");
+
+        let stage = create_staging(dir.path()).unwrap();
+        let path = stage.path().to_owned();
+        stage.remove();
+        assert!(!path.exists());
+    }
+
+    #[test]
     fn the_windows_swap_moves_the_program_aside() {
         let dir = tempfile::tempdir().unwrap();
         let exe = dir.path().join("Colab Playground (1).exe");
         fs::write(&exe, b"old").unwrap();
-        let stage = create_staging(dir.path()).unwrap();
+        let stage = create_staging(dir.path()).unwrap().release();
         let new = stage.join("download.exe");
         fs::write(&new, b"new").unwrap();
         swap_exe(&exe, &new, &stage).unwrap();
@@ -270,7 +331,7 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         let exe = dir.path().join("colab-playground.exe");
         fs::write(&exe, b"old").unwrap();
-        let stage = create_staging(dir.path()).unwrap();
+        let stage = create_staging(dir.path()).unwrap().release();
         let error = swap_exe(&exe, &stage.join("missing.exe"), &stage).unwrap_err();
         assert_eq!(error.kind, ErrorKind::Io);
         assert_eq!(error.param("previous"), None, "undone");
@@ -303,7 +364,7 @@ pub(crate) mod tests {
             ),
         )
         .unwrap();
-        let stage = create_staging(&folder).unwrap();
+        let stage = create_staging(&folder).unwrap().release();
         let new = unpack_linux(&archive, root, &stage).unwrap();
         #[cfg(unix)]
         {
@@ -327,7 +388,7 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         let archive = dir.path().join("download.tar.gz");
         fs::write(&archive, linux_archive("another-root", b"new", &[])).unwrap();
-        let stage = create_staging(dir.path()).unwrap();
+        let stage = create_staging(dir.path()).unwrap().release();
         let error = unpack_linux(
             &archive,
             "colab-playground-x86_64-unknown-linux-gnu",
@@ -338,7 +399,7 @@ pub(crate) mod tests {
         let mut garbage = File::create(&archive).unwrap();
         garbage.write_all(b"not gzip").unwrap();
         drop(garbage);
-        let stage = create_staging(dir.path()).unwrap();
+        let stage = create_staging(dir.path()).unwrap().release();
         assert!(unpack_linux(&archive, "x", &stage).is_err());
     }
 
@@ -348,7 +409,7 @@ pub(crate) mod tests {
         let app = dir.path().join("Colab Playground.app");
         fs::create_dir_all(app.join("Contents/MacOS")).unwrap();
         fs::write(app.join("Contents/MacOS/colab-playground"), b"old").unwrap();
-        let stage = create_staging(dir.path()).unwrap();
+        let stage = create_staging(dir.path()).unwrap().release();
         let root = "colab-playground-aarch64-apple-darwin";
         let unpacked = stage.join("unpacked");
         let new_app = unpacked.join(root).join("Colab Playground.app");
