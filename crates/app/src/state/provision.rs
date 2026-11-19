@@ -191,6 +191,7 @@ impl AppState {
                         tr_args(cx, keys::PROVISION_READY_TOAST, &[("name", &name)]),
                         cx,
                     );
+                    state.count_ready(cx);
                 }
                 let Some(session) = &mut state.new_session else {
                     return;

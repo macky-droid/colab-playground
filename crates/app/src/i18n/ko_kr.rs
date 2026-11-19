@@ -1255,4 +1255,22 @@ pub(super) const MESSAGES: Messages = &[
         ERR_UPDATE_UNAVAILABLE,
         "이 릴리스에는 이 컴퓨터용 다운로드가 없습니다.",
     ),
+    (FEEDBACK_TITLE, "Colab Playground가 마음에 드십니까?"),
+    (
+        FEEDBACK_BODY,
+        "Colab Playground는 무료 오픈 소스 소프트웨어입니다. 유용하다면 GitHub에서 스타를 눌러 주십시오. 다른 사람들이 이 앱을 찾는 데 도움이 됩니다. 예상대로 작동하지 않는 부분이 있거나 아이디어가 있으면 GitHub에 이슈를 등록하십시오.",
+    ),
+    (FEEDBACK_STAR, "GitHub에서 스타 주기"),
+    (FEEDBACK_GIVE, "피드백 보내기"),
+    (FEEDBACK_NOT_NOW, "나중에"),
+    (FEEDBACK_DONT_ASK_AGAIN, "다시 표시 안 함"),
+    (
+        FEEDBACK_ALSO_IN_ABOUT,
+        "둘 다 브라우저에서 GitHub를 엽니다. 나중에 [설정] → [정보]에서도 찾을 수 있습니다.",
+    ),
+    (SETTINGS_FEEDBACK_TITLE, "피드백"),
+    (
+        SETTINGS_FEEDBACK_DESCRIPTION,
+        "GitHub에서 문제를 보고하거나 아이디어를 제안하십시오. 열리는 양식에는 앱 버전과 운영 체제가 미리 채워져 있습니다.",
+    ),
 ];
