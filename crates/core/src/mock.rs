@@ -2510,6 +2510,77 @@ mod tests {
         assert!(v.accounts.is_empty() && v.active.is_none());
     }
 
+    /// A clock that holds the wait before a retry until the test lets it go.
+    struct HeldRetry {
+        inner: ManualClock,
+        held: Duration,
+        waiting: Mutex<mpsc::Sender<()>>,
+        go: Mutex<mpsc::Receiver<()>>,
+    }
+
+    impl Clock for HeldRetry {
+        fn now(&self) -> SystemTime {
+            self.inner.now()
+        }
+
+        fn sleep(&self, duration: Duration, cancel: &CancelToken) -> Result<()> {
+            if duration == self.held {
+                let _ = self.waiting.lock().unwrap().send(());
+                // Never forever: the test lets it go, or this gives up.
+                let _ = self
+                    .go
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(30));
+            }
+            self.inner.sleep(duration, cancel)
+        }
+    }
+
+    #[test]
+    fn a_plugin_run_reports_its_provisioning_while_it_happens() {
+        let (cfg, clock) = MockConfig::headless(MockScenario::single());
+        let held = Duration::from_secs(77);
+        let (waiting, at_the_wait) = mpsc::channel();
+        let (go, let_go) = mpsc::channel();
+        let m = MockBackend::new(MockConfig {
+            clock: Arc::new(HeldRetry {
+                inner: clock,
+                held,
+                waiting: Mutex::new(waiting),
+                go: Mutex::new(let_go),
+            }),
+            ..cfg
+        });
+        let mut spec = m.plugin_run_template("llama-cpp").unwrap();
+        spec.inputs.insert(
+            "repo".into(),
+            crate::plugins::InputValue::Text("bartowski/ScarletKc_ScarletKc-2.0-GGUF".into()),
+        );
+        if let RunTarget::Provision(p) = &mut spec.target {
+            p.min_vram_mib = Some(70_000);
+            p.retry_delay = held;
+        }
+        let (tx, rx) = mpsc::channel();
+        std::thread::scope(|scope| {
+            let run = scope.spawn(|| m.run_plugin(spec, tx, &nc()));
+            at_the_wait
+                .recv_timeout(Duration::from_secs(30))
+                .expect("the first GPU is too small, so the run waits to ask again");
+            // Still waiting to ask again, and what happened so far is already out.
+            let told =
+                std::iter::from_fn(|| rx.recv_timeout(Duration::from_secs(30)).ok()).any(|event| {
+                    matches!(
+                        event,
+                        PluginRunEvent::Provision(ProvisionEvent::Retrying { .. })
+                    )
+                });
+            go.send(()).unwrap();
+            assert!(told, "the retry is only reported once provisioning is over");
+            assert_eq!(run.join().unwrap().unwrap().status.state, RunState::Ready);
+        });
+    }
+
     #[test]
     fn quick_deploy_reaches_a_ready_endpoint_and_tunnel() {
         let (m, _) = mock(MockScenario::single());
