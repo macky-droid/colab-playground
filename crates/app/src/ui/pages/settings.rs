@@ -4,7 +4,7 @@
 use ely_gpui_component::{
     buttons::{Button, ButtonVariant, CopyButton},
     data_display::{Badge, Tone},
-    forms::{Choice, Select},
+    forms::{Choice, Select, Switch},
     layout::Page,
     primitives::{IconName, Tooltip},
     settings::{SettingsRow, SettingsSection, ThemeSelector},
@@ -36,7 +36,7 @@ pub const FILE_PATH_SELECTOR: &str = "settings-file-path";
 pub const OPEN_FOLDER_SELECTOR: &str = "settings-file-open";
 
 /// The label of a language choice in the shown language.
-pub fn language_label(pref: LanguagePref, state: &AppState, cx: &App) -> gpui::SharedString {
+pub fn language_label(pref: LanguagePref, state: &AppState, cx: &App) -> SharedString {
     match pref {
         LanguagePref::System => {
             let system = tr(cx, state.system_language().name_key());
@@ -290,7 +290,7 @@ fn auto_check_row(state: &AppState, handle: &Entity<AppState>, cx: &App) -> Sett
         .description(tr(cx, keys::UPDATE_AUTO_HINT))
         .control(tagged(
             UPDATE_AUTO_SELECTOR,
-            ely_gpui_component::forms::Switch::new(UPDATE_AUTO_SELECTOR, state.checks_updates())
+            Switch::new(UPDATE_AUTO_SELECTOR, state.checks_updates())
                 .name(tr(cx, keys::UPDATE_AUTO))
                 .on_change(move |on, _, cx| {
                     toggle.update(cx, |state, cx| state.set_check_updates(on, cx))
