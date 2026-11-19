@@ -515,7 +515,7 @@ fn set_auto_stop_after_cancel_starts_the_watchdog_again() {
     assert_eq!(vm(&f)["running"], false);
 
     let hour = Duration::from_secs(3600);
-    let info = f.b.extend_session(&rt.id, hour, &nc()).unwrap();
+    let info = f.b.set_auto_stop(&rt.id, hour, &nc()).unwrap();
     assert!(info.armed && !info.cancelled && info.deadline.is_some());
     assert_eq!(info.idle_timeout, Some(Duration::from_secs(900)));
     let starts = f.watchdog_starts();
@@ -540,7 +540,7 @@ fn set_auto_stop_after_cancel_starts_the_watchdog_again() {
     assert!(rt.auto_stop_at.is_some());
 
     // A running watchdog only gets the new deadline.
-    assert!(f.b.extend_session(&rt.id, 2 * hour, &nc()).unwrap().armed);
+    assert!(f.b.set_auto_stop(&rt.id, 2 * hour, &nc()).unwrap().armed);
     assert_eq!(f.watchdog_starts().len(), 2);
 
     // One that exited without a cancel is started again too.
@@ -553,7 +553,7 @@ fn set_auto_stop_after_cancel_starts_the_watchdog_again() {
             a["watchdog"]["running"] = json!(false);
         }
     });
-    assert!(f.b.extend_session(&rt.id, hour, &nc()).unwrap().armed);
+    assert!(f.b.set_auto_stop(&rt.id, hour, &nc()).unwrap().armed);
     assert_eq!(f.watchdog_starts().len(), 3);
 
     // It cannot be started: the call says the stop is not on the runtime and
@@ -561,7 +561,7 @@ fn set_auto_stop_after_cancel_starts_the_watchdog_again() {
     f.b.cancel_auto_stop(&rt.id, &nc()).unwrap();
     f.knob("watchdog_start_fails", json!(true));
     let half = hour / 2;
-    let info = f.b.extend_session(&rt.id, half, &nc()).unwrap();
+    let info = f.b.set_auto_stop(&rt.id, half, &nc()).unwrap();
     assert!(!info.armed && !info.cancelled);
     assert_eq!(info.deadline, None);
     assert_eq!(
@@ -580,8 +580,97 @@ fn set_auto_stop_after_cancel_starts_the_watchdog_again() {
 
     // Once it can start, trying again puts the stop back on the runtime.
     f.knob("watchdog_start_fails", json!(false));
-    assert!(f.b.extend_session(&rt.id, hour, &nc()).unwrap().armed);
+    assert!(f.b.set_auto_stop(&rt.id, hour, &nc()).unwrap().armed);
     assert_eq!(vm(&f)["running"], true);
+}
+
+/// Extend adds to the stop the runtime has when the call is made, so two in a
+/// row with no listing in between add twice.
+#[test]
+fn extend_adds_to_the_stop_the_session_has_at_that_moment() {
+    let f = fixture();
+    f.adopt_alice();
+    let spec = ProvisionSpec::new("ext", Accelerator::T4, &Defaults::default());
+    let (tx, _rx) = channel();
+    f.b.provision(spec, tx, &nc()).unwrap();
+    let (rt, _) = f.listed_watchdog("ext");
+    let left = rt.auto_stop_at.unwrap().duration_since(f.b.now()).unwrap();
+    // The fake VM's clock runs while the backend's stands still, and the
+    // deadline is sent in whole seconds.
+    let close = |actual: Duration, expected: Duration| {
+        assert!(
+            actual.abs_diff(expected) <= Duration::from_secs(30),
+            "{actual:?}, expected about {expected:?}"
+        );
+    };
+
+    let hour = Duration::from_secs(3600);
+    let set = f.b.extend_session(&rt.id, hour, &nc()).unwrap();
+    assert!(set.watchdog.armed);
+    close(set.runtime, left + hour);
+    let set = f.b.extend_session(&rt.id, hour, &nc()).unwrap();
+    close(set.runtime, left + 2 * hour);
+    assert_eq!(
+        f.watchdog_starts().len(),
+        1,
+        "the running watchdog was moved"
+    );
+    let (rt, wd) = f.listed_watchdog("ext");
+    assert_eq!(wd, set.watchdog);
+    close(
+        rt.auto_stop_at.unwrap().duration_since(f.b.now()).unwrap(),
+        left + 2 * hour,
+    );
+
+    // Without an auto-stop there is nothing to add to.
+    f.b.cancel_auto_stop(&rt.id, &nc()).unwrap();
+    let set = f.b.extend_session(&rt.id, hour, &nc()).unwrap();
+    assert!(set.watchdog.armed);
+    assert_eq!(set.runtime, hour);
+    assert_eq!(f.watchdog_starts().len(), 2);
+}
+
+#[test]
+fn staged_plugin_copies_do_not_outlive_their_preview() {
+    let mut f = fixture();
+    let src = f.root.join("plugin-src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(
+        src.join("plugin.toml"),
+        "api = 1\nid = \"demo\"\nversion = \"0.1.0\"\n[name]\nen = \"Demo\"\n[run]\nscript = \"main.py\"\n",
+    )
+    .unwrap();
+    std::fs::write(src.join("main.py"), "print('hi')\n").unwrap();
+    let staging = f.cfg.local_dir.join("staging");
+    let staged = || -> Vec<PathBuf> {
+        std::fs::read_dir(&staging)
+            .map(|entries| entries.flatten().map(|e| e.path()).collect())
+            .unwrap_or_default()
+    };
+
+    // Closing the confirmation drops the copy.
+    let preview = f.b.inspect_plugin_folder(&src).unwrap();
+    assert_eq!(staged(), std::slice::from_ref(&preview.staged_dir));
+    f.b.discard_plugin_preview(&preview);
+    assert!(staged().is_empty());
+
+    // So does an install that fails.
+    let preview = f.b.inspect_plugin_folder(&src).unwrap();
+    std::fs::remove_file(preview.staged_dir.join("main.py")).unwrap();
+    assert!(f.b.install_plugin(&preview).is_err());
+    assert!(staged().is_empty());
+
+    // What a run that did not get to either left behind goes at the next start.
+    f.b.inspect_plugin_folder(&src).unwrap();
+    std::fs::create_dir_all(staging.join("git-0123456789abcdef").join(".git")).unwrap();
+    assert_eq!(staged().len(), 2);
+    f.b = RealBackend::new(f.cfg.clone()).unwrap();
+    assert!(staged().is_empty());
+
+    let preview = f.b.inspect_plugin_folder(&src).unwrap();
+    f.b.install_plugin(&preview).unwrap();
+    assert!(staged().is_empty());
+    assert!(f.b.plugins().iter().any(|p| p.manifest.id == "demo"));
 }
 
 #[test]
