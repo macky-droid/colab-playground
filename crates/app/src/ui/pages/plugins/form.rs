@@ -8,7 +8,6 @@ use std::rc::Rc;
 use colab_playground_core::{
     plugins::{InputKind, InputSpec, InputValue, PluginInfo},
     quant::{self, FitInput, GgufListing},
-    sessions::Accelerator,
 };
 use ely_gpui_component::{
     buttons::{Button, ButtonVariant},
@@ -35,23 +34,6 @@ pub const RUN_START: &str = "run-start";
 /// Selector of a Hugging Face search result: `hf-result <repo>`.
 pub fn hf_result_selector(repo: &str) -> String {
     format!("hf-result {repo}")
-}
-
-/// GPU memory sizes (GiB) Colab hands out for an accelerator, for the quantisation preview
-/// when no minimum is set (an A100 is 40 or 80 GB).
-const VRAM_CHOICES_GIB: &[(Accelerator, &[u32])] = &[
-    (Accelerator::T4, &[15]),
-    (Accelerator::L4, &[22]),
-    (Accelerator::A100, &[40, 80]),
-    (Accelerator::H100, &[80]),
-    (Accelerator::G4, &[96]),
-];
-
-fn vram_choices(accelerator: Accelerator) -> &'static [u32] {
-    VRAM_CHOICES_GIB
-        .iter()
-        .find(|(choice, _)| *choice == accelerator)
-        .map_or(&[], |(_, sizes)| sizes)
 }
 
 fn label(input: &InputSpec, tag: &str) -> String {
@@ -336,7 +318,7 @@ fn hf_lookup(
         }
         Load::Ready(listing) => {
             let ctx = inputs
-                .field("ctx")
+                .field(quant::INPUT_CTX)
                 .and_then(|field| field.read(cx).text().trim().parse::<f64>().ok());
             lookup = lookup.child(quant_preview(listing, form, info, ctx, cx))
         }
@@ -357,14 +339,16 @@ fn quant_preview(
     let theme = cx.theme();
     let sizes: Vec<u32> = match form.provision.min_vram_mib {
         Some(mib) => vec![mib],
-        None => vram_choices(form.provision.accelerator)
+        None => quant::vram_choices_gib(form.provision.accelerator)
             .iter()
             .map(|gib| gib * MIB_PER_GIB)
             .collect(),
     };
     let ctx = ctx.filter(|n| *n > 0.0).map_or(0, |n| n as u32);
-    let fixed = match form.values.get("quant") {
-        Some(InputValue::Text(q)) if q != "auto" && info.manifest.input("quant").is_some() => {
+    let fixed = match form.values.get(quant::INPUT_QUANT) {
+        Some(InputValue::Text(q))
+            if q != quant::QUANT_AUTO && info.manifest.input(quant::INPUT_QUANT).is_some() =>
+        {
             Some(q.clone())
         }
         _ => None,

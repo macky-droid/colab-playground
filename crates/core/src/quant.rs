@@ -18,7 +18,30 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{Error, ErrorKind, Result};
+use crate::{
+    error::{Error, ErrorKind, Result},
+    sessions::Accelerator,
+};
+
+/// Id of the bundled `llama-cpp` plugin's input for the context length (`plugins/llama-cpp`).
+pub const INPUT_CTX: &str = "ctx";
+/// Id of the bundled `llama-cpp` plugin's input for the quantisation.
+pub const INPUT_QUANT: &str = "quant";
+/// The quantisation that leaves the choice to the worker on the VM.
+pub const QUANT_AUTO: &str = "auto";
+
+/// GPU memory sizes (GiB) Colab hands out for an accelerator: an A100 is 40 or 80 GB, and
+/// which one cannot be requested. Empty for hardware without a GPU.
+pub fn vram_choices_gib(accelerator: Accelerator) -> &'static [u32] {
+    match accelerator {
+        Accelerator::T4 => &[15],
+        Accelerator::L4 => &[22],
+        Accelerator::A100 => &[40, 80],
+        Accelerator::H100 => &[80],
+        Accelerator::G4 => &[96],
+        Accelerator::None | Accelerator::TpuV5e1 | Accelerator::TpuV6e1 => &[],
+    }
+}
 
 /// MiB reserved for the CUDA context and driver.
 pub const RESERVE_MIB: f64 = 1024.0;
@@ -347,7 +370,7 @@ pub fn fit_auto(listing: &GgufListing, input: &FitInput) -> Result<FitChoice> {
         }
     }
     Err(Error::new(ErrorKind::InvalidInput)
-        .with("field", "quant")
+        .with("field", INPUT_QUANT)
         .with("vram_mib", input.vram_mib)
         .detail("no quantisation fits this GPU"))
 }
@@ -358,7 +381,7 @@ pub fn fit_fixed(listing: &GgufListing, quant: &str, input: &FitInput) -> Result
     let Some(v) = listing.variant(quant) else {
         let available: Vec<&str> = listing.variants.iter().map(|v| v.quant.as_str()).collect();
         return Err(
-            Error::invalid("quant", format!("{quant} is not in the repository"))
+            Error::invalid(INPUT_QUANT, format!("{quant} is not in the repository"))
                 .with("value", quant)
                 .with("available", available.join(",")),
         );
@@ -380,7 +403,7 @@ pub fn fit_fixed(listing: &GgufListing, quant: &str, input: &FitInput) -> Result
         .map(|w| w.quant.as_str())
         .collect();
     Err(Error::invalid(
-        "quant",
+        INPUT_QUANT,
         format!("{quant} does not fit in {} MiB", input.vram_mib),
     )
     .with("value", quant)
@@ -468,7 +491,7 @@ mod tests {
         for v in vectors {
             let files: Vec<GgufFile> = v.files.iter().map(|(p, s)| f(p, *s)).collect();
             let listing = group(&files);
-            let r = if v.quant == "auto" {
+            let r = if v.quant == QUANT_AUTO {
                 fit_auto(&listing, &v.input)
             } else {
                 fit_fixed(&listing, &v.quant, &v.input)
