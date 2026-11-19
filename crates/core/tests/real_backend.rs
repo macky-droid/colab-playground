@@ -1082,6 +1082,64 @@ fn keyring_and_cli_api_failures_are_typed() {
     );
 }
 
+/// A usage poll refreshes an expired token over HTTP, so a switch or a removal
+/// can land before it writes the token back.
+#[test]
+fn a_token_refreshed_during_a_switch_or_removal_is_not_written_over_it() {
+    let f = fixture();
+    let alice = f.adopt_alice();
+    f.add_bob();
+    f.b.switch_account(&alice.id, &nc()).unwrap();
+    let path = f.state.join("keyring.json");
+    let keyring =
+        || -> Value { serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap() };
+    let slot = "google-colab-cli\u{0}oauth_token".to_owned();
+    let vault = format!("colab-playground\u{0}account:{}", alice.id.as_str());
+    let fresh = || -> Value { serde_json::from_str(&token("alice")).unwrap() };
+    let expire = |keys: &[&String]| {
+        let mut k = keyring();
+        let mut t = fresh();
+        t["expired"] = json!(true);
+        for key in keys {
+            k[key.as_str()] = json!(t.to_string());
+        }
+        std::fs::write(&path, k.to_string()).unwrap();
+    };
+    let read = |key: &String| -> Option<Value> {
+        keyring()[key.as_str()]
+            .as_str()
+            .map(|s| serde_json::from_str(s).unwrap())
+    };
+    let poll = || {
+        let r = f
+            .helper()
+            .usage_many(std::slice::from_ref(&alice.id), &nc())
+            .unwrap();
+        assert!(r[0].1.is_ok(), "{r:?}");
+    };
+
+    // Nothing lands meanwhile: both copies get the refreshed token.
+    expire(&[&slot, &vault]);
+    poll();
+    assert_eq!(read(&slot), Some(fresh()));
+    assert_eq!(read(&vault), Some(fresh()));
+
+    expire(&[&slot, &vault]);
+    f.knob(
+        "keyring_during_refresh",
+        json!({ slot.clone(): token("bob") }),
+    );
+    poll();
+    assert_eq!(f.slot(), token("bob"), "the switch to bob stands");
+    assert_eq!(read(&vault), Some(fresh()));
+
+    expire(&[&vault]);
+    f.knob("keyring_during_refresh", json!({ vault.clone(): null }));
+    poll();
+    assert_eq!(read(&vault), None, "a removed account is not saved again");
+    assert_eq!(f.slot(), token("bob"));
+}
+
 #[test]
 fn history_redaction_scrubs_only_secret_values() {
     let f = fixture();
