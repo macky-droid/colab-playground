@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.4.0](https://github.com/scarletkc/colab-playground/compare/v0.3.0...v0.4.0) (2026-11-20)
+
+
+### Added
+
+* **app:** ask for a GitHub star or feedback once the app has proved useful ([#37](https://github.com/scarletkc/colab-playground/issues/37)) ([77e4f37](https://github.com/scarletkc/colab-playground/commit/77e4f37c614593ab7ea60165894fa4a5e21aff83))
+
+
+### Fixed
+
+* **app:** ask before quitting when the window is closed while the list of runtimes is refreshing ([#47](https://github.com/scarletkc/colab-playground/issues/47)) ([2739f98](https://github.com/scarletkc/colab-playground/commit/2739f98faaa89bdba0d8b2ee1006d5939c2e6e8f))
+* **app:** keep a plugin's secret inputs in the form when Deploy is rejected ([#58](https://github.com/scarletkc/colab-playground/issues/58)) ([9994db1](https://github.com/scarletkc/colab-playground/commit/9994db1c1a2100acad4fa9248f27057378fc9eb1))
+* **app:** keep a plugin's secret inputs when Deploy is rejected ([9994db1](https://github.com/scarletkc/colab-playground/commit/9994db1c1a2100acad4fa9248f27057378fc9eb1))
+* **app:** keep port forwards open when an account switch cannot start, stop a plugin check when its dialog closes, and smaller fixes from the audit ([#61](https://github.com/scarletkc/colab-playground/issues/61)) ([3a1a6a1](https://github.com/scarletkc/colab-playground/commit/3a1a6a1914542b16fb76910efd63af4e356fbc87))
+* **app:** keep the list of runtimes from showing a stopped runtime, or missing a new one, after a refresh that began earlier ([#48](https://github.com/scarletkc/colab-playground/issues/48)) ([9e3b459](https://github.com/scarletkc/colab-playground/commit/9e3b4593cd02199dbb65f283313ca7f88744d8bb))
+* **app:** keep the newest 2,000 lines of a plugin run's log so a chatty script does not slow the window down ([#62](https://github.com/scarletkc/colab-playground/issues/62)) ([ccd8956](https://github.com/scarletkc/colab-playground/commit/ccd8956fa1d270ae65cd0f2ca4910b42dccf5cbf))
+* **core:** keep a free port from being reported as in use when a forward starts or reconnects ([#65](https://github.com/scarletkc/colab-playground/issues/65)) ([8a6c51e](https://github.com/scarletkc/colab-playground/commit/8a6c51ea3d644a71be8e12618b4308b256596c24))
+* **core:** keep a plugin run's log from falling behind a script that writes a lot, and show its last lines when the run ends ([#57](https://github.com/scarletkc/colab-playground/issues/57)) ([e319e34](https://github.com/scarletkc/colab-playground/commit/e319e342c4c72433e383e3ec4a5969aeafc0cb62))
+* **core:** let the spend cap stop a session whose burn rate showed late, and keep a usage poll from switching the account back ([#50](https://github.com/scarletkc/colab-playground/issues/50)) ([aa5d282](https://github.com/scarletkc/colab-playground/commit/aa5d282715ce05217e6c6b9a6f0bc6fe989ea132))
+* **core:** list a model's GGUF files when a file name has non-ASCII characters ([#53](https://github.com/scarletkc/colab-playground/issues/53)) ([687f85b](https://github.com/scarletkc/colab-playground/commit/687f85ba0f84ff5d9fd7841e9c0e188c91958bf7))
+* **core:** remove the copy staged for a plugin preview when the install dialog closes or the install fails, and a Git checkout that did not finish ([#55](https://github.com/scarletkc/colab-playground/issues/55)) ([12db790](https://github.com/scarletkc/colab-playground/commit/12db790b443138cdffc7d5a7a5ecb3bcd68d093d))
+* **core:** stop retrying a port forward that never connects, end ssh when the app is killed, and catch a local port taken on IPv6 ([#42](https://github.com/scarletkc/colab-playground/issues/42)) ([805cb38](https://github.com/scarletkc/colab-playground/commit/805cb3875c4c59b46261d56835ba54b1c724adde))
+* keep a second Extend from being lost when the list of runtimes has not refreshed yet ([#54](https://github.com/scarletkc/colab-playground/issues/54)) ([b8ae68e](https://github.com/scarletkc/colab-playground/commit/b8ae68e9cfde704e7809f3d8eebf47ee6534f69c))
+* use the Colab CLI path from Settings, retry a failed update check after an hour and fetch usage once per round ([#44](https://github.com/scarletkc/colab-playground/issues/44)) ([9b57ce8](https://github.com/scarletkc/colab-playground/commit/9b57ce8f2a5436640de98d4bc39bc7d6e07d32f4))
+
 ## [0.3.0](https://github.com/scarletkc/colab-playground/compare/v0.2.0...v0.3.0) (2026-11-19)
 
 
