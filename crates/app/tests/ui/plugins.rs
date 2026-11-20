@@ -22,7 +22,8 @@ use colab_playground::{
 use colab_playground_core::{
     CancelToken, ErrorKind,
     backend::{Backend, RuntimeRef},
-    mock::{MockFailures, MockScenario},
+    mock::{MockFailures, MockRuntime, MockScenario},
+    sessions::Accelerator,
     tunnel::TunnelState,
 };
 use gpui::TestAppContext;
@@ -683,10 +684,8 @@ fn a_stopped_session_is_no_longer_the_forms_target(cx: &mut TestAppContext) {
     );
 }
 
-#[gpui::test]
-fn a_target_left_on_another_account_is_not_called_ended(cx: &mut TestAppContext) {
-    let mut app = TestApp::new(cx);
-    form_on_a100(&mut app);
+/// Makes the demo's second account the active one.
+fn switch_to_lin(app: &mut TestApp<'_>) {
     let lin = app.read(|state, _| {
         let accounts = &state.accounts().ready().expect("accounts").accounts;
         let lin = accounts
@@ -696,6 +695,13 @@ fn a_target_left_on_another_account_is_not_called_ended(cx: &mut TestAppContext)
     });
     app.update(|state, cx| state.request_switch(lin, cx));
     app.update(|state, cx| state.confirm_switch(cx));
+}
+
+#[gpui::test]
+fn a_target_left_on_another_account_is_not_called_ended(cx: &mut TestAppContext) {
+    let mut app = TestApp::new(cx);
+    form_on_a100(&mut app);
+    switch_to_lin(&mut app);
     let running = app.read(|state, _| {
         let view = state.runtimes().ready().expect("listed");
         view.runtimes
@@ -714,6 +720,35 @@ fn a_target_left_on_another_account_is_not_called_ended(cx: &mut TestAppContext)
     app.click(Route::Plugins.nav_selector());
     assert!(app.shown("run-target-other-account"));
     assert!(!app.shown(TARGET_ENDED));
+}
+
+#[gpui::test]
+fn a_session_of_the_same_name_on_the_account_switched_to_is_not_the_target(
+    cx: &mut TestAppContext,
+) {
+    // A name is unique within an account only.
+    let mut scenario = MockScenario::demo();
+    scenario.runtimes.push(MockRuntime {
+        account: 1,
+        name: Some("a100-7f3a".into()),
+        accelerator: Accelerator::T4,
+        managed: true,
+    });
+    let mut app = TestApp::with(cx, Options::scenario(scenario));
+    form_on_a100(&mut app);
+    switch_to_lin(&mut app);
+    let on_lin = app.read(|state, _| {
+        let view = state.runtimes().ready().expect("listed");
+        view.runtimes.iter().any(|runtime| {
+            runtime.on_active_account && runtime.id.name.as_deref() == Some("a100-7f3a")
+        })
+    });
+    assert!(on_lin, "the account switched to has a session of that name");
+
+    // The run would land on that other session without a word.
+    assert_eq!(form_target(&mut app), None);
+    let lost = app.read(|state, _| state.run_form().and_then(|form| form.target_lost.clone()));
+    assert_eq!(lost, Some(TargetLost::OtherAccount("a100-7f3a".into())));
 }
 
 #[gpui::test]

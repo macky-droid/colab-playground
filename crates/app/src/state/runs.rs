@@ -241,22 +241,26 @@ impl AppState {
             return;
         };
         let named = |runtime: &&Runtime| runtime.id.name.as_deref() == Some(name.as_str());
-        if view
-            .runtimes
-            .iter()
-            .filter(named)
-            .any(|runtime| runtime.on_active_account && runtime.managed)
+        let picked_on = self
+            .run_form
+            .as_ref()
+            .and_then(|form| form.existing_account.as_ref());
+        // A name is unique within an account only: after a switch, a session of that name on
+        // the active account is not the one that was picked.
+        let switched = picked_on.is_some_and(|account| account != active);
+        if !switched
+            && view
+                .runtimes
+                .iter()
+                .filter(named)
+                .any(|runtime| runtime.on_active_account && runtime.managed)
         {
             return;
         }
         // Gone from the active account. After a switch that is not the end of the session: it
         // may still be billing on the account it was picked on.
-        let picked_on = self
-            .run_form
-            .as_ref()
-            .and_then(|form| form.existing_account.as_ref());
         let elsewhere = match picked_on {
-            Some(account) => account != active,
+            Some(_) => switched,
             None => view.runtimes.iter().any(|runtime| named(&runtime)),
         };
         let lost = if elsewhere {
