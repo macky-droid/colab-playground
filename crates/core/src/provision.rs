@@ -470,7 +470,8 @@ fn run(
                     attempt,
                     error: e.clone(),
                 });
-                let _ = release(ops, name);
+                events(ProvisionEvent::Releasing { attempt });
+                release(ops, name)?;
                 if attempt == max {
                     return Err(e);
                 }
@@ -573,6 +574,8 @@ mod tests {
         log: RefCell<Vec<String>>,
         stop_fails: bool,
         cancel_on_probe: Option<CancelToken>,
+        /// The probe finds no session under the name, as when the CLI lost its record of it.
+        probe_gone: bool,
         /// The user cancels while `colab new` waits for Colab, and the host kills it.
         cancel_on_create: Option<CancelToken>,
         /// The Nth `sessions` call (1-based) is the first to list an unnamed VM that a
@@ -644,6 +647,9 @@ mod tests {
             self.log.borrow_mut().push("probe".into());
             if let Some(c) = &self.cancel_on_probe {
                 c.cancel();
+            }
+            if self.probe_gone {
+                return Err(Error::new(ErrorKind::SessionGone));
             }
             Ok(Hardware {
                 gpu: Some("NVIDIA A100-SXM4".into()),
@@ -986,6 +992,36 @@ mod tests {
             &CancelToken::new(),
         );
         assert!(r.unwrap_err().is(ErrorKind::OrphanSuspected));
+    }
+
+    #[test]
+    fn a_runtime_the_probe_lost_is_released_before_the_next_attempt() {
+        let gone = |stop_fails| Fake {
+            creates: RefCell::new(VecDeque::from([Ok(40_960), Ok(40_960)])),
+            probe_gone: true,
+            stop_fails,
+            ..Default::default()
+        };
+        let s = spec(None, 2, OnExhausted::StopAndFail);
+
+        let f = gone(false);
+        let (r, ev, _) = run_fake(&f, &s, &CancelToken::new());
+        assert!(r.unwrap_err().is(ErrorKind::SessionGone));
+        assert!(f.live.borrow().is_empty());
+        let releases = |ev: &[ProvisionEvent]| {
+            ev.iter()
+                .filter(|e| matches!(e, ProvisionEvent::Releasing { .. }))
+                .count()
+        };
+        assert_eq!(releases(&ev), 2, "each release is announced: {ev:?}");
+        assert_eq!(f.log.borrow().iter().filter(|l| *l == "create").count(), 2);
+
+        // Still listed after the stop: no second runtime under the same name, and the
+        // error says one may be left.
+        let f = gone(true);
+        let (r, _, _) = run_fake(&f, &s, &CancelToken::new());
+        assert!(r.unwrap_err().is(ErrorKind::OrphanSuspected));
+        assert_eq!(f.log.borrow().iter().filter(|l| *l == "create").count(), 1);
     }
 
     #[test]

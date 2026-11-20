@@ -282,6 +282,13 @@ pub fn host_section(
         inputs.colab_path.clone(),
         inputs.colab_python.clone(),
     );
+    // Idle on the real backend, the section's description right above says it all.
+    let mut apply_row = SettingsRow::new(tr(cx, keys::HOST_APPLY));
+    if simulated {
+        apply_row = apply_row.description(tr(cx, keys::HOST_MOCK_NOTE));
+    } else if busy {
+        apply_row = apply_row.description(tr(cx, keys::HOST_BUSY));
+    }
     section = section
         .row(row(
             "colab_path",
@@ -298,29 +305,18 @@ pub fn host_section(
             cx,
         ))
         .row(
-            SettingsRow::new(tr(cx, keys::HOST_APPLY))
-                .description(if simulated {
-                    tr(cx, keys::HOST_MOCK_NOTE)
-                } else if busy {
-                    tr(cx, keys::HOST_BUSY)
-                } else {
-                    tr(cx, keys::HOST_DESCRIPTION)
-                })
-                .control(tagged(
-                    "host-apply",
-                    Button::new("host-apply", tr(cx, keys::HOST_APPLY))
-                        .size(ControlSize::Sm)
-                        .disabled(busy)
-                        .on_click(move |_, _, cx| {
-                            let read = |input: &Entity<TextInput>, cx: &App| {
-                                input.read(cx).text().to_owned()
-                            };
-                            let (colab, python) = (read(&colab, cx), read(&python, cx));
-                            apply.update(cx, |state, cx| {
-                                state.apply_host_paths(&colab, &python, cx)
-                            });
-                        }),
-                )),
+            apply_row.control(tagged(
+                "host-apply",
+                Button::new("host-apply", tr(cx, keys::HOST_APPLY))
+                    .size(ControlSize::Sm)
+                    .disabled(busy)
+                    .on_click(move |_, _, cx| {
+                        let read =
+                            |input: &Entity<TextInput>, cx: &App| input.read(cx).text().to_owned();
+                        let (colab, python) = (read(&colab, cx), read(&python, cx));
+                        apply.update(cx, |state, cx| state.apply_host_paths(&colab, &python, cx));
+                    }),
+            )),
         );
     section
 }

@@ -1,6 +1,7 @@
 //! The window's root view: the app's title strip over Ely's app shell (sidebar and page), the
 //! toasts, and Ely's resize border for client-drawn windows.
 
+use colab_playground_core::plugins::InputKind;
 use ely_gpui_component::{
     feedback::ToastViewport,
     forms::TextInput,
@@ -32,6 +33,8 @@ pub struct RootView {
     state: Entity<AppState>,
     inputs: Inputs,
     fields_plugin: Option<String>,
+    /// The label and kind each run-form field was made with.
+    field_specs: std::collections::BTreeMap<String, (String, InputKind)>,
     page_scroll: gpui::ScrollHandle,
     shown_route: crate::route::Route,
     _subscriptions: Vec<Subscription>,
@@ -156,6 +159,7 @@ impl RootView {
             state,
             inputs,
             fields_plugin: None,
+            field_specs: Default::default(),
             page_scroll: gpui::ScrollHandle::new(),
             shown_route: crate::route::Route::default(),
             _subscriptions: subscriptions,
@@ -177,7 +181,6 @@ impl RootView {
     /// Makes the open run form's text, secret and model fields, then applies the text
     /// state asked for (`AppState::set_input`).
     fn sync_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        use colab_playground_core::plugins::InputKind;
         let (plugin, wanted) = {
             let state = self.state.read(cx);
             let tag = state.language().tag();
@@ -207,23 +210,41 @@ impl RootView {
         };
         if plugin.is_some() && plugin != self.fields_plugin {
             self.inputs.fields.clear();
+            self.field_specs.clear();
             self.fields_plugin = plugin;
         }
         for (id, label, kind) in wanted {
-            self.inputs.fields.entry(id).or_insert_with(|| {
-                cx.new(|cx| {
-                    let input = TextInput::new(window, cx).label(label);
-                    match kind {
-                        InputKind::Secret => input.masked(),
-                        // Numbers are typed as text: Ely's number field groups digits, and
-                        // a port must never read "8,000".
-                        InputKind::Number => {
-                            input.filter(|c| c.is_ascii_digit() || c == '.' || c == '-')
-                        }
-                        _ => input,
+            let spec = (label.clone(), kind);
+            if self.field_specs.get(&id) == Some(&spec) {
+                continue;
+            }
+            // New, or made for another label or kind (the language changed, or the plugin was
+            // installed again under its id): made again, keeping what was typed into the
+            // same kind of field.
+            let typed = self
+                .inputs
+                .fields
+                .get(&id)
+                .filter(|_| self.field_specs.get(&id).is_some_and(|old| old.1 == kind))
+                .map(|old| old.read(cx).text().to_owned());
+            self.field_specs.insert(id.clone(), spec);
+            let field = cx.new(|cx| {
+                let input = TextInput::new(window, cx).label(label);
+                let mut input = match kind {
+                    InputKind::Secret => input.masked(),
+                    // Numbers are typed as text: Ely's number field groups digits, and
+                    // a port must never read "8,000".
+                    InputKind::Number => {
+                        input.filter(|c| c.is_ascii_digit() || c == '.' || c == '-')
                     }
-                })
+                    _ => input,
+                };
+                if let Some(typed) = typed {
+                    input.set_text(typed, cx);
+                }
+                input
             });
+            self.inputs.fields.insert(id, field);
         }
         let pending = self
             .state

@@ -888,6 +888,14 @@ pub(super) const MESSAGES: Messages = &[
     ),
     (RUN_TARGET_NEW, "새 세션"),
     (
+        RUN_TARGET_ENDED,
+        "{name} 세션이 종료되었습니다. 지금 배포하면 새 세션이 시작되고 과금됩니다.",
+    ),
+    (
+        RUN_TARGET_OTHER_ACCOUNT,
+        "{name} 세션은 활성 계정이 아닌 다른 계정에 있습니다. 지금 배포하면 새 세션이 시작되고 과금됩니다.",
+    ),
+    (
         RUN_EXISTING_NOTE,
         "해당 세션에서 그대로 실행됩니다. 세션의 제한과 자동 중지는 그대로 유지됩니다.",
     ),

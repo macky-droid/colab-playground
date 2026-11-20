@@ -1423,10 +1423,11 @@ impl Backend for RealBackend {
             return Err(Error::new(ErrorKind::AccountNotFound).with("account", to));
         }
         if self.inner.active(cancel)?.as_ref() != Some(to) {
+            // The slot first: a switch that has to give up leaves the forwards open.
+            let _g = slot_write(&self.inner.slot, SLOT_TIMEOUT)?;
             for t in self.inner.tunnels.list() {
                 let _ = self.inner.tunnels.close(t.id);
             }
-            let _g = slot_write(&self.inner.slot, SLOT_TIMEOUT)?;
             self.inner
                 .helper()?
                 .use_account(to, &self.inner.known(), cancel)?;

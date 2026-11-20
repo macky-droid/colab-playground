@@ -26,7 +26,7 @@ use gpui::{
 use crate::{
     format,
     i18n::{keys, tr, tr_args},
-    state::{AppState, Load, RunForm},
+    state::{AppState, Load, RunForm, TargetLost},
     ui::{Inputs, error_view, parts::field, provision_form, runtime_options::MIB_PER_GIB, tagged},
 };
 
@@ -447,9 +447,7 @@ fn target_card(
             .selected(form.existing.clone().unwrap_or_default())
             .on_change(move |value, _, cx| {
                 let existing = (!value.is_empty()).then(|| value.to_string());
-                pick.update(cx, |state, cx| {
-                    state.edit_run_form(|form| form.existing = existing, cx)
-                })
+                pick.update(cx, |state, cx| state.pick_run_target(existing, cx))
             }),
     );
     let mut card = Card::new()
@@ -457,6 +455,20 @@ fn target_card(
             CardHeader::new(tr(cx, keys::RUN_TARGET)).description(tr(cx, keys::RUN_TARGET_HINT)),
         )
         .child(tagged("run-target", target));
+    if let Some(lost) = &form.target_lost {
+        let (selector, key, name) = match lost {
+            TargetLost::Ended(name) => ("run-target-ended", keys::RUN_TARGET_ENDED, name),
+            TargetLost::OtherAccount(name) => (
+                "run-target-other-account",
+                keys::RUN_TARGET_OTHER_ACCOUNT,
+                name,
+            ),
+        };
+        card = card.child(tagged(
+            selector,
+            InlineMessage::new(Severity::Warning, tr_args(cx, key, &[("name", name)])),
+        ));
+    }
     if form.existing.is_none()
         && let Some(limit) = state.session_limit_reached()
     {

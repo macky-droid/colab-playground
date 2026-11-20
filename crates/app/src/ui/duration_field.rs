@@ -55,7 +55,12 @@ impl RenderOnce for DurationField {
         let (hours, minutes, seconds) = (
             total / SECS_PER_HOUR,
             total / SECS_PER_MINUTE % MINUTES_PER_HOUR,
-            total % SECS_PER_MINUTE,
+            // Seconds the field does not show are not carried through an edit.
+            if self.seconds {
+                total % SECS_PER_MINUTE
+            } else {
+                0
+            },
         );
         let compose = |h: u64, m: u64, s: u64| {
             Duration::from_secs(h * SECS_PER_HOUR + m * SECS_PER_MINUTE + s)

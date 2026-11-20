@@ -6,7 +6,10 @@ use std::path::PathBuf;
 use colab_playground::{
     i18n::keys,
     route::Route,
-    state::{InstallPrompt, Load, Overlay, PluginView, RUN_LOG_LINES_KEPT, RunPhase},
+    settings::LanguagePref,
+    state::{
+        InstallPrompt, Load, Op, Overlay, PluginView, RUN_LOG_LINES_KEPT, RunPhase, TargetLost,
+    },
     ui::{
         overlays::INSTALL_CONFIRM,
         pages::{
@@ -20,8 +23,9 @@ use colab_playground::{
 };
 use colab_playground_core::{
     CancelToken, ErrorKind,
-    backend::{Backend, PluginRunEvent},
-    mock::{MockFailures, MockScenario},
+    backend::{Backend, PluginRunEvent, RuntimeRef},
+    mock::{MockFailures, MockRuntime, MockScenario},
+    sessions::Accelerator,
     tunnel::TunnelState,
 };
 use gpui::TestAppContext;
@@ -388,6 +392,44 @@ fn closing_the_install_confirmation_drops_the_staged_copy(cx: &mut TestAppContex
 }
 
 #[gpui::test]
+fn closing_the_install_dialog_stops_its_check(cx: &mut TestAppContext) {
+    let fixture = tempfile::tempdir().expect("a fixture folder");
+    std::fs::write(fixture.path().join("plugin.toml"), FIXTURE_MANIFEST).expect("manifest");
+    std::fs::write(fixture.path().join("run.sh"), "#!/bin/bash\necho hello\n").expect("script");
+    let folder = fixture.path().display().to_string();
+    let mut app = TestApp::new(cx);
+    app.click(Route::Plugins.nav_selector());
+
+    // Headless calls finish as soon as the app settles, so the dialog is closed in the same
+    // step that opened it, while its check has not answered.
+    let source = folder.clone();
+    app.update(|state, cx| {
+        state.inspect_plugin(source.clone(), cx);
+        assert!(matches!(
+            state.overlay(),
+            Some(Overlay::InstallPlugin(InstallPrompt::Checking))
+        ));
+        state.close_overlay(cx);
+        assert!(state.is_cancelling(Op::InspectPlugin), "the check goes on");
+        // Until it has stopped, no other check starts: its answer would fill that dialog.
+        state.inspect_plugin(source, cx);
+        assert!(state.overlay().is_none());
+    });
+    assert!(app.read(|state, _| !state.is_busy(Op::InspectPlugin)));
+    assert!(
+        app.read(|state, _| state.overlay().is_none()),
+        "the stopped check opened the dialog again"
+    );
+
+    app.fill(|inputs| inputs.plugin_source.clone(), &folder);
+    app.click(INSTALL_CHECK);
+    assert!(matches!(
+        app.read(|state, _| state.overlay().cloned()),
+        Some(Overlay::InstallPlugin(InstallPrompt::Preview(_)))
+    ));
+}
+
+#[gpui::test]
 fn secrets_never_show_up_anywhere(cx: &mut TestAppContext) {
     const SECRET: &str = "sk-very-secret-4711";
     const TOKEN: &str = "hf_token-secret-0815";
@@ -612,6 +654,187 @@ fn accounts_cannot_change_while_a_deployment_runs(cx: &mut TestAppContext) {
     });
     let blocked = app.text(keys::ACCOUNT_CHANGE_BLOCKED);
     assert!(app.toasts().contains(&blocked), "{:?}", app.toasts());
+}
+
+#[gpui::test]
+fn the_forms_fields_follow_the_language(cx: &mut TestAppContext) {
+    let mut app = TestApp::new(cx);
+    app.click(Route::Plugins.nav_selector());
+    app.click("plugin-run llama-cpp");
+    app.fill(|inputs| inputs.fields["repo"].clone(), REPO);
+    let field =
+        |app: &mut TestApp<'_>| app.read_root(|root, _| root.inputs().fields["repo"].clone());
+    let before = field(&mut app);
+
+    app.update(|state, cx| state.set_language(LanguagePref::ZhCn, cx));
+    let after = field(&mut app);
+    assert_ne!(
+        before.entity_id(),
+        after.entity_id(),
+        "the field still carries the label of the language it was made in"
+    );
+    let typed = app.cx.update(|_, cx| after.read(cx).text().to_owned());
+    assert_eq!(typed, REPO, "what was typed stays");
+}
+
+/// The run form on the demo's managed session, and that session.
+fn form_on_a100(app: &mut TestApp<'_>) -> RuntimeRef {
+    app.click(Route::Plugins.nav_selector());
+    app.click("plugin-run llama-cpp");
+    let picked = app.read(|state, _| {
+        let view = state.runtimes().ready().expect("listed");
+        let picked = view
+            .runtimes
+            .iter()
+            .find(|runtime| runtime.id.name.as_deref() == Some("a100-7f3a"));
+        picked.expect("the demo's managed session").id.clone()
+    });
+    app.update(|state, cx| state.pick_run_target(Some("a100-7f3a".into()), cx));
+    picked
+}
+
+fn form_target(app: &mut TestApp<'_>) -> Option<String> {
+    app.read(|state, _| state.run_form().and_then(|form| form.existing.clone()))
+}
+
+const TARGET_ENDED: &str = "run-target-ended";
+
+#[gpui::test]
+fn a_stopped_session_is_no_longer_the_forms_target(cx: &mut TestAppContext) {
+    let mut app = TestApp::new(cx);
+    let picked = form_on_a100(&mut app);
+    app.update(|state, cx| state.load_runtimes(cx));
+    assert_eq!(
+        form_target(&mut app).as_deref(),
+        Some("a100-7f3a"),
+        "kept while it is listed"
+    );
+    assert!(!app.shown(TARGET_ENDED));
+
+    app.update(|state, cx| {
+        state.request_stop(picked, cx);
+        state.confirm_stop(cx);
+    });
+    assert_eq!(
+        form_target(&mut app),
+        None,
+        "the form is back on a new session"
+    );
+    // A new session bills, where the run used to fail: the form says what changed.
+    assert!(app.shown(TARGET_ENDED));
+    let lost = app.read(|state, _| state.run_form().and_then(|form| form.target_lost.clone()));
+    assert_eq!(lost, Some(TargetLost::Ended("a100-7f3a".into())));
+
+    app.update(|state, cx| state.pick_run_target(None, cx));
+    assert!(
+        !app.shown(TARGET_ENDED),
+        "gone once a target is picked again"
+    );
+}
+
+/// Makes the demo's second account the active one.
+fn switch_to_lin(app: &mut TestApp<'_>) {
+    let lin = app.read(|state, _| {
+        let accounts = &state.accounts().ready().expect("accounts").accounts;
+        let lin = accounts
+            .iter()
+            .find(|account| account.email.as_deref() == Some("lin@example.com"));
+        lin.expect("the demo's second account").id.clone()
+    });
+    app.update(|state, cx| state.request_switch(lin, cx));
+    app.update(|state, cx| state.confirm_switch(cx));
+}
+
+#[gpui::test]
+fn a_target_left_on_another_account_is_not_called_ended(cx: &mut TestAppContext) {
+    let mut app = TestApp::new(cx);
+    form_on_a100(&mut app);
+    switch_to_lin(&mut app);
+    let running = app.read(|state, _| {
+        let view = state.runtimes().ready().expect("listed");
+        view.runtimes
+            .iter()
+            .any(|runtime| runtime.id.name.as_deref() == Some("a100-7f3a"))
+    });
+    assert!(
+        running,
+        "the session still bills on the account left behind"
+    );
+
+    // It cannot be run on from here, and the form does not say it has ended.
+    assert_eq!(form_target(&mut app), None);
+    let lost = app.read(|state, _| state.run_form().and_then(|form| form.target_lost.clone()));
+    assert_eq!(lost, Some(TargetLost::OtherAccount("a100-7f3a".into())));
+    app.click(Route::Plugins.nav_selector());
+    assert!(app.shown("run-target-other-account"));
+    assert!(!app.shown(TARGET_ENDED));
+}
+
+#[gpui::test]
+fn a_session_of_the_same_name_on_the_account_switched_to_is_not_the_target(
+    cx: &mut TestAppContext,
+) {
+    // A name is unique within an account only.
+    let mut scenario = MockScenario::demo();
+    scenario.runtimes.push(MockRuntime {
+        account: 1,
+        name: Some("a100-7f3a".into()),
+        accelerator: Accelerator::T4,
+        managed: true,
+    });
+    let mut app = TestApp::with(cx, Options::scenario(scenario));
+    form_on_a100(&mut app);
+    switch_to_lin(&mut app);
+    let on_lin = app.read(|state, _| {
+        let view = state.runtimes().ready().expect("listed");
+        view.runtimes.iter().any(|runtime| {
+            runtime.on_active_account && runtime.id.name.as_deref() == Some("a100-7f3a")
+        })
+    });
+    assert!(on_lin, "the account switched to has a session of that name");
+
+    // The run would land on that other session without a word.
+    assert_eq!(form_target(&mut app), None);
+    let lost = app.read(|state, _| state.run_form().and_then(|form| form.target_lost.clone()));
+    assert_eq!(lost, Some(TargetLost::OtherAccount("a100-7f3a".into())));
+}
+
+#[gpui::test]
+fn another_account_that_cannot_be_listed_does_not_keep_a_stopped_target(cx: &mut TestAppContext) {
+    let options = Options {
+        failures: MockFailures {
+            unlisted_accounts: vec!["lin@example.com".into()],
+            ..Default::default()
+        },
+        ..Options::default()
+    };
+    let mut app = TestApp::with(cx, options);
+    let picked = form_on_a100(&mut app);
+    app.update(|state, cx| {
+        state.request_stop(picked, cx);
+        state.confirm_stop(cx);
+    });
+    assert_eq!(form_target(&mut app), None);
+    assert!(app.shown(TARGET_ENDED));
+}
+
+#[gpui::test]
+fn a_target_is_kept_while_its_own_account_cannot_be_listed(cx: &mut TestAppContext) {
+    let mut app = TestApp::new(cx);
+    form_on_a100(&mut app);
+    app.set_failures(MockFailures {
+        unlisted_accounts: vec!["ada@example.com".into()],
+        ..Default::default()
+    });
+    app.update(|state, cx| state.load_runtimes(cx));
+    let listed = app.read(|state, _| state.runtimes().ready().map(|view| view.errors.len()));
+    assert_eq!(listed, Some(1), "the active account's listing failed");
+    assert_eq!(
+        form_target(&mut app).as_deref(),
+        Some("a100-7f3a"),
+        "a listing that failed says nothing about the session"
+    );
+    assert!(!app.shown(TARGET_ENDED));
 }
 
 // Several iterations shuffle task scheduling, so the older search can finish last.

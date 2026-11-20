@@ -752,6 +752,14 @@ pub(super) const MESSAGES: Messages = &[
     ),
     (RUN_TARGET_NEW, "新增工作階段"),
     (
+        RUN_TARGET_ENDED,
+        "{name} 已結束。現在部署會新增一個工作階段並開始計費。",
+    ),
+    (
+        RUN_TARGET_OTHER_ACCOUNT,
+        "{name} 在另一個帳號上，不屬於目前帳號。現在部署會新增一個工作階段並開始計費。",
+    ),
+    (
         RUN_EXISTING_NOTE,
         "會在該工作階段上照原樣執行，其限額和自動停止保持不變。",
     ),

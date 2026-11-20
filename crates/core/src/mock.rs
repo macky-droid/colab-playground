@@ -1818,11 +1818,16 @@ impl Backend for MockBackend {
                 (name.clone(), false)
             }
             RunTarget::Provision(p) => {
+                // Forwarded as they happen, like the real backend, so the progress shows.
                 let (tx, rx) = std::sync::mpsc::channel();
+                let ev = events.clone();
+                let fwd = std::thread::spawn(move || {
+                    for e in rx {
+                        let _ = ev.send(PluginRunEvent::Provision(e));
+                    }
+                });
                 let r = self.provision(p.clone(), tx, cancel);
-                for e in rx.try_iter() {
-                    let _ = events.send(PluginRunEvent::Provision(e));
-                }
+                let _ = fwd.join();
                 (r?.name, true)
             }
         };
@@ -2503,6 +2508,82 @@ mod tests {
         m.install_cli(InstallMethod::Uv, tx, &nc()).unwrap();
         let v = m.accounts(&nc()).unwrap();
         assert!(v.accounts.is_empty() && v.active.is_none());
+    }
+
+    /// How long [`HeldRetry`] holds on its own, and how long the test waits for an event in
+    /// that time: well inside it, so nothing sent after the hold can be taken for one.
+    const HELD_AT_MOST: Duration = Duration::from_secs(60);
+    const TOLD_WITHIN: Duration = Duration::from_secs(10);
+
+    /// A clock that holds the wait before a retry until the test lets it go.
+    struct HeldRetry {
+        inner: ManualClock,
+        held: Duration,
+        waiting: Mutex<mpsc::Sender<()>>,
+        go: Mutex<mpsc::Receiver<()>>,
+    }
+
+    impl Clock for HeldRetry {
+        fn now(&self) -> SystemTime {
+            self.inner.now()
+        }
+
+        fn sleep(&self, duration: Duration, cancel: &CancelToken) -> Result<()> {
+            if duration == self.held {
+                let _ = self.waiting.lock().unwrap().send(());
+                // Never forever: the test lets it go, or this gives up.
+                let _ = self.go.lock().unwrap().recv_timeout(HELD_AT_MOST);
+            }
+            self.inner.sleep(duration, cancel)
+        }
+    }
+
+    #[test]
+    fn a_plugin_run_reports_its_provisioning_while_it_happens() {
+        let (cfg, clock) = MockConfig::headless(MockScenario::single());
+        let held = Duration::from_secs(77);
+        let (waiting, at_the_wait) = mpsc::channel();
+        let (go, let_go) = mpsc::channel();
+        let m = MockBackend::new(MockConfig {
+            clock: Arc::new(HeldRetry {
+                inner: clock,
+                held,
+                waiting: Mutex::new(waiting),
+                go: Mutex::new(let_go),
+            }),
+            ..cfg
+        });
+        let mut spec = m.plugin_run_template("llama-cpp").unwrap();
+        spec.inputs.insert(
+            "repo".into(),
+            crate::plugins::InputValue::Text("bartowski/ScarletKc_ScarletKc-2.0-GGUF".into()),
+        );
+        if let RunTarget::Provision(p) = &mut spec.target {
+            p.min_vram_mib = Some(70_000);
+            p.retry_delay = held;
+        }
+        let (tx, rx) = mpsc::channel();
+        std::thread::scope(|scope| {
+            let run = scope.spawn(|| m.run_plugin(spec, tx, &nc()));
+            at_the_wait
+                .recv_timeout(TOLD_WITHIN)
+                .expect("the first GPU is too small, so the run waits to ask again");
+            // Still waiting to ask again, and what happened so far is already out.
+            let until = std::time::Instant::now() + TOLD_WITHIN;
+            let next = || {
+                let left = until.saturating_duration_since(std::time::Instant::now());
+                rx.recv_timeout(left).ok()
+            };
+            let told = std::iter::from_fn(next).any(|event| {
+                matches!(
+                    event,
+                    PluginRunEvent::Provision(ProvisionEvent::Retrying { .. })
+                )
+            });
+            go.send(()).unwrap();
+            assert!(told, "the retry is only reported once provisioning is over");
+            assert_eq!(run.join().unwrap().unwrap().status.state, RunState::Ready);
+        });
     }
 
     #[test]
