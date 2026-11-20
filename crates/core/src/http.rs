@@ -192,13 +192,17 @@ fn addr_bound(addr: SocketAddr) -> bool {
 /// where another program may be listening while `127.0.0.1:<port>` is still free to bind.
 /// A bind also finds a socket that is bound but not accepting. On Windows it does not collide
 /// with a listener on the wildcard address, so the connects stay.
+///
+/// The connects come first. A bind test opens a listening socket, and a child process that
+/// another thread starts at that moment holds a copy of it until its `exec`: a connect made
+/// after the bind test would reach that copy and report a free port as taken.
 pub fn local_port_in_use(port: u16, timeout: Duration) -> bool {
     let v4 = SocketAddr::from(([127, 0, 0, 1], port));
     let v6 = SocketAddr::from((Ipv6Addr::LOCALHOST, port));
-    addr_bound(v4)
-        || addr_bound(v6)
-        || local_port_open(port, timeout)
+    local_port_open(port, timeout)
         || TcpStream::connect_timeout(&v6, timeout.min(Duration::from_millis(150))).is_ok()
+        || addr_bound(v4)
+        || addr_bound(v6)
 }
 
 fn parse_status_line(bytes: &[u8]) -> Result<u16> {
