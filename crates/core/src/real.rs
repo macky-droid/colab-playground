@@ -1141,7 +1141,8 @@ impl LoginFlow for RealLoginFlow {
 fn install_script(method: InstallMethod) -> &'static str {
     match method {
         InstallMethod::Uv => {
-            "command -v uv >/dev/null 2>&1 || { echo 'uv: command not found' >&2; exit 127; }\nuv tool install google-colab-cli"
+            // The probe also finds `uv` in `~/.local/bin` (see `PROBE_SCRIPT`).
+            "PATH=\"$PATH:$HOME/.local/bin\"\ncommand -v uv >/dev/null 2>&1 || { echo 'uv: command not found' >&2; exit 127; }\nuv tool install google-colab-cli"
         }
         InstallMethod::InstallUvThenCli => {
             "curl -LsSf https://astral.sh/uv/install.sh | sh || exit 1\n\"$HOME/.local/bin/uv\" tool install google-colab-cli"

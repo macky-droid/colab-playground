@@ -622,7 +622,12 @@ fn with_shebang_python(script: &str) -> String {
 }
 
 /// Probe script: prints `CPG key=value` lines.
-const PROBE_SCRIPT: &str = r#"for t in bash ssh ssh-keygen git uv python3 colab; do
+///
+/// `uv` installs `colab` (and its own installer puts `uv`) in `~/.local/bin`, but only the
+/// user's own shell profile adds it to `PATH`. On macOS that profile is zsh's, which `bash -l`
+/// never reads, so the directory is appended here; anything earlier on `PATH` still wins.
+const PROBE_SCRIPT: &str = r#"PATH="$PATH:$HOME/.local/bin"
+for t in bash ssh ssh-keygen git uv python3 colab; do
   p=$(command -v "$t" 2>/dev/null) && printf 'CPG %s=%s\n' "$t" "$p"
 done
 if c=$(command -v colab 2>/dev/null); then
